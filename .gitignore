@@ -1,0 +1,8 @@
+node_modules/
+# Signier-Schluessel und Secrets niemals hochladen
+keystore/
+*.jks
+*.keystore
+secrets-fuer-github.txt
+.DS_Store
+Thumbs.db

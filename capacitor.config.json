@@ -1,0 +1,6 @@
+{
+  "appId": "de.jan.finanzapp",
+  "appName": "Finanzen",
+  "webDir": "www",
+  "android": { "allowMixedContent": false }
+}
