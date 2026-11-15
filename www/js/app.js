@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v17';
+export const APP_VERSION = 'finanz-v18';
 const NEU_IN_VERSION = [
-  'Gehalt bestätigen: Ab dem Ankunftstag fragt die Übersicht „Gehalt da?“ – „✓ Stimmt“ oder „Anderer Betrag“ (führt zum Verlauf, das Gehalt blinkt, antippen und korrigieren)',
-  'Monatsende fragt zuerst, was beim Gehalt wirklich ankam – dann stimmt der Rest',
-  'Schätzung lernt mit: Nach 3 bestätigten Monaten schlägt das Gehalt-Fenster den Durchschnitt als neue Schätzung vor'
+  'Einrichtung: Vorschläge, die du nicht hast, mit ✕ ausblenden (z. B. Kindergeld). Einnahmen nochmal antippen = wieder weg',
+  'Einrichtung: Ganze Kategorien entfernen („Brauche ich nicht“), Budgets mit ✕ entfernen – mit Rückgängig',
+  'Gehalt bestätigen (seit v17): Karte „Gehalt da?“, Monatsende fragt zuerst das Gehalt, Schätzung lernt mit'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -1374,7 +1374,21 @@ const AKTION = {
     renderEbenen();
     const felder = document.querySelectorAll('.ef-posten input[data-feld$=".name"]'); if (felder.length) felder[felder.length - 1].focus();
   },
-  'ef-ein-dazu': (el) => { oben().einnahmen.push({ name: el.dataset.wert, betragText: '', wieOft: 'monatlich', status: 'fest', monat: heuteYm() }); oben().fehler = null; renderEbenen(); },
+  'ef-ein-dazu': (el) => {
+    const eb = oben(); const n = el.dataset.wert;
+    const i = n ? eb.einnahmen.findIndex((e) => e.name === n) : -1;
+    if (i >= 0) eb.einnahmen.splice(i, 1); // nochmal antippen = wieder weg
+    else eb.einnahmen.push({ name: n, betragText: '', wieOft: 'monatlich', status: 'fest', monat: heuteYm() });
+    eb.fehler = null; renderEbenen();
+  },
+  'ef-ausblenden': (el) => { const eb = oben(); eb.ausgeblendet = [...new Set([...(eb.ausgeblendet || []), el.dataset.wert])]; renderEbenen(); },
+  'ef-einblenden': (el) => { const eb = oben(); eb.ausgeblendet = (eb.ausgeblendet || []).filter((k) => !k.startsWith(el.dataset.wert)); renderEbenen(); },
+  'ef-kat-weg': (el) => {
+    const eb = oben(); const id = el.dataset.liste; const weg = el.dataset.wert === '1';
+    eb.kategorieWeg = Object.assign({}, eb.kategorieWeg, { [id]: weg });
+    if (weg) { eb.listen[id].forEach((p) => { p.gewaehlt = false; }); eb.listen[id] = eb.listen[id].filter((p) => !p.eigen); }
+    renderEbenen();
+  },
   'ef-ein-weg': (el) => { oben().einnahmen.splice(Number(el.dataset.i), 1); renderEbenen(); },
   'ef-budget-an': (el) => { const b = oben().budgets[Number(el.dataset.i)]; b.an = !b.an; renderEbenen(); },
   'ef-budget-neu': () => { oben().budgets.push({ id: null, name: '', emoji: '', an: true, text: '', neu: true }); renderEbenen(); },

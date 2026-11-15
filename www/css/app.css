@@ -462,3 +462,14 @@ body.kachel-zieht { overflow: hidden; }
 @keyframes blinken { 0%, 100% { background: transparent; box-shadow: none; } 50% { background: rgba(127, 214, 200, .22); box-shadow: 0 0 0 2px var(--akzent); } }
 .lern-box { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(127, 214, 200, .45); background: rgba(127, 214, 200, .07); font-size: 14.5px; }
 .lern-box .knopf { align-self: flex-start; }
+
+/* Einrichtung: Vorschläge ausblenden, Kategorien entfernen */
+.chip-paar { display: inline-flex; align-items: center; }
+.chip-paar .ef-chip { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; padding-right: 10px; }
+.chip-x { height: 40px; width: 34px; border: 1px solid rgba(255, 255, 255, .14); border-left: 1px solid rgba(255, 255, 255, .06); border-radius: 0 20px 20px 0; background: rgba(255, 255, 255, .04); color: var(--gedaempft); font-size: 13px; padding: 0 10px 0 6px; }
+.ef-tipp { font-size: 13px; margin-top: -2px; }
+.ef-einblenden { align-self: flex-start; }
+.ef-kat-weg { margin-top: 10px; color: var(--minus); }
+.ef-weg-karte { border: 1px solid rgba(239, 154, 143, .45); background: rgba(239, 154, 143, .06); }
+.ef-weg-text { color: var(--minus); font-size: 13px; margin-left: auto; }
+.ef-budget .klein-x { flex-shrink: 0; }
