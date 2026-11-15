@@ -4,12 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v4';
+export const APP_VERSION = 'finanz-v5';
 const NEU_IN_VERSION = [
-  'Weitere Einnahmen: Nebenjob, Selbstständigkeit, Geschenk, Spende … oder eigene',
-  'Einmalig oder jeden Monat, fest oder nur geplant. Geplantes zählt erst nach „Kam an“',
-  '„Mit Geplantem“ in der Frei-Karte rechnet geplante Ausgaben und Einnahmen zusammen',
-  'Einführung fragt jetzt auch nach weiteren Einnahmen'
+  'Monat auf einen Blick: Frei-Karte und vier Kacheln (Ausgaben, Konten, Einnahmen, Geplant). Antippen öffnet die Details',
+  'Frei-Karte neu: Einnahmen grün, Abzüge rot, die Zahl „Frei“ nur noch einmal',
+  'Einstellungen und Sicherung unter dem Zahnrad-Knopf'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -89,8 +88,7 @@ function kopf() {
   return `<header class="kopf"><h1>${esc(titel)}</h1><nav class="umschalter" aria-label="Ansicht">${k('monat', 'Monat')}${k('jahr', 'Jahr')}${k('verlauf', 'Verlauf')}</nav></header>`;
 }
 
-function monatAnsicht() {
-  const s = z.monat;
+function monatTeile(s = z.monat) {
   const r = R.monatsRechnung(z.daten, s);
   const g = gehalt();
   const gehaltWert = r.gehaltWert;
@@ -115,28 +113,32 @@ function monatAnsicht() {
   const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparkonto, ${freiText} frei`;
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
-  if (r.weitere > 0) zusatz.push(`<div class="frei-hinweis neutral">inkl. weitere Einnahmen + ${R.euroRund(r.weitere)}</div>`);
   const geplantRein = s >= heuteYm() ? r.geplantRein : 0;
+  let mitGeplantem = '';
   if (geplant > 0 || geplantRein > 0) {
     const mit = r.frei - geplant + geplantRein;
-    const teile = [geplant > 0 ? `− ${R.euroRund(geplant)} Ausgaben` : '', geplantRein > 0 ? `+ ${R.euroRund(geplantRein)} Einnahmen` : ''].filter(Boolean).join(' · ');
-    zusatz.push(`<div class="frei-zeile"><span>Mit Geplantem<small>${teile}</small></span><b class="${mit < 0 ? 'minus' : ''}">${mit < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(mit))}</b></div>`);
+    const teile = [geplant > 0 ? `<span class="minus-zahl">− ${R.euroRund(geplant)}</span> geplante Ausgaben` : '', geplantRein > 0 ? `<span class="plus-zahl">+ ${R.euroRund(geplantRein)}</span> geplante Einnahmen` : ''].filter(Boolean).join(' · ');
+    mitGeplantem = `<div class="mit-geplantem" title="${esc(teile.replace(/<[^>]+>/g, ''))}">Mit Geplantem <b class="${mit < 0 ? 'minus-zahl' : ''}">${mit < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(mit))}</b></div>`;
   }
   if (brocken) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
   const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
 
-  const freiKarte = `<section class="karte ring">
-    <div class="frei-oben">
-      <div class="links"><div class="label">Frei im ${esc(monatsName(s))}</div><div class="grosszahl ${r.frei < 0 ? 'minus' : ''}">${freiText}</div></div>
-      <div class="rechts"><div class="klein">${g ? esc(g.name) + ' am ' + gehaltTag : 'Gehalt'}</div>
-        <button class="knopf klein" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern">${gehaltWert && gehaltWert.geschaetzt ? '≈ ' : ''}${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)} ${ICON.stift}</button></div>
-    </div>
+  // Frei-Karte: große Zahl, darunter rein (grün) und raus (rot); die Zahl „Frei“ steht nur einmal
+  const zeile = (punkt, text, betrag, art) => `<div class="auf-zeile"><span class="l">${punkt}${text}</span><span class="r ${art}">${betrag}</span></div>`;
+  const ohnePunkt = '<i class="punkt-platz"></i>';
+  const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? 'am ' + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? ' · geschätzt' : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
+  const freiKarte = `<section class="karte ring frei-karte">
+    <div class="label">Frei im ${esc(monatsName(s))}</div>
+    <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}">${freiText}</div>
+    ${mitGeplantem}
     <div class="balken" role="img" aria-label="${esc(aria)}">${stuecke}</div>
-    <div class="legende">
-      <span><i class="punkt ausgaben"></i>Ausgaben · ${R.euroRund(r.ausgaben)}</span>
-      ${r.mitRuecklage ? `<span><i class="punkt streifen"></i>Rücklage · ${R.euroRund(r.zuruecklegen)}</span>` : ''}
-      <span><i class="punkt" style="background:var(--spar)"></i>Sparkonto · ${R.euroRund(r.sparen)}</span>
-      <span><i class="punkt leer"></i>Frei · ${freiText}</span>
+    <div class="aufstellung">
+      ${gehaltZeile}
+      ${r.weitere > 0 ? zeile(ohnePunkt, 'Weitere Einnahmen', '+ ' + R.euroRund(r.weitere), 'plus-zahl') : ''}
+      <div class="auf-trenner"></div>
+      ${zeile('<i class="punkt ausgaben"></i>', 'Ausgaben', '− ' + R.euroRund(r.ausgaben), 'minus-zahl')}
+      ${r.mitRuecklage ? zeile('<i class="punkt streifen"></i>', 'Rücklagenkonto', '− ' + R.euroRund(r.zuruecklegen), 'minus-zahl') : ''}
+      ${r.sparen > 0 ? zeile('<i class="punkt" style="background:var(--spar)"></i>', 'Sparkonto', '− ' + R.euroRund(r.sparen), 'minus-zahl') : ''}
     </div>
     ${zusatz.join('')}
     ${g && !g.betrag && !gehaltWert.betrag ? '<button class="knopf haupt" data-a="gehalt">Gehalt eintragen</button>' : ''}
@@ -181,7 +183,69 @@ function monatAnsicht() {
     <div class="klein" style="font-size:12px">${APP_VERSION}</div>
   </section>`;
 
-  return nav + freiKarte + ruecklageKarte + sparKarten + einnahmenKarte + geplantKarte + liste + sicherung;
+  return { s, r, pruefung, rk, hatJaehrliche, nav, freiKarte, konten: ruecklageKarte + sparKarten, liste, geplantKarte, einnahmenKarte, sicherung };
+}
+
+// ---------- Übersicht: Frei-Karte und vier Kacheln, ohne Scrollen ----------
+const KACHEL_ICON = {
+  ausgaben: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11h11.2L21 7H6.2"/><circle cx="9" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></svg>',
+  konten: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6M5 10v8M19 10v8M9.5 10v8M14.5 10v8M3 20h18"/></svg>',
+  einnahmen: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  geplant: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4M9 15h6"/></svg>',
+  zahnrad: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
+};
+
+function monatAnsicht() {
+  const t = monatTeile(z.monat);
+  const { s, r, pruefung, rk, hatJaehrliche } = t;
+  const kachel = (typ, titel, wert, unter, unterArt = '') => `<button class="kachel" data-a="bereich" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
+      <span class="kachel-kopf">${KACHEL_ICON[typ]}<span>${esc(titel)}</span></span>
+      <span class="kachel-wert">${wert}</span>
+      <span class="kachel-unter ${unterArt}">${unter}</span></button>`;
+  // Ausgaben
+  const budgets = (r.gruppen.find((g) => g.art === 'budget') || { posten: [] }).posten;
+  const ueber = budgets.filter((p) => p.budget > 0 && p.ausgegeben > p.budget);
+  const ausgegeben = budgets.reduce((a, p) => a + p.ausgegeben, 0);
+  const kA = kachel('ausgaben', 'Ausgaben', `<span class="minus-zahl">− ${R.euroRund(r.ausgaben)}</span>`,
+    ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${R.euroRund(ausgegeben)} von den Budgets ausgegeben`, ueber.length ? 'warn' : '');
+  // Konten
+  const sp = R.sparratenNormal(z.daten);
+  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
+  const luecke = rk ? R.ruecklageLuecke(z.daten, heute()) : null;
+  const kontoWert = rk || sp.length
+    ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag), 0))}` : ''].filter(Boolean).join('<br>')
+    : '–';
+  const kK = kachel('konten', 'Konten', `<span class="kachel-klein">${kontoWert}</span>`,
+    luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
+  // Einnahmen
+  const rein = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
+  const fest = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? w.betrag : 0); }, 0);
+  const geplantRein = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? 0 : w.betrag); }, 0);
+  const kE = kachel('einnahmen', 'Einnahmen', `<span class="plus-zahl">+ ${R.euroRund((r.gehaltWert ? r.gehaltWert.betrag : 0) + fest)}</span>`,
+    geplantRein ? `+ ${R.euroRund(geplantRein)} geplant` : rein.length ? `davon weitere + ${R.euroRund(fest)}` : 'Gehalt und weitere', geplantRein ? 'plus' : '');
+  // Geplant
+  const ws = s >= heuteYm() ? R.offeneWuensche(z.daten).filter((w) => w.monat === s || (s === heuteYm() && (!w.monat || w.monat < s))) : [];
+  const probleme = ws.filter((w) => pruefung[w.id] && pruefung[w.id].fehlt > 0);
+  const kG = kachel('geplant', 'Geplant', ws.length ? `<span>${R.euroRund(ws.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : '<span>–</span>',
+    probleme.length ? `${probleme.length} reicht nicht` : ws.length ? `${ws.length} ${ws.length === 1 ? 'Sache' : 'Sachen'} · passt` : 'nichts geplant', probleme.length ? 'warn' : ws.length ? 'gut' : '');
+  return t.nav + t.freiKarte + `<div class="kacheln">${kA}${kK}${kE}${kG}</div>
+    <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>`;
+}
+
+const BEREICH_TITEL = { ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplant', einstellungen: 'Einstellungen' };
+function bereichHtml(eb) {
+  const t = monatTeile(z.monat);
+  const kopf = `<p class="hinweistext">${esc(monatsName(z.monat))} ${R.ymTeile(z.monat).jahr}</p>`;
+  let inhalt = '';
+  if (eb.typ === 'ausgaben') inhalt = t.liste;
+  else if (eb.typ === 'konten') inhalt = t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>';
+  else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
+  else if (eb.typ === 'geplant') inhalt = t.s >= heuteYm() ? t.geplantKarte : '<div class="leerzustand">Für vergangene Monate lässt sich nichts mehr planen.</div>';
+  else inhalt = t.sicherung;
+  if (eb.typ === 'konten') {
+    inhalt += `${t.rk || t.konten.includes('hinweis-karte') ? '' : '<button class="knopf akzent" data-a="ruecklage">' + ICON.plus + ' Rücklagenkonto einrichten</button>'}${R.sparratenNormal(z.daten).length ? '' : '<button class="knopf akzent" data-a="sparkonto">' + ICON.plus + ' Sparkonto anlegen</button>'}`;
+  }
+  return seite(BEREICH_TITEL[eb.typ], kopf + inhalt);
 }
 
 // ---------- Ausgabenliste ----------
@@ -381,6 +445,12 @@ function betragText(e) {
   return b && typeof b === 'object' && Number(b.bis) > Number(b.von) ? R.euro(Number(b.von), false) + '–' + R.euro(Number(b.bis)) : R.euro(R.schaetzung(e));
 }
 function einnahmenHtml(s) {
+  const g = gehalt();
+  const gw = g ? R.einnahmeIm(g, s) : null;
+  const gehaltKarte = g ? `<section class="karte geplant-karte einnahmen-karte"><button class="posten" style="border-top:0" data-a="gehalt" data-monat="${s}" aria-label="Gehalt ändern"><span class="t"><span class="n">${esc(g.name)}</span><small>jeden Monat · ${gw.geschaetzt ? 'geschätzt, antippen zum Korrigieren' : 'eingetragen'}</small></span><span class="b plus">+ ${R.euroRund(gw.betrag)}</span>${PFEIL}</button></section>` : '';
+  return gehaltKarte + weitereEinnahmenHtml(s);
+}
+function weitereEinnahmenHtml(s) {
   const liste = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
   if (!liste.length) return `<button class="knopf leise einnahme-knopf" data-a="einnahme-neu" data-monat="${s}">${ICON.plus} Weitere Einnahme eintragen</button>`;
   const zeilen = liste.map((e) => {
@@ -435,6 +505,7 @@ const EBENEN = {
     <button class="knopf leise" data-a="start-leer">Leer anfangen</button>
     <button class="knopf leise" data-a="import">Sicherung importieren</button>`, 'Willkommen'),
 
+  bereich: (eb) => bereichHtml(eb),
   einfuehrung: (eb) => E.einfuehrungHtml(eb, { esc, ICON, z, kopie, heuteYm, monatsName, zahl }),
 
   neu: () => sheet(`<h2>Neu in ${APP_VERSION}</h2><ul class="hinweistext" style="padding-left:18px;margin:0">${NEU_IN_VERSION.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><button class="knopf haupt" data-a="schliessen">Verstanden</button>`, 'Was ist neu'),
@@ -451,7 +522,7 @@ const EBENEN = {
     if (!isNaN(betrag) && betrag > 0) {
       const eigen = R.eigenerBetrag(Object.assign({}, f, { betrag }));
       zus = monatlich ? `Wird jeden Monat am ${f.tag}. abgebucht: ${R.euro(eigen)}.`
-        : `Wird am ${f.tag}. abgebucht: ${aktiv.map((m) => f.wieOft === 'jaehrlich' ? R.MONATE_LANG[m - 1] : R.MONATE_KURZ[m - 1]).join(', ')}. In den anderen Monaten ≈ ${R.euro(Math.round(R.monatsAnteil(Object.assign({}, f, { betrag })) * 100) / 100)} anteilig zurücklegen. In Monat und Jahr erscheint es genau dort.`;
+        : `Wird am ${f.tag}. abgebucht: ${aktiv.map((m) => f.wieOft === 'jaehrlich' ? R.MONATE_LANG[m - 1] : R.MONATE_KURZ[m - 1]).join(', ')}. ${R.ruecklage(z.daten) ? 'Bezahlt aus dem Rücklagenkonto' : 'Zählt im Monat der Abbuchung voll'}, auf den Monat gerechnet ≈ ${R.euro(Math.round(R.monatsAnteil(Object.assign({}, f, { betrag })) * 100) / 100)}.`;
     } else zus = 'Trage einen Betrag ein.';
     const mehr = eb.mehr ? `<section class="karte">
         <button class="schalter" role="switch" aria-checked="${!!f.abo}" data-a="fk-abo"><span class="t">Ist ein Abo<br><span class="klein">Abos stehen gesammelt und lassen sich kündigen</span></span><span class="spur"></span></button>
@@ -664,6 +735,7 @@ const AKTION = {
   monat: (el) => { z.monat = R.ymPlus(z.monat, Number(el.dataset.wert)); render(); },
   heute: () => { z.monat = heuteYm(); render(); },
   'zu-monat': (el) => { z.monat = el.dataset.wert; z.ansicht = 'monat'; window.scrollTo(0, 0); render(); },
+  bereich: (el) => oeffne({ art: 'bereich', typ: el.dataset.wert }),
   'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }); },
   'verlauf-alle': () => { z.verlaufAlle = true; render(); },
   schliessen,
