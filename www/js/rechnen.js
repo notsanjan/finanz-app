@@ -106,11 +106,18 @@ export function ankunftsTag(e, s) {
 }
 
 // ---------- Sparraten (Konzept §15) ----------
+// Zählt ein einmaliger Übertrag zum Stand dazu? Ja, wenn er nach dem standDatum liegt.
+// Am selben Tag entscheidet die Uhrzeit (v26): erst Stand eingetragen, dann übertragen → zählt dazu.
+export function uebertragNachStand(sp, u) {
+  const sd = sp.standDatum || '';
+  if (u.datum > sd) return true;
+  return u.datum === sd && !!sp.standZeit && !!u.angelegt && u.angelegt > sp.standZeit;
+}
 // Stand am Datum d ("2026-11-15"): Stand zum standDatum plus jede Rate, die seitdem fällig war
 export function sparStand(sp, d, daten) {
   let stand = Number(sp.stand) || 0;
   // einmalige Überträge (Extra) seit dem standDatum
-  if (daten) stand += summeBetrag((daten.uebertraege || []).filter((u) => u.kontoId === sp.id && u.datum > (sp.standDatum || '') && u.datum <= d));
+  if (daten) stand += summeBetrag((daten.uebertraege || []).filter((u) => u.kontoId === sp.id && uebertragNachStand(sp, u) && u.datum <= d));
   if (!sp.standDatum) return stand;
   const tag = sp.tag || 1;
   let s = ymAus(sp.standDatum);
@@ -167,13 +174,13 @@ export function empfohleneRuecklage(daten, s) {
 }
 
 // Ein- und Auszahlungen der Rücklage zwischen zwei Tagen (von exklusiv, bis inklusive)
-function ruecklageBewegungen(daten, rk, von, bis) {
+function ruecklageBewegungen(daten, rk, von, bis, abStand = false) {
   const liste = [];
   let s = ymAus(von);
   for (let i = 0; i < 600 && s <= ymAus(bis); i++) {
     const rateTag = s + '-' + zweistellig(Math.min(rk.tag || 1, tageImMonat(s)));
     if (rateTag > von && rateTag <= bis) liste.push({ datum: rateTag, betrag: Number(rk.betrag) || 0 });
-    for (const u of uebertraegeIm(daten, s, rk.id)) if (u.datum > von && u.datum <= bis) liste.push({ datum: u.datum, betrag: Number(u.betrag) || 0 });
+    for (const u of uebertraegeIm(daten, s, rk.id)) if ((u.datum > von || (abStand && uebertragNachStand(rk, u))) && u.datum <= bis) liste.push({ datum: u.datum, betrag: Number(u.betrag) || 0 });
     for (const f of daten.fixkosten || []) {
       if (istMonatlich(f) || !wirdAbgebuchtIm(f, s)) continue;
       const d = s + '-' + zweistellig(abbuchungsTag(f, s));
@@ -189,7 +196,7 @@ export function ruecklageStand(daten, d) {
   const rk = ruecklage(daten);
   if (!rk) return 0;
   const start = rk.standDatum || d;
-  return ruecklageBewegungen(daten, rk, start, d).reduce((a, b) => a + b.betrag, Number(rk.stand) || 0);
+  return ruecklageBewegungen(daten, rk, start, d, true).reduce((a, b) => a + b.betrag, Number(rk.stand) || 0);
 }
 
 // Reicht die Rücklage für die nächsten 12 Monate? Liefert die erste Lücke oder null.

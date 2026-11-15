@@ -326,12 +326,12 @@ export function anwenden(d, eb, zahlFn) {
       selbststaendig: /Selbstständig/.test(e.name), monat: e.wieOft === 'einmalig' ? e.monat : null, ab: e.wieOft === 'monatlich' ? R.ymAus(R.datumText(new Date())) : null, bis: null, istWerte: [] });
   }
   if (eb.ruecklage && eb.ruecklage.ja && zahl(eb.ruecklage.betrag) > 0) {
-    const werte = { betrag: zahl(eb.ruecklage.betrag), tag: Number(eb.ruecklage.tag) || 1, stand: zahl(eb.ruecklage.stand || '0') || 0, standDatum: R.datumText(new Date()) };
+    const werte = { betrag: zahl(eb.ruecklage.betrag), tag: Number(eb.ruecklage.tag) || 1, stand: zahl(eb.ruecklage.stand || '0') || 0, standDatum: R.datumText(new Date()), standZeit: new Date().toISOString() };
     const rk = d.sparraten.find((x) => x.art === 'ruecklage');
     if (rk) Object.assign(rk, werte); else d.sparraten.push(Object.assign({ id: 'ruecklage', name: 'Rücklagenkonto', art: 'ruecklage', ziel: null }, werte));
   }
   if (eb.sparen.ja && zahl(eb.sparen.betrag) > 0) {
-    const werte = { betrag: zahl(eb.sparen.betrag), tag: Number(eb.sparen.tag) || 1, stand: zahl(eb.sparen.stand || '0') || 0, standDatum: R.datumText(new Date()) };
+    const werte = { betrag: zahl(eb.sparen.betrag), tag: Number(eb.sparen.tag) || 1, stand: zahl(eb.sparen.stand || '0') || 0, standDatum: R.datumText(new Date()), standZeit: new Date().toISOString() };
     const sp = R.sparratenNormal(d)[0];
     if (sp) Object.assign(sp, werte);
     else d.sparraten.push(Object.assign({ id: 'sparkonto', name: 'Sparkonto', ziel: null }, werte));

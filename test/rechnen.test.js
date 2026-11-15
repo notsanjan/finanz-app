@@ -261,3 +261,19 @@ test('Offene Einnahme: zählt nicht = geplant, aber nicht unter „Mit Geplantem
   assert.equal(R.offenText({}), 'unbekannt');
   assert.equal(R.mitOffenem(daten(), '2026-11'), null);
 });
+
+test('Übertrag am Tag des Stands: zählt nur, wenn er nach dem Stand angelegt wurde (v26)', () => {
+  const d = daten();
+  const rk = R.ruecklage(d);
+  Object.assign(rk, { stand: 300, standDatum: '2026-11-16', standZeit: '2026-11-16T09:00:00.000Z' });
+  d.uebertraege = [{ id: 'u1', datum: '2026-11-16', betrag: 150, kontoId: rk.id, angelegt: '2026-11-16T10:00:00.000Z' }];
+  assert.equal(R.ruecklageStand(d, '2026-11-16'), 450);
+  d.uebertraege[0].angelegt = '2026-11-16T08:00:00.000Z'; // vor dem Stand eingetragen → steckt schon im Stand
+  assert.equal(R.ruecklageStand(d, '2026-11-16'), 300);
+  delete d.uebertraege[0].angelegt; // alte Daten ohne Uhrzeit: wie bisher
+  assert.equal(R.ruecklageStand(d, '2026-11-16'), 300);
+  const sp = R.sparratenNormal(d)[0];
+  Object.assign(sp, { stand: 1000, standDatum: '2026-11-16', standZeit: '2026-11-16T09:00:00.000Z' });
+  d.uebertraege.push({ id: 'u2', datum: '2026-11-16', betrag: 200, kontoId: sp.id, angelegt: '2026-11-16T09:30:00.000Z' });
+  assert.equal(R.sparStand(sp, '2026-11-16', d), 1200);
+});
