@@ -18,6 +18,7 @@
   --akzent2: #c9d27a;
   --haupt: #3a6b5c;
   --ruecklage: #8d9895;
+  --extern: #d8bc8c;
   --spar: #8fb3d9;
   --hinweis: #dfe6b0;
   --fehler: #f0a99a;
@@ -409,4 +410,12 @@ body.kachel-zieht { overflow: hidden; }
 .betrag-gross.plus span { color: var(--plus); }
 .chip[aria-pressed="true"] { border: 1.5px solid var(--akzent); background: rgba(127, 214, 200, .18); font-weight: 600; }
 .ansicht-wahl.drei { grid-template-columns: repeat(3, 1fr); }
+.ansicht-wahl.vier { grid-template-columns: 1.05fr 1.15fr 1.1fr .8fr; }
+.ansicht-wahl.vier button { font-size: 13px; padding: 0 2px; }
+.karte.spar.extern .symbol { background: color-mix(in srgb, var(--extern) 22%, transparent); }
 .seite .fab { position: fixed; }
+
+/* Einmalige Überträge im Konto-Fenster */
+.ue-liste { display: flex; flex-direction: column; gap: 4px; }
+.ue-zeile { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 2px; border-bottom: 1px solid rgba(255, 255, 255, .06); font-size: 15px; }
+.ue-zeile span:first-child { flex: 1; color: var(--gedaempft); }

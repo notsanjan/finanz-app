@@ -107,8 +107,10 @@ export function ankunftsTag(e, s) {
 
 // ---------- Sparraten (Konzept §15) ----------
 // Stand am Datum d ("2026-11-15"): Stand zum standDatum plus jede Rate, die seitdem fällig war
-export function sparStand(sp, d) {
+export function sparStand(sp, d, daten) {
   let stand = Number(sp.stand) || 0;
+  // einmalige Überträge (Extra) seit dem standDatum
+  if (daten) stand += summeBetrag((daten.uebertraege || []).filter((u) => u.kontoId === sp.id && u.datum > (sp.standDatum || '') && u.datum <= d));
   if (!sp.standDatum) return stand;
   const tag = sp.tag || 1;
   let s = ymAus(sp.standDatum);
@@ -121,6 +123,15 @@ export function sparStand(sp, d) {
   }
   return stand;
 }
+
+// ---------- Überträge (Geld auf ein anderes Konto schieben) ----------
+// Jedes Konto (Sparrate) hat eine feste Monatsrate (betrag, tag) = Übertrag „jeden Monat“.
+// Einmalige Überträge stehen in daten.uebertraege: { id, datum, betrag, kontoId }.
+const summeBetrag = (l) => l.reduce((a, x) => a + (Number(x.betrag) || 0), 0);
+export function uebertraegeIm(daten, s, kontoId) {
+  return (daten.uebertraege || []).filter((u) => ymAus(u.datum) === s && (!kontoId || u.kontoId === kontoId));
+}
+export function kontoArt(sp) { return sp.art === 'ruecklage' ? 'ruecklage' : sp.art === 'extern' ? 'extern' : 'sparen'; }
 
 // ---------- Buchungen (Ausgaben aus den Widgets) ----------
 export function buchungenIm(daten, s, kategorieId) {
@@ -146,7 +157,8 @@ export function verlaufMitStand(daten) {
 // Eine Sparrate mit art "ruecklage": feste Monatsrate auf ein eigenes Konto, daraus werden
 // alle nicht monatlichen Fixkosten bezahlt. Ohne Rücklagenkonto zählen sie im Monat der Abbuchung voll.
 export function ruecklage(daten) { return (daten.sparraten || []).find((sp) => sp.art === 'ruecklage') || null; }
-export function sparratenNormal(daten) { return (daten.sparraten || []).filter((sp) => sp.art !== 'ruecklage'); }
+export function sparratenNormal(daten) { return (daten.sparraten || []).filter((sp) => kontoArt(sp) === 'sparen'); }
+export function sparratenExtern(daten) { return (daten.sparraten || []).filter((sp) => kontoArt(sp) === 'extern'); }
 const istMonatlich = (f) => (RHYTHMUS[f.wieOft] || 1) === 1;
 
 export function empfohleneRuecklage(daten, s) {
@@ -161,6 +173,7 @@ function ruecklageBewegungen(daten, rk, von, bis) {
   for (let i = 0; i < 600 && s <= ymAus(bis); i++) {
     const rateTag = s + '-' + zweistellig(Math.min(rk.tag || 1, tageImMonat(s)));
     if (rateTag > von && rateTag <= bis) liste.push({ datum: rateTag, betrag: Number(rk.betrag) || 0 });
+    for (const u of uebertraegeIm(daten, s, rk.id)) if (u.datum > von && u.datum <= bis) liste.push({ datum: u.datum, betrag: Number(u.betrag) || 0 });
     for (const f of daten.fixkosten || []) {
       if (istMonatlich(f) || !wirdAbgebuchtIm(f, s)) continue;
       const d = s + '-' + zweistellig(abbuchungsTag(f, s));
@@ -224,14 +237,22 @@ export function monatsRechnung(daten, s) {
   }
 
   const ausgaben = gruppen.reduce((a, g) => a + g.summe, 0);
-  const zuruecklegen = rk ? Number(rk.betrag) || 0 : 0;
-  const sparen = sparratenNormal(daten).reduce((a, sp) => a + (Number(sp.betrag) || 0), 0);
-  const frei = einkommen - ausgaben - zuruecklegen - sparen;
+  // Konten: feste Monatsrate + einmalige Überträge in diesem Monat
+  const konten = [rk].concat(sparratenNormal(daten), sparratenExtern(daten)).filter(Boolean).map((sp) => {
+    const rate = Number(sp.betrag) || 0;
+    const extra = summeBetrag(uebertraegeIm(daten, s, sp.id));
+    return { konto: sp, art: kontoArt(sp), rate, extra, betrag: rate + extra };
+  });
+  const summeArt = (art) => konten.filter((k) => k.art === art).reduce((a, k) => a + k.betrag, 0);
+  const zuruecklegen = summeArt('ruecklage');
+  const sparen = summeArt('sparen');
+  const extern = summeArt('extern');
+  const frei = einkommen - ausgaben - zuruecklegen - sparen - extern;
   const g = gehaltVon(daten);
   const gehaltWert = einnahmen.find((e) => g && e.einnahme === g) || { betrag: 0, geschaetzt: !!g && !g.sicher, schaetzung: g ? schaetzung(g) : 0 };
   const weitere = einnahmen.filter((e) => !g || e.einnahme !== g).reduce((a, e) => a + e.betrag, 0);
   const geplantRein = geplanteEinnahmen.reduce((a, e) => a + e.betrag, 0);
-  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, frei };
+  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konten, frei };
 }
 
 // Ohne Rücklagenkonto: nächster Monat (ab dem folgenden), in dem nicht monatliche Kosten anfallen

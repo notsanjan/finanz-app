@@ -238,7 +238,7 @@ export function anwenden(d, eb, zahlFn) {
   }
   if (eb.sparen.ja && zahl(eb.sparen.betrag) > 0) {
     const werte = { betrag: zahl(eb.sparen.betrag), tag: Number(eb.sparen.tag) || 1, stand: zahl(eb.sparen.stand || '0') || 0, standDatum: R.datumText(new Date()) };
-    const sp = d.sparraten.find((x) => x.art !== 'ruecklage');
+    const sp = R.sparratenNormal(d)[0];
     if (sp) Object.assign(sp, werte);
     else d.sparraten.push(Object.assign({ id: 'sparkonto', name: 'Sparkonto', ziel: null }, werte));
   }

@@ -4,10 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v9';
+export const APP_VERSION = 'finanz-v10';
 const NEU_IN_VERSION = [
-  'Rücklagenkonto im Balken jetzt einfarbig grau statt schraffiert',
-  'Größe ändern wie auf dem Homescreen: im Bearbeiten-Modus (Stift ✎) eine Kachel antippen, dann an den Punkten ziehen'
+  'Überträge: über ＋ → „⇄ Übertrag“ Geld auf ein Konto schieben, einmalig (z. B. 300 € extra aufs Tagesgeld) oder jeden Monat',
+  'Beliebig viele Konten mit eigenem Namen: „Sparen“ (Stand wächst) oder „Anderes Konto“ wie ein Gemeinschaftskonto (zählt wie eine Ausgabe)',
+  'Die Frei-Karte zeigt jedes Konto mit seinem Namen, ab 4 Konten zusammengefasst. Antippen öffnet die Konten'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -102,15 +103,16 @@ function monatTeile(s = z.monat) {
   const pruefung = R.wunschPruefung(z.daten, heuteYm());
   const geplant = s >= heuteYm() ? R.geplantAusFrei(z.daten, s, pruefung) : 0;
   // Balken: jede Kategorie ein Stück, dann Rücklage, Sparkonto, Rest = Frei
-  const basis = Math.max(r.einkommen, r.ausgaben + r.zuruecklegen + r.sparen, 1);
+  const basis = Math.max(r.einkommen, r.ausgaben + r.zuruecklegen + r.sparen + r.extern, 1);
   const pct = (x) => (Math.max(0, x) / basis * 100).toFixed(2);
   const stuecke = r.gruppen.filter((gr) => gr.summe > 0).map((gr) => `<span style="width:${pct(gr.summe)}%;background:${gr.farbe}" title="${esc(gr.name)}"></span>`).join('')
     + (r.zuruecklegen > 0 ? `<span class="streifen" style="width:${pct(r.zuruecklegen)}%"></span>` : '')
     + (r.sparen > 0 ? `<span style="width:${pct(r.sparen)}%;background:var(--spar)"></span>` : '')
+    + (r.extern > 0 ? `<span style="width:${pct(r.extern)}%;background:var(--extern)"></span>` : '')
     + (r.frei > 0 ? '<span class="rest"></span>' : '');
   const ungefaehr = r.geschaetzt ? '≈ ' : '';
   const freiText = (r.frei < 0 ? '− ' : ungefaehr) + R.euroRund(Math.abs(r.frei));
-  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparkonto, ${freiText} frei`;
+  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparen, ${r.extern > 0 ? R.euroRund(r.extern) + ' an andere Konten, ' : ''}${freiText} frei`;
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
   const geplantRein = s >= heuteYm() ? r.geplantRein : 0;
@@ -137,8 +139,7 @@ function monatTeile(s = z.monat) {
       ${r.weitere > 0 ? zeile(ohnePunkt, 'Weitere Einnahmen', '+ ' + R.euroRund(r.weitere), 'plus-zahl') : ''}
       <div class="auf-trenner"></div>
       ${zeile('<i class="punkt ausgaben"></i>', 'Ausgaben', '− ' + R.euroRund(r.ausgaben), 'minus-zahl')}
-      ${r.mitRuecklage ? zeile('<i class="punkt streifen"></i>', 'Rücklagenkonto', '− ' + R.euroRund(r.zuruecklegen), 'minus-zahl') : ''}
-      ${r.sparen > 0 ? zeile('<i class="punkt" style="background:var(--spar)"></i>', 'Sparkonto', '− ' + R.euroRund(r.sparen), 'minus-zahl') : ''}
+      ${kontoZeilen(r)}
     </div>
     ${zusatz.join('')}
     ${g && !g.betrag && !gehaltWert.betrag ? '<button class="knopf haupt" data-a="gehalt">Gehalt eintragen</button>' : ''}
@@ -161,12 +162,17 @@ function monatTeile(s = z.monat) {
       <p class="hinweistext">Mit einem eigenen Rücklagenkonto (z. B. Unterkonto oder Tagesgeld) und einem Dauerauftrag von ≈ ${R.euroRund(R.empfohleneRuecklage(z.daten, s))} im Monat ist jeden Monat gleich viel frei. Versicherungen und Co. zahlt dann die Rücklage.</p>
       <button class="knopf akzent" data-a="ruecklage">Rücklagenkonto einrichten</button></section>`;
   }
-  const normale = R.sparratenNormal(z.daten);
+  const normale = R.sparratenNormal(z.daten).concat(R.sparratenExtern(z.daten));
   const sparKarten = normale.length ? normale.map((sp) => {
-    return `<button class="karte spar" data-a="sparkonto" data-id="${esc(sp.id)}">
+    const extern = R.kontoArt(sp) === 'extern';
+    const extra = R.uebertraegeIm(z.daten, s, sp.id).reduce((a, u) => a + (Number(u.betrag) || 0), 0);
+    const rate = Number(sp.betrag) || 0;
+    const titel = rate > 0 ? `Aufs ${esc(sp.name)} · ${R.euro(rate)}` : esc(sp.name);
+    const unter = (rate > 0 ? `am ${sp.tag || 1}. · ` : 'kein fester Übertrag · ') + (extern ? 'das Geld wird dort ausgegeben' : 'keine Ausgabe, das Geld bleibt deins') + (extra > 0 ? ` · im ${monatsName(s)} + ${R.euroRund(extra)} extra` : '');
+    return `<button class="karte spar ${extern ? 'extern' : ''}" data-a="sparkonto" data-id="${esc(sp.id)}">
       <span class="symbol">${ICON.pfeil}</span>
-      <span class="mitte"><span style="font-size:15px;font-weight:600">Aufs ${esc(sp.name)} · ${R.euro(sp.betrag)}</span><span class="klein">am ${sp.tag || 1}. · keine Ausgabe, das Geld bleibt deins</span></span>
-      <span class="stand"><span class="klein" style="font-size:12px">Stand</span><span style="font-size:17px;font-weight:500">${R.euroRund(R.sparStand(sp, stichtag))}</span></span>
+      <span class="mitte"><span style="font-size:15px;font-weight:600">${titel}</span><span class="klein">${unter}</span></span>
+      ${extern ? '' : `<span class="stand"><span class="klein" style="font-size:12px">Stand</span><span style="font-size:17px;font-weight:500">${R.euroRund(R.sparStand(sp, stichtag, z.daten))}</span></span>`}
     </button>`;
   }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:15px;font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
 
@@ -244,7 +250,7 @@ function monatAnsicht() {
       const sp = R.sparratenNormal(z.daten);
       const luecke = rk ? R.ruecklageLuecke(z.daten, heute()) : null;
       const wert = rk || sp.length
-        ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag), 0))}` : ''].filter(Boolean).join('<br>')
+        ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag, z.daten), 0))}` : ''].filter(Boolean).join('<br>')
         : '–';
       return kachel('konten', 'Konten', `<span class="kachel-klein">${wert}</span>`,
         luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
@@ -326,8 +332,24 @@ function breiteKachel(typ, titel, wert, unter, k, zeilen, ziel) {
 // ---------- Schnell eintragen (＋ unten rechts) ----------
 const FAB_ICON = '<svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 function fabHtml(art) {
-  const ziel = { abos: ['abo-neu', 'Abo hinzufügen'], einnahmen: ['eintragen', 'Einnahme eintragen', 'einnahme'] }[art] || ['eintragen', 'Ausgabe, Einnahme oder Abo eintragen', ''];
+  const ziel = { abos: ['abo-neu', 'Abo hinzufügen'], einnahmen: ['eintragen', 'Einnahme eintragen', 'einnahme'], konten: ['eintragen', 'Übertrag eintragen', 'uebertrag'] }[art] || ['eintragen', 'Ausgabe, Einnahme, Übertrag oder Abo eintragen', ''];
   return `<button class="fab" data-a="${ziel[0]}" ${ziel[2] ? `data-wert="${ziel[2]}"` : ''} aria-label="${ziel[1]}">${FAB_ICON}</button>`;
+}
+
+// Frei-Karte: jedes Konto mit seinem Namen; ab 4 Konten (ohne Rücklage) nach Art zusammengefasst
+const KONTO_PUNKT = { ruecklage: '<i class="punkt streifen"></i>', sparen: '<i class="punkt" style="background:var(--spar)"></i>', extern: '<i class="punkt" style="background:var(--extern)"></i>' };
+function kontoZeilen(r) {
+  const knopf = (art, text, betrag, extra) => `<button class="auf-zeile auf-knopf" data-a="bereich" data-wert="konten" aria-label="${esc(text)}: Konten öffnen"><span class="l">${KONTO_PUNKT[art]}${esc(text)}${extra > 0 ? `<small>inkl. ${R.euroRund(extra)} extra</small>` : ''}</span><span class="r minus-zahl">− ${R.euroRund(betrag)}</span></button>`;
+  const rk = r.konten.filter((k) => k.art === 'ruecklage');
+  const andere = r.konten.filter((k) => k.art !== 'ruecklage' && k.betrag > 0);
+  let html = rk.map((k) => knopf('ruecklage', k.konto.name || 'Rücklagenkonto', k.betrag, k.extra)).join('');
+  if (andere.length <= 3) return html + andere.map((k) => knopf(k.art, k.konto.name, k.betrag, k.extra)).join('');
+  for (const [art, titel] of [['sparen', 'Sparen'], ['extern', 'Andere Konten']]) {
+    const l = andere.filter((k) => k.art === art);
+    if (!l.length) continue;
+    html += knopf(art, l.length === 1 ? l[0].konto.name : `${titel} (${l.length} Konten)`, l.reduce((a, k) => a + k.betrag, 0), l.reduce((a, k) => a + k.extra, 0));
+  }
+  return html;
 }
 
 // ---------- Abos ----------
@@ -376,9 +398,9 @@ function bereichHtml(eb) {
   else if (eb.typ === 'geplant') inhalt = t.s >= heuteYm() ? t.geplantKarte : '<div class="leerzustand">Für vergangene Monate lässt sich nichts mehr planen.</div>';
   else inhalt = t.sicherung;
   if (eb.typ === 'konten') {
-    inhalt += `${t.rk || t.konten.includes('hinweis-karte') ? '' : '<button class="knopf akzent" data-a="ruecklage">' + ICON.plus + ' Rücklagenkonto einrichten</button>'}${R.sparratenNormal(z.daten).length ? '' : '<button class="knopf akzent" data-a="sparkonto">' + ICON.plus + ' Sparkonto anlegen</button>'}`;
+    inhalt += `${t.rk || t.konten.includes('hinweis-karte') ? '' : '<button class="knopf akzent" data-a="ruecklage">' + ICON.plus + ' Rücklagenkonto einrichten</button>'}<button class="knopf akzent" data-a="sparkonto">${ICON.plus} Konto anlegen</button>`;
   }
-  return seite(BEREICH_TITEL[eb.typ], kopf + inhalt + (['einstellungen', 'konten'].includes(eb.typ) ? '' : '<div class="fab-platz"></div>' + fabHtml(eb.typ)));
+  return seite(BEREICH_TITEL[eb.typ], kopf + inhalt + (eb.typ === 'einstellungen' ? '' : '<div class="fab-platz"></div>' + fabHtml(eb.typ)));
 }
 
 // ---------- Ausgabenliste ----------
@@ -510,7 +532,11 @@ function verlaufAnsicht() {
       const tag = Math.min(sp.tag || 1, R.tageImMonat(s));
       const datum = s + '-' + R.zweistellig(tag);
       const istRk = sp.art === 'ruecklage';
-      if (datum <= h) keine.push({ farbe: 'var(--spar)', titel: `Aufs ${sp.name} · ${R.euro(sp.betrag)}`, text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, datum) : R.sparStand(sp, datum))}` });
+      const art = R.kontoArt(sp);
+      const standDanach = (d2) => art === 'extern' ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
+      const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : 'var(--spar)';
+      if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name} · ${R.euro(sp.betrag)}`, text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
+      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag aufs ${sp.name} · ${R.euro(u.betrag)} extra`, text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
@@ -628,6 +654,71 @@ function seite(titel, inhalt) {
   return `<div class="seite" role="dialog" aria-modal="true" aria-label="${esc(titel)}"><div class="seite-innen">
     <div class="seite-kopf"><button class="knopf rund" data-a="schliessen" aria-label="Zurück">${ICON.zurueck}</button><h2>${esc(titel)}</h2></div>${inhalt}</div></div>`;
 }
+// ---------- Eintragen: Umschalter und Übertrag ----------
+function eintragenWahl(art) {
+  return `<div class="ansicht-wahl vier">${[['ausgabe', '− Ausgabe'], ['einnahme', '+ Einnahme'], ['uebertrag', '⇄ Übertrag'], ['abo', '↻ Abo']].map(([w, t]) => `<button data-a="et-art" data-wert="${w}" aria-pressed="${art === w}">${t}</button>`).join('')}</div>`;
+}
+function alleKonten() { return [R.ruecklage(z.daten)].concat(R.sparratenNormal(z.daten), R.sparratenExtern(z.daten)).filter(Boolean); }
+function uebertragHtml(eb) {
+  const e = eb.entwurf;
+  const konten = alleKonten();
+  const ziel = konten.find((k) => k.id === e.kontoId);
+  const monatlich = e.oft === 'monatlich';
+  const ziele = konten.map((k) => `<button class="chip" data-a="et-ziel" data-wert="${esc(k.id)}" aria-pressed="${e.kontoId === k.id}">${esc(k.name || 'Rücklagenkonto')}</button>`).join('')
+    + `<button class="chip" data-a="et-konto-neu">${ICON.plus} Neues Konto</button>`;
+  const art = ziel ? R.kontoArt(ziel) : null;
+  const hinweis = !ziel ? '' : art === 'extern' ? `Das Geld geht aufs ${esc(ziel.name)} und wird dort ausgegeben. „Frei“ sinkt.`
+    : art === 'ruecklage' ? 'Das Geld bleibt deins: Die Rücklage wächst, „Frei“ sinkt.' : `Das Geld bleibt deins: Der Stand auf ${esc(ziel.name)} wächst, „Frei“ sinkt.`;
+  const ersetzt = monatlich && ziel && Number(ziel.betrag) > 0 ? `<p class="hinweistext">Ersetzt den bisherigen Übertrag von ${R.euro(ziel.betrag)} am ${ziel.tag || 1}.</p>` : '';
+  return sheet(`${eintragenWahl('uebertrag')}
+    <div class="betrag-gross"><span>→</span><input id="et-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" placeholder="0" aria-label="Betrag in Euro"><span>€</span></div>
+    <div class="label">Auf welches Konto?</div><div class="chips">${ziele}</div>
+    ${hinweis ? `<p class="hinweistext">${hinweis}</p>` : ''}
+    <div class="label">Wie oft?</div>
+    <div class="wahl zwei-sp">${wahlKnopf('et-oft', 'einmalig', 'einmalig', !monatlich)}${wahlKnopf('et-oft', 'monatlich', 'jeden Monat', monatlich)}</div>
+    ${monatlich ? `<div class="feld"><label for="et-tag">Am Tag</label><input id="et-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(e.tagText)}"></div>${ersetzt}`
+      : `<div class="feld"><label for="et-datum">Datum</label><input id="et-datum" class="eingabe" type="date" data-feld="datum" value="${esc(e.datum)}"></div>`}
+    ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+    <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="et-speichern">Übertrag eintragen</button></div>`, 'Eintragen');
+}
+async function uebertragSpeichern(eb, betrag) {
+  const e = eb.entwurf;
+  const konto = alleKonten().find((k) => k.id === e.kontoId);
+  if (!konto) { eb.fehler = 'Bitte ein Konto wählen oder ein neues anlegen.'; renderEbenen(); return; }
+  const name = konto.name || 'Rücklagenkonto';
+  if (e.oft === 'monatlich') {
+    const tag = zahl(e.tagText);
+    if (isNaN(tag) || tag < 1 || tag > 31) { eb.fehler = 'Der Tag muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    const alt = kopie(konto);
+    await aendern((d) => {
+      const k = d.sparraten.find((x) => x.id === konto.id);
+      const art = R.kontoArt(k);
+      // Stand bis heute festhalten, damit die neue Rate nicht rückwirkend zählt
+      if (art === 'ruecklage') Object.assign(k, { stand: R.ruecklageStand(d, heute()), standDatum: heute() });
+      else if (art === 'sparen') Object.assign(k, { stand: R.sparStand(k, heute(), d), standDatum: heute() });
+      Object.assign(k, { betrag, tag: Math.round(tag) });
+    }, { text: `Jeden Monat ${R.euro(betrag)} aufs ${name}`, rueckgaengig: (d) => { const i = d.sparraten.findIndex((x) => x.id === alt.id); if (i >= 0) d.sparraten[i] = alt; } });
+    return;
+  }
+  if (!e.datum) { eb.fehler = 'Bitte ein Datum wählen.'; renderEbenen(); return; }
+  z.ebenen.pop();
+  const id = D.neueId('ue');
+  await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id }); },
+    { text: `${R.euro(betrag)} aufs ${name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); } });
+}
+// Einmalige Überträge eines Kontos (im Konto-Fenster, mit Löschen)
+function uebertragListe(kontoId) {
+  if (!kontoId) return '';
+  const l = (z.daten.uebertraege || []).filter((u) => u.kontoId === kontoId).sort((a, b) => (a.datum < b.datum ? 1 : -1)).slice(0, 12);
+  if (!l.length) return '';
+  return `<div class="label">Einmalige Überträge</div><div class="ue-liste">${l.map((u) => {
+    const t = R.ymTeile(R.ymAus(u.datum));
+    return `<div class="ue-zeile"><span>${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[t.monat - 1]} ${t.jahr}</span><span class="r">${R.euro(u.betrag)}</span><button class="knopf klein rund leise" style="width:36px" data-a="ue-weg" data-wert="${esc(u.id)}" aria-label="Übertrag löschen">${ICON.x}</button></div>`;
+  }).join('')}</div>`;
+}
+const KONTO_NAMEN = { sparen: ['Tagesgeld', 'Notgroschen', 'Urlaub', 'ETF-Sparplan', 'Bausparvertrag'], extern: ['Gemeinschaftskonto', 'Haushaltskonto'] };
+
 const wahlKnopf = (aktion, wert, text, an, extra = '') => `<button data-a="${aktion}" data-wert="${esc(wert)}" aria-pressed="${!!an}" ${extra}>${esc(text)}</button>`;
 
 const EBENEN = {
@@ -641,13 +732,14 @@ const EBENEN = {
   bereich: (eb) => bereichHtml(eb),
   eintragen: (eb) => {
     const e = eb.entwurf;
+    if (e.art === 'uebertrag') return uebertragHtml(eb);
     const aus = e.art === 'ausgabe';
     const kat = R.kategorie(z.daten, e.kategorieId);
     const kats = budgetKats().map((k) => `<button class="chip" data-a="et-kat" data-wert="${esc(k.id)}" aria-pressed="${e.kategorieId === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('');
     const orte = aus && kat && (kat.chips || []).length ? `<div class="label">${esc(kat.frage || 'Wo?')} (optional)</div><div class="chips">${kat.chips.map((c) => `<button class="chip" data-a="et-ort" data-wert="${esc(c)}" aria-pressed="${e.ort === c}">${esc(c)}</button>`).join('')}</div>` : '';
     const namen = !aus ? `<div class="label">Was?</div><div class="chips">${EINNAHME_VORSCHLAEGE.map((v) => `<button class="chip" data-a="et-name" data-wert="${esc(v)}" aria-pressed="${e.name === v}">${esc(v)}</button>`).join('')}</div>
       <input class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="oder selbst eintragen" aria-label="Name der Einnahme">` : '';
-    return sheet(`<div class="ansicht-wahl drei"><button data-a="et-art" data-wert="ausgabe" aria-pressed="${aus}">− Ausgabe</button><button data-a="et-art" data-wert="einnahme" aria-pressed="${!aus}">+ Einnahme</button><button data-a="et-art" data-wert="abo">↻ Abo</button></div>
+    return sheet(`${eintragenWahl(e.art)}
       <div class="betrag-gross ${aus ? 'minus' : 'plus'}"><span>${aus ? '−' : '+'}</span><input id="et-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" placeholder="0" aria-label="Betrag in Euro"><span>€</span></div>
       ${aus ? `<div class="label">Kategorie</div><div class="chips">${kats || '<span class="klein">Noch keine Budgets angelegt.</span>'}</div>${orte}` : namen}
       <div class="feld"><label for="et-datum">Datum</label><input id="et-datum" class="eingabe" type="date" data-feld="datum" value="${esc(e.datum)}"></div>
@@ -786,17 +878,23 @@ const EBENEN = {
 
   sparkonto: (eb) => {
     const sp = eb.entwurf;
-    return sheet(`<h2>${eb.id ? esc(sp.name) : 'Sparkonto anlegen'}</h2>
-      <p class="hinweistext">Sparen ist keine Ausgabe: Das Geld geht aufs Sparkonto und bleibt deins. Es wird nur von „Frei“ abgezogen.</p>
-      <div class="feld"><label for="sp-name">Name</label><input id="sp-name" class="eingabe" data-feld="name" value="${esc(sp.name)}"></div>
+    const extern = sp.art === 'extern';
+    const namen = KONTO_NAMEN[extern ? 'extern' : 'sparen'].map((n) => `<button class="chip" data-a="sp-name" data-wert="${esc(n)}" aria-pressed="${sp.name === n}">${esc(n)}</button>`).join('');
+    return sheet(`<h2>${eb.id ? esc(sp.name) : 'Konto anlegen'}</h2>
+      <div class="label">Was ist das für ein Konto?</div>
+      <div class="wahl zwei-sp">${wahlKnopf('sp-art', 'sparen', 'Sparen', !extern)}${wahlKnopf('sp-art', 'extern', 'Anderes Konto', extern)}</div>
+      <p class="hinweistext">${extern ? 'Zum Beispiel ein Gemeinschafts- oder Haushaltskonto: Das Geld wird dort ausgegeben. Es zählt wie eine Ausgabe, einen Stand verfolgt die App nicht.' : 'Sparen ist keine Ausgabe: Das Geld bleibt deins, der Stand wächst. Es wird nur von „Frei“ abgezogen.'}</p>
+      <div class="feld"><label for="sp-name">Name</label><input id="sp-name" class="eingabe" data-feld="name" value="${esc(sp.name)}" placeholder="eigener Name"></div>
+      <div class="chips">${namen}</div>
       <div class="zwei">
-        <div class="feld"><label for="sp-betrag">Rate pro Monat</label><input id="sp-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(sp.betragText)}"></div>
+        <div class="feld"><label for="sp-betrag">Übertrag jeden Monat</label><input id="sp-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(sp.betragText)}" placeholder="0 = keiner"></div>
         <div class="feld"><label for="sp-tag">Am Tag</label><input id="sp-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(sp.tagText)}"></div>
       </div>
-      <div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}"></div>
-      <p class="hinweistext">Der Stand wächst jeden Monat um die Rate. Stimmt er nicht mehr, hier den echten Stand eintragen.</p>
+      ${extern ? '' : `<div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}"></div>
+      <p class="hinweistext">Der Stand wächst mit jedem Übertrag. Stimmt er nicht mehr, hier den echten Stand eintragen.</p>`}
+      ${uebertragListe(eb.id)}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
-      <div class="knopfreihe">${eb.id ? '<button class="knopf leise" data-a="sp-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="sp-speichern">Speichern</button></div>`, 'Sparkonto');
+      <div class="knopfreihe">${eb.id ? '<button class="knopf leise" data-a="sp-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="sp-speichern">Speichern</button></div>`, 'Konto');
   },
 
   buchung: (eb) => {
@@ -862,6 +960,7 @@ const EBENEN = {
         <div class="feld"><label for="rk-tag">Am Tag</label><input id="rk-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(e.tagText)}"></div>
       </div>
       <div class="feld"><label for="rk-stand">Was liegt heute auf dem Rücklagenkonto?</label><input id="rk-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(e.standText)}"></div>
+      ${uebertragListe(eb.vorhanden && R.ruecklage(z.daten) ? R.ruecklage(z.daten).id : null)}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe">${eb.vorhanden ? '<button class="knopf leise" data-a="rk-loeschen">Ohne Rücklage</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="rk-speichern">Speichern</button></div>`, 'Rücklagenkonto');
   },
@@ -906,18 +1005,28 @@ const AKTION = {
   'kachel-x': async (el) => { haptik('mittel'); await kachelEntfernen(el.dataset.wert); },
   eintragen: (el) => {
     const b = budgetKats();
-    oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: (b[0] || {}).id || '', ort: '', datum: heute(), name: '' } });
+    const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
+    oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: (b[0] || {}).id || '', ort: '', datum: heute(), name: '', kontoId: erstes ? erstes.id : '', oft: 'einmalig', tagText: '1' } });
     setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) f.focus(); }, 60);
   },
   'et-art': (el) => { if (el.dataset.wert === 'abo') { z.ebenen.pop(); AKTION['abo-neu'](); return; } oben().entwurf.art = el.dataset.wert; oben().fehler = null; renderEbenen(); const f = document.getElementById('et-betrag'); if (f) f.focus(); },
   'et-kat': (el) => { oben().entwurf.kategorieId = el.dataset.wert; oben().entwurf.ort = ''; renderEbenen(); },
   'et-ort': (el) => { const e = oben().entwurf; e.ort = e.ort === el.dataset.wert ? '' : el.dataset.wert; renderEbenen(); },
   'et-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
+  'et-ziel': (el) => { oben().entwurf.kontoId = el.dataset.wert; oben().fehler = null; renderEbenen(); },
+  'et-oft': (el) => { const e = oben().entwurf; e.oft = el.dataset.wert; const k = alleKonten().find((x) => x.id === e.kontoId); if (e.oft === 'monatlich' && k) e.tagText = String(k.tag || 1); renderEbenen(); },
+  'et-konto-neu': () => { oben().wartetAufKonto = true; AKTION.sparkonto({ dataset: {} }); },
+  'ue-weg': async (el) => {
+    const u = (z.daten.uebertraege || []).find((x) => x.id === el.dataset.wert);
+    if (!u) return;
+    await aendern((d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== u.id); }, { text: `Übertrag ${R.euro(u.betrag)} gelöscht`, rueckgaengig: (d) => d.uebertraege.push(u) });
+  },
   'et-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
     const betrag = zahl(e.betragText);
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
     if (!e.datum) { eb.fehler = 'Bitte ein Datum wählen.'; renderEbenen(); return; }
+    if (e.art === 'uebertrag') return uebertragSpeichern(eb, betrag);
     const jetzt = new Date();
     const zeit = e.datum === heute() ? R.zeitText(jetzt) : e.datum + 'T12:00:00';
     z.ebenen.pop();
@@ -981,7 +1090,7 @@ const AKTION = {
   'start-leer': async () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}); oeffne(gehaltEbene(heuteYm())); },
   'beispiel-weg': () => oeffne({ art: 'frage', titel: 'Beispieldaten entfernen?', text: 'Alle Beispiel-Fixkosten, das Beispiel-Sparkonto und alle Buchungen werden gelöscht. Kategorien und Budgets bleiben.', ja: 'Entfernen', bei: async () => {
     const vorher = kopie(z.daten);
-    await aendern((d) => { d.fixkosten = []; d.sparraten = []; d.buchungen = []; d.einnahmen.forEach((e) => { e.betrag = 0; e.istWerte = []; }); delete d.beispiel; }, { text: 'Beispieldaten entfernt', rueckgaengig: (d) => Object.assign(d, vorher) });
+    await aendern((d) => { d.fixkosten = []; d.sparraten = []; d.uebertraege = []; d.buchungen = []; d.einnahmen.forEach((e) => { e.betrag = 0; e.istWerte = []; }); delete d.beispiel; }, { text: 'Beispieldaten entfernt', rueckgaengig: (d) => Object.assign(d, vorher) });
   } }),
   'frage-ja': async () => { const eb = z.ebenen.pop(); await eb.bei(); },
 
@@ -1109,27 +1218,33 @@ const AKTION = {
   // Sparkonto
   sparkonto: (el) => {
     const sp = z.daten.sparraten.find((x) => x.id === el.dataset.id);
-    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { name: sp.name, betragText: R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute()), false) } });
-    else oeffne({ art: 'sparkonto', id: null, entwurf: { name: 'Sparkonto', betragText: '', tagText: '1', standText: '0' } });
+    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { art: R.kontoArt(sp), name: sp.name, betragText: R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute(), z.daten), false) } });
+    else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: '', betragText: '', tagText: '1', standText: '0' } });
   },
+  'sp-art': (el) => { oben().entwurf.art = el.dataset.wert; renderEbenen(); },
+  'sp-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
   'sp-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
-    const betrag = zahl(e.betragText); const tag = zahl(e.tagText); const stand = zahl(e.standText);
+    const betrag = e.betragText.trim() ? zahl(e.betragText) : 0; const tag = zahl(e.tagText); const stand = e.art === 'extern' ? 0 : zahl(e.standText || '0');
     if (!e.name.trim()) { eb.fehler = 'Bitte einen Namen eintragen.'; renderEbenen(); return; }
     if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte eine Rate ab 0 € eintragen.'; renderEbenen(); return; }
     if (isNaN(tag) || tag < 1 || tag > 31) { eb.fehler = 'Der Tag muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
     if (isNaN(stand)) { eb.fehler = 'Der Stand ist keine Zahl.'; renderEbenen(); return; }
     z.ebenen.pop();
+    const neuId = eb.id || D.neueId('spar');
+    const unten = z.ebenen[z.ebenen.length - 1];
+    if (unten && unten.wartetAufKonto) { unten.entwurf.kontoId = neuId; unten.wartetAufKonto = false; unten.fehler = null; }
     await aendern((d) => {
-      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute() };
+      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), art: e.art === 'extern' ? 'extern' : undefined };
       const sp = d.sparraten.find((x) => x.id === eb.id);
-      if (sp) Object.assign(sp, werte); else d.sparraten.push(Object.assign({ id: D.neueId('spar'), ziel: null }, werte));
+      if (sp) Object.assign(sp, werte); else d.sparraten.push(Object.assign({ id: neuId, ziel: null }, werte));
     }, { text: `${e.name.trim()} gespeichert` });
   },
   'sp-loeschen': async () => {
     const id = oben().id; const sp = z.daten.sparraten.find((x) => x.id === id);
     z.ebenen.pop();
-    await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.id !== id); }, { text: `${sp.name} gelöscht`, rueckgaengig: (d) => d.sparraten.push(sp) });
+    const weg = (z.daten.uebertraege || []).filter((u) => u.kontoId === id);
+    await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.id !== id); d.uebertraege = (d.uebertraege || []).filter((u) => u.kontoId !== id); }, { text: `${sp.name} gelöscht`, rueckgaengig: (d) => { d.sparraten.push(sp); d.uebertraege = (d.uebertraege || []).concat(weg); } });
   },
 
   // Rücklagenkonto

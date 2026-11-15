@@ -172,3 +172,32 @@ test('Weitere Einnahmen: fest zählt, geplant erst nach „Kam an“', () => {
   assert.equal(R.monatsRechnung(d, '2026-12').frei, basis + 255 + 280);
   assert.equal(R.monatsRechnung(d, '2027-01').weitere, 255);
 });
+
+test('Überträge: einmalig und jeden Monat, eigene Konten und andere Konten', () => {
+  const d = daten();
+  const basis = R.monatsRechnung(d, '2026-11').frei;
+  const sp = R.sparratenNormal(d)[0];
+  const rk = R.ruecklage(d);
+  // einmalig 300 € extra aufs Sparkonto: „Frei“ sinkt nur in diesem Monat, der Stand wächst ab dem Datum
+  d.uebertraege = [{ id: 'u1', datum: '2026-11-20', betrag: 300, kontoId: sp.id }];
+  const nov = R.monatsRechnung(d, '2026-11');
+  assert.equal(nov.frei, basis - 300);
+  assert.equal(nov.sparen, 200 + 300);
+  assert.equal(nov.konten.find((k) => k.konto.id === sp.id).extra, 300);
+  assert.equal(R.monatsRechnung(d, '2026-12').frei, basis);
+  const vorher = R.sparStand(sp, '2026-11-19', d);
+  assert.equal(R.sparStand(sp, '2026-11-20', d), vorher + 300);
+  // einmalig auf die Rücklage: Stand der Rücklage wächst
+  const rkVorher = R.ruecklageStand(d, '2026-11-25');
+  d.uebertraege.push({ id: 'u2', datum: '2026-11-21', betrag: 100, kontoId: rk.id });
+  assert.equal(R.ruecklageStand(d, '2026-11-25'), rkVorher + 100);
+  assert.equal(R.monatsRechnung(d, '2026-11').zuruecklegen, 75 + 100);
+  // anderes Konto (Gemeinschaftskonto): zählt wie eine Ausgabe, ist kein Sparen
+  d.uebertraege = [];
+  d.sparraten.push({ id: 'gk', name: 'Gemeinschaftskonto', art: 'extern', betrag: 600, tag: 1, stand: 0 });
+  const mitGk = R.monatsRechnung(d, '2026-11');
+  assert.equal(mitGk.extern, 600);
+  assert.equal(mitGk.sparen, 200);
+  assert.equal(mitGk.frei, basis - 600);
+  assert.equal(R.sparratenNormal(d).some((x) => x.id === 'gk'), false);
+});
