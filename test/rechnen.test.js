@@ -201,3 +201,16 @@ test('Überträge: einmalig und jeden Monat, eigene Konten und andere Konten', (
   assert.equal(mitGk.frei, basis - 600);
   assert.equal(R.sparratenNormal(d).some((x) => x.id === 'gk'), false);
 });
+
+test('Gehalt bestätigen und Schätzung, die mitlernt', () => {
+  const d = daten();
+  const g = R.gehaltVon(d);
+  g.istWerte = [{ datum: '2026-08-31', betrag: 2380 }, { datum: '2026-09-30', betrag: 2540 }, { datum: '2026-10-31', betrag: 2470 }, { datum: '2026-07-31', betrag: 1000 }];
+  assert.equal(R.gehaltBestaetigt(g, '2026-10'), true);
+  assert.equal(R.gehaltBestaetigt(g, '2026-11'), false);
+  const st = R.gehaltStatistik(g, 3);
+  assert.equal(st.anzahl, 3); assert.equal(st.min, 2380); assert.equal(st.max, 2540);
+  assert.ok(Math.abs(st.schnitt - 2463.33) < 0.01);
+  // der bestätigte Betrag zählt statt der Schätzung
+  assert.equal(R.monatsRechnung(d, '2026-10').einkommen, 2470);
+});

@@ -406,3 +406,12 @@ export function uebrigIm(daten, s) {
   return { uebrig: echt.frei, ungenutzt: echt.frei - geplant.frei };
 }
 export function monatAbgeschlossen(daten, s) { return ((daten.einstellungen && daten.einstellungen.abgeschlossen) || []).includes(s); }
+
+// ---------- Gehalt bestätigen (Schichtdienst: Netto schwankt) ----------
+export function gehaltBestaetigt(g, s) { return !!g && (g.istWerte || []).some((w) => ymAus(w.datum) === s); }
+// Durchschnitt der letzten n bestätigten Monate (für eine Schätzung, die mitlernt)
+export function gehaltStatistik(g, n = 3) {
+  const l = [...((g && g.istWerte) || [])].sort((a, b) => (a.datum < b.datum ? 1 : -1)).slice(0, n).map((w) => Number(w.betrag) || 0);
+  if (!l.length) return { anzahl: 0 };
+  return { anzahl: l.length, schnitt: l.reduce((a, x) => a + x, 0) / l.length, min: Math.min(...l), max: Math.max(...l) };
+}

@@ -451,3 +451,14 @@ body.kachel-zieht { overflow: hidden; }
 .teil-box.oeffnet { animation: teilAuf .3s ease-out; transform-origin: top; }
 @keyframes teilAuf { from { opacity: 0; transform: translateY(-8px) scaleY(.92); } to { opacity: 1; transform: none; } }
 .teil-box .hinweistext { margin: 0; }
+
+/* Gehalt bestätigen */
+.gehalt-frage { border: 1px solid rgba(143, 214, 160, .45); background: rgba(143, 214, 160, .07); margin-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.gf-kopf { display: flex; gap: 12px; align-items: center; }
+.gf-kopf .t { display: flex; flex-direction: column; gap: 2px; font-size: 16px; }
+.gf-kopf small { color: var(--gedaempft); font-size: 13px; }
+.gf-symbol { font-size: 24px; }
+.eintrag.blinken { animation: blinken .9s ease-in-out 4; border-radius: 12px; }
+@keyframes blinken { 0%, 100% { background: transparent; box-shadow: none; } 50% { background: rgba(127, 214, 200, .22); box-shadow: 0 0 0 2px var(--akzent); } }
+.lern-box { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(127, 214, 200, .45); background: rgba(127, 214, 200, .07); font-size: 14.5px; }
+.lern-box .knopf { align-self: flex-start; }

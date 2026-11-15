@@ -4,10 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v16';
+export const APP_VERSION = 'finanz-v17';
 const NEU_IN_VERSION = [
-  'Teilen: „Dein Anteil“ klappt erst nach „Geteilt“ auf und steht in einem eigenen, farbig abgesetzten Kasten',
-  'Einzelne Ausgaben teilen (seit v15): Anteil ½, ⅓, ¼ oder Betrag, wer dir den Rest zurückzahlt, „Bekommst du noch zurück“ auf der Einnahmen-Seite'
+  'Gehalt bestätigen: Ab dem Ankunftstag fragt die Übersicht „Gehalt da?“ – „✓ Stimmt“ oder „Anderer Betrag“ (führt zum Verlauf, das Gehalt blinkt, antippen und korrigieren)',
+  'Monatsende fragt zuerst, was beim Gehalt wirklich ankam – dann stimmt der Rest',
+  'Schätzung lernt mit: Nach 3 bestätigten Monaten schlägt das Gehalt-Fenster den Durchschnitt als neue Schätzung vor'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -361,7 +362,8 @@ function monatAnsicht() {
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
-  return t.nav + t.freiKarte + vk + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
+  const gf = !bearbeiten && z.monat === heuteYm() ? gehaltFrageKarte() : '';
+  return t.nav + t.freiKarte + gf + vk + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>
     <div class="fab-platz"></div>`;
@@ -606,7 +608,7 @@ function verlaufAnsicht() {
   }
   const keineHtml = keine.length ? `<div class="tag-titel">Keine Ausgaben</div><section class="karte verlauf">${keine.map((k) => {
     const inhalt = `<i class="punkt" style="background:${k.farbe}"></i><span class="t"><b>${esc(k.titel)}</b><span>${esc(k.text)}</span></span>`;
-    return k.monat ? `<button class="eintrag zeile" style="padding-left:0" data-a="gehalt" data-monat="${k.monat}">${inhalt}</button>` : `<div class="eintrag">${inhalt}</div>`;
+    return k.monat ? `<button class="eintrag zeile ${z.blinkGehalt === k.monat ? 'blinken' : ''}" style="padding-left:0" data-a="gehalt" data-monat="${k.monat}">${inhalt}</button>` : `<div class="eintrag">${inhalt}</div>`;
   }).join('')}</section>` : '';
 
   return `<p class="hinweistext">Jede Buchung zeigt den Stand vorher und nachher. Vertippt? Hier rückgängig machen oder den Betrag ändern.</p>${teile}${keineHtml}`;
@@ -767,6 +769,28 @@ async function uebertragSpeichern(eb, betrag) {
   await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id }); },
     { text: `${R.euro(betrag)} aufs ${name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); } });
 }
+// ---------- Gehalt bestätigen ----------
+// Welcher Monat wartet auf „Gehalt da?“: erst der Vormonat, dann der laufende ab dem Ankunftstag
+function offenesGehalt() {
+  const g = gehalt();
+  if (!g || !(R.schaetzung(g) > 0)) return null;
+  const h = heuteYm(), vm = R.ymPlus(h, -1);
+  if (vm >= z.daten.einstellungen.startMonat && !R.gehaltBestaetigt(g, vm)) return vm;
+  if (Number(heute().slice(8)) >= R.ankunftsTag(g, h) && !R.gehaltBestaetigt(g, h)) return h;
+  return null;
+}
+function lernHinweis(g) {
+  const st = R.gehaltStatistik(g, 3);
+  if (st.anzahl < 3 || Math.abs(st.schnitt - R.schaetzung(g)) < 1) return null;
+  return st;
+}
+function gehaltFrageKarte() {
+  const s = offenesGehalt(); if (!s) return '';
+  const g = gehalt(); const w = R.einnahmeIm(g, s);
+  return `<section class="karte gehalt-frage"><div class="gf-kopf"><span class="gf-symbol">💶</span><span class="t"><b>${esc(g.name)} ${esc(monatsName(s))} da?</b><small>geschätzt ≈ ${R.euroRund(w.schaetzung)} · am ${R.ankunftsTag(g, s)}.${R.ymTeile(s).monat}. · Netto schwankt, kurz bestätigen</small></span></div>
+    <div class="zwei"><button class="knopf haupt" data-a="ge-stimmt" data-monat="${s}">✓ Stimmt</button><button class="knopf" data-a="ge-anders" data-monat="${s}">Anderer Betrag</button></div></section>`;
+}
+
 // ---------- Einzelne Buchung teilen ----------
 // Gespeichert wird: betrag = dein Anteil (belastet Budget und „Frei“), gesamt = was du bezahlt hast,
 // teiltMit = wer dir den Rest zurückzahlt, zurueckErhalten = ob das Geld schon da ist.
@@ -917,6 +941,15 @@ const EBENEN = {
     if (uebrig < 0) return sheet(`<h2>Ende ${esc(name)}</h2>
       <p class="hinweistext">Im ${esc(name)} ist ≈ <b class="minus-zahl">${R.euroRund(-uebrig)}</b> mehr rausgegangen als reingekommen.</p>
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Später</button><button class="knopf haupt breit" data-a="me-giro">Verstanden, abschließen</button></div>`, 'Monatsende');
+    const g = gehalt();
+    if (g && R.schaetzung(g) > 0 && !R.gehaltBestaetigt(g, s)) {
+      return sheet(`<h2>Ende ${esc(name)}</h2>
+        <p class="hinweistext">Erst kurz das Gehalt: Netto schwankt, damit der Rest stimmt.</p>
+        <div class="label">Was kam im ${esc(name)} wirklich an?</div>
+        <div class="betrag-gross plus"><span>+</span><input id="me-gehalt" class="eingabe" inputmode="decimal" value="${esc(R.euro(R.schaetzung(g), false))}" aria-label="Gehalt in Euro"><span>€</span></div>
+        ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+        <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Später</button><button class="knopf haupt breit" data-a="me-gehalt">Weiter</button></div>`, 'Monatsende');
+    }
     const konten = alleKonten();
     let teil = '';
     if (e.wahl === 'konto') teil = `<div class="betrag-gross"><span>→</span><input id="me-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" aria-label="Betrag in Euro"><span>€</span></div>
@@ -1063,6 +1096,7 @@ const EBENEN = {
       <div class="feld"><label for="ge-ist">Was kam an?</label><input id="ge-ist" class="eingabe" inputmode="decimal" data-feld="istText" value="${esc(eb.istText)}" placeholder="${esc(R.euro(w.schaetzung, false))} (geschätzt)"></div>
       <p class="hinweistext">Leer lassen = die Schätzung gilt (≈). Netto, so wie es auf dem Konto ankommt.</p>
       <div class="feld"><label for="ge-schaetzung">Schätzung pro Monat</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
+      ${(() => { const st = lernHinweis(g); return st && Math.abs(st.schnitt - zahl(eb.schaetzungText)) >= 1 ? `<div class="lern-box"><span>Deine letzten 3 Monate: <b>Ø ${R.euroRund(st.schnitt)}</b> (${R.euroRund(st.min)}–${R.euroRund(st.max)})</span><button class="knopf klein akzent" data-a="ge-schnitt">Als Schätzung übernehmen</button></div>` : ''; })()}
       <div class="feld"><span class="label">Kommt an</span><div class="wahl zwei-sp">${wahlKnopf('ge-ankunft', 'Monatsende', 'am Monatsende', g.kommtAn !== 'Tag')}${wahlKnopf('ge-ankunft', 'Tag', 'an einem Tag', g.kommtAn === 'Tag')}</div></div>
       ${g.kommtAn === 'Tag' ? `<div class="feld"><label for="ge-tag">Am Tag</label><input id="ge-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(eb.tagText)}"></div>` : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
@@ -1471,7 +1505,33 @@ const AKTION = {
   },
 
   // Gehalt
-  gehalt: (el) => oeffne(gehaltEbene(el.dataset.monat || z.monat)),
+  gehalt: (el) => { z.blinkGehalt = null; oeffne(gehaltEbene(el.dataset.monat || z.monat)); },
+  'ge-stimmt': async (el) => {
+    const s = el.dataset.monat; const g = gehalt(); const betrag = R.schaetzung(g);
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag }); },
+      { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} bestätigt`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== s); } });
+  },
+  'ge-anders': (el) => {
+    // zum Verlauf: das Gehalt blinkt, antippen zum Korrigieren
+    const s = el.dataset.monat;
+    z.ansicht = 'verlauf'; z.bearbeiten = false; z.blinkGehalt = s; render();
+    setTimeout(() => { if (z.blinkGehalt === s) z.blinkGehalt = null; }, 4000);
+    setTimeout(() => {
+      const ziel = document.querySelector(`.eintrag[data-a="gehalt"][data-monat="${s}"]`);
+      if (ziel) ziel.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      zeigeToast(`${gehalt().name} ${monatsName(s)} antippen und den echten Betrag eintragen`);
+    }, 80);
+  },
+  'ge-schnitt': () => { const eb = oben(); const st = R.gehaltStatistik(gehalt(), 3); if (st.anzahl) { eb.schaetzungText = R.euro(Math.round(st.schnitt), false); renderEbenen(); } },
+  'me-gehalt': async () => {
+    const eb = oben(); const s = eb.monat; const f = document.getElementById('me-gehalt');
+    const betrag = zahl(f ? f.value : '');
+    if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte den Betrag eintragen, der angekommen ist.'; renderEbenen(); return; }
+    eb.fehler = null;
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag }); },
+      { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} eingetragen` });
+    eb.entwurf.betragText = R.euro(Math.max(0, R.uebrigIm(z.daten, s).uebrig), false); renderEbenen();
+  },
   'ge-ankunft': (el) => { gehalt().kommtAn = el.dataset.wert; renderEbenen(); },
   'ge-speichern': async () => {
     const eb = oben();
