@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hintergrund">#14181B</color>
+    <color name="karte">#1D2327</color>
+    <color name="text">#EEF2F0</color>
+    <color name="gedaempft">#B7C1BE</color>
+    <color name="akzent">#7FD6C8</color>
+    <color name="akzent2">#C9D27A</color>
+    <color name="hinweis">#DFE6B0</color>
+    <color name="haupt">#3A6B5C</color>
+    <color name="icon_hg">#3A6B5C</color>
+</resources>

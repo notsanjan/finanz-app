@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/wurzel" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:gravity="center_vertical" android:background="@drawable/widget_hg"
+    android:paddingLeft="16dp" android:paddingRight="16dp" android:paddingTop="12dp" android:paddingBottom="12dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="18dp" android:layout_height="18dp" android:src="@drawable/ic_kalender" android:contentDescription="@null"/>
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginLeft="8dp" android:text="Fixkosten" android:textColor="#EEF2F0" android:textSize="15sp" android:fontFamily="@font/barlow_semibold"/>
+        <TextView android:id="@+id/summe" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="≈ 688 € im Monat" android:textColor="#B7C1BE" android:textSize="13sp" android:fontFamily="@font/barlow_regular"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/zeile1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+        <TextView android:id="@+id/naechsteName" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Nächste: Strom, Rundfunk" android:textColor="#EEF2F0" android:textSize="14sp" android:fontFamily="@font/barlow_regular" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/naechsteWann" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="8dp" android:text="15. Nov · 100 €" android:textColor="#B7C1BE" android:textSize="14sp" android:fontFamily="@font/barlow_regular"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/zeile2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+        <TextView android:id="@+id/brockenName" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Großer Brocken: Haftpflicht" android:textColor="#DFE6B0" android:textSize="14sp" android:fontFamily="@font/barlow_regular" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/brockenWann" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginLeft="8dp" android:text="1. Jan · 65 €" android:textColor="#DFE6B0" android:textSize="14sp" android:fontFamily="@font/barlow_regular"/>
+    </LinearLayout>
+</LinearLayout>

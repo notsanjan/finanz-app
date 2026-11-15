@@ -24,6 +24,33 @@
 
         </activity>
 
+        <!-- Budget-Widget: eins pro Kategorie -->
+        <receiver android:name=".BudgetWidget" android:exported="false" android:label="@string/widget_budget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_budget_info" />
+        </receiver>
+
+        <!-- Fixkosten-Widget: nächste Abbuchung und großer Brocken -->
+        <receiver android:name=".FixkostenWidget" android:exported="false" android:label="@string/widget_fixkosten_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_fixkosten_info" />
+        </receiver>
+
+        <activity
+            android:name=".BudgetWidgetEinrichtung"
+            android:exported="true"
+            android:theme="@style/Einrichtung"
+            android:excludeFromRecents="true"
+            android:taskAffinity="">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
