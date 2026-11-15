@@ -438,3 +438,8 @@ body.kachel-zieht { overflow: hidden; }
 
 /* Geteilte Kosten: Zusatzzeilen unter einer Fixkoste */
 .posten .geteilt { display: block; font-size: 12.5px; color: var(--hinweis); margin-top: 1px; }
+
+/* Geteilte Buchungen */
+.eintrag .geteilt { display: block; font-size: 12.5px; color: var(--hinweis); margin-top: 2px; }
+.rueck-zeile { display: flex; align-items: center; gap: 10px; }
+.rueck-zeile .t { flex: 1; }

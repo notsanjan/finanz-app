@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v14';
+export const APP_VERSION = 'finanz-v15';
 const NEU_IN_VERSION = [
-  'BETA – Zahlungen automatisch erkennen: Die App liest Benachrichtigungen von PayPal, Google Wallet oder deiner Banking-App mit und schlägt Buchungen vor. Einschalten unter Einstellungen. Bucht nie selbst',
-  'Geteilte Kosten: Bei Fixkosten unter „Mehr“ deinen Anteil eintragen, dazu wer dir den Rest überweist und an welchem Tag. Die Liste zeigt Gesamtbetrag und deinen Anteil',
-  'Optional: von welchem Konto abgebucht wird'
+  'Einzelne Ausgaben teilen: Beim Eintragen (＋) oder später unter „Ändern“ auf „Geteilt“ tippen, Anteil wählen (½, ⅓, ¼ oder Betrag) und wer dir den Rest zurückzahlt. Belastet wird nur dein Anteil',
+  'Einnahmen-Seite: „Bekommst du noch zurück“ mit allen offenen Rückzahlungen und „✓ Bekommen“',
+  'BETA – Zahlungen automatisch erkennen (seit v14) und geteilte Fixkosten'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -567,7 +567,8 @@ function verlaufAnsicht() {
       const knopf = t === h
         ? `<button class="knopf klein akzent" data-a="buchung-weg" data-id="${esc(e.id)}">Rückgängig</button>`
         : `<button class="knopf klein leise" data-a="buchung" data-id="${esc(e.id)}">Ändern</button>`;
-      return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${R.euro(e.betrag)}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span></div>${knopf}</div>`;
+      const geteilt = e.gesamt ? `<span class="geteilt">geteilt${e.teiltMit ? ' mit ' + esc(e.teiltMit) : ''} · gesamt ${R.euro(e.gesamt)} · ${e.zurueckErhalten ? '✓ zurückbekommen' : R.euro(Math.round((e.gesamt - e.betrag) * 100) / 100) + ' offen'}</span>` : '';
+      return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${R.euro(e.betrag)}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
     }).join('')}</section>`;
   }
   if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Gebucht wird über die Widgets auf dem Homescreen: lange auf eine freie Stelle drücken → Widgets → Finanzen.</div></section>`;
@@ -658,7 +659,16 @@ function einnahmenHtml(s) {
   const g = gehalt();
   const gw = g ? R.einnahmeIm(g, s) : null;
   const gehaltKarte = g ? `<section class="karte geplant-karte einnahmen-karte"><button class="posten" style="border-top:0" data-a="gehalt" data-monat="${s}" aria-label="Gehalt ändern"><span class="t"><span class="n">${esc(g.name)}</span><small>jeden Monat · ${gw.geschaetzt ? 'geschätzt, antippen zum Korrigieren' : 'eingetragen'}</small></span><span class="b plus">+ ${R.euroRund(gw.betrag)}</span>${PFEIL}</button></section>` : '';
-  return gehaltKarte + weitereEinnahmenHtml(s);
+  return gehaltKarte + rueckzahlungenHtml() + weitereEinnahmenHtml(s);
+}
+function rueckzahlungenHtml() {
+  const l = offeneRueckzahlungen();
+  if (!l.length) return '';
+  const summe = l.reduce((a, b) => a + (b.gesamt - b.betrag), 0);
+  return `<section class="karte geplant-karte einnahmen-karte">
+    <div class="geplant-kopf"><span class="t"><b>Bekommst du noch zurück</b><small>aus geteilten Ausgaben · zählt nicht als Einnahme</small></span><span class="kat-summe plus-zahl">+ ${R.euro(Math.round(summe * 100) / 100)}</span></div>
+    ${l.map((b) => { const kat = R.kategorie(z.daten, b.kategorieId); return `<div class="posten rueck-zeile"><span class="t"><span class="n">${esc(b.teiltMit || 'Jemand')} · ${R.euro(Math.round((b.gesamt - b.betrag) * 100) / 100)}</span><small>${esc((b.ort || (kat ? kat.name : '')) + ' · ' + Number(b.zeit.slice(8, 10)) + '.' + Number(b.zeit.slice(5, 7)) + '. · gesamt ' + R.euro(b.gesamt))}</small></span><button class="knopf klein akzent" data-a="rueck-erhalten" data-id="${esc(b.id)}">✓ Bekommen</button></div>`; }).join('')}
+  </section>`;
 }
 function weitereEinnahmenHtml(s) {
   const liste = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
@@ -758,6 +768,41 @@ async function uebertragSpeichern(eb, betrag) {
   await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id }); },
     { text: `${R.euro(betrag)} aufs ${name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); } });
 }
+// ---------- Einzelne Buchung teilen ----------
+// Gespeichert wird: betrag = dein Anteil (belastet Budget und „Frei“), gesamt = was du bezahlt hast,
+// teiltMit = wer dir den Rest zurückzahlt, zurueckErhalten = ob das Geld schon da ist.
+const ANTEILE = [['1/2', '½', .5], ['1/3', '⅓', 1 / 3], ['1/4', '¼', .25], ['eigen', 'Betrag', null]];
+function teilRechnung(t) {
+  const gesamt = zahl(t.betragText);
+  if (!t.geteilt || isNaN(gesamt) || gesamt <= 0) return null;
+  const a = ANTEILE.find((x) => x[0] === t.anteil) || ANTEILE[0];
+  const mein = a[2] != null ? Math.round(gesamt * a[2] * 100) / 100 : zahl(t.meinText);
+  if (isNaN(mein) || mein <= 0 || mein >= gesamt) return { gesamt, fehler: 'Dein Anteil muss kleiner als der Gesamtbetrag sein.' };
+  return { gesamt, mein, rest: Math.round((gesamt - mein) * 100) / 100 };
+}
+function teilHinweis(t) {
+  const r = teilRechnung(t);
+  if (!r) return t.geteilt ? 'Trag oben den Gesamtbetrag ein, den du bezahlt hast.' : '';
+  if (r.fehler) return r.fehler;
+  return `Du zahlst ${R.euro(r.gesamt)}. Belastet wird nur dein Anteil: ${R.euro(r.mein)}. ${(t.teiltMit || '').trim() || 'Die andere Person'} zahlt dir ${R.euro(r.rest)} zurück.`;
+}
+function teilenHtml(t) {
+  const an = !!t.geteilt;
+  return `<div class="wahl zwei-sp">${wahlKnopf('tl-an', '0', 'Allein bezahlt', !an)}${wahlKnopf('tl-an', '1', 'Geteilt', an)}</div>
+    ${an ? `<div class="label">Dein Anteil</div>
+      <div class="chips">${ANTEILE.map(([w, txt]) => `<button class="chip" data-a="tl-anteil" data-wert="${w}" aria-pressed="${(t.anteil || '1/2') === w}">${txt}</button>`).join('')}</div>
+      ${t.anteil === 'eigen' ? `<div class="feld"><label for="tl-mein">Dein Anteil in €</label><input id="tl-mein" class="eingabe" inputmode="decimal" data-feld="meinText" data-teilen="1" value="${esc(t.meinText || '')}" placeholder="z. B. 15"></div>` : ''}
+      <div class="feld"><label for="tl-wer">Wer zahlt dir den Rest zurück?</label><input id="tl-wer" class="eingabe" data-feld="teiltMit" data-teilen="1" value="${esc(t.teiltMit || '')}" placeholder="z. B. Anna"></div>
+      <p class="hinweistext" id="tl-hinweis">${esc(teilHinweis(t))}</p>` : ''}`;
+}
+// Felder für eine bestehende Buchung vorbelegen
+function teilEntwurf(b) {
+  if (!b.gesamt) return { geteilt: false, anteil: '1/2', meinText: '', teiltMit: '' };
+  const a = ANTEILE.find((x) => x[2] != null && Math.abs(Math.round(b.gesamt * x[2] * 100) / 100 - b.betrag) < 0.006);
+  return { geteilt: true, anteil: a ? a[0] : 'eigen', meinText: a ? '' : R.euro(b.betrag, false), teiltMit: b.teiltMit || '' };
+}
+const offeneRueckzahlungen = () => z.daten.buchungen.filter((b) => b.gesamt && !b.zurueckErhalten);
+
 // ---------- Geteilte Kosten ----------
 // Zeile unter einer Fixkoste: Gesamtbetrag, wer den Rest zurückzahlt, von welchem Konto abgebucht wird
 function geteiltText(f) {
@@ -841,7 +886,7 @@ const EBENEN = {
       <input class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="oder selbst eintragen" aria-label="Name der Einnahme">` : '';
     return sheet(`${eintragenWahl(e.art)}
       <div class="betrag-gross ${aus ? 'minus' : 'plus'}"><span>${aus ? '−' : '+'}</span><input id="et-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" placeholder="0" aria-label="Betrag in Euro"><span>€</span></div>
-      ${aus ? `<div class="label">Kategorie</div><div class="chips">${kats || '<span class="klein">Noch keine Budgets angelegt.</span>'}</div>${orte}` : namen}
+      ${aus ? `<div class="label">Kategorie</div><div class="chips">${kats || '<span class="klein">Noch keine Budgets angelegt.</span>'}</div>${orte}${teilenHtml(e)}` : namen}
       <div class="feld"><label for="et-datum">Datum</label><input id="et-datum" class="eingabe" type="date" data-feld="datum" value="${esc(e.datum)}"></div>
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="et-speichern">${aus ? 'Ausgabe buchen' : 'Einnahme eintragen'}</button></div>`, 'Eintragen');
@@ -1053,8 +1098,10 @@ const EBENEN = {
     const chips = (kat && kat.chips ? kat.chips : []).map((c) => wahlKnopf('bh-ort', c, c, eb.ort === c, 'class="chip"')).join('');
     const d = new Date(b.zeit);
     return sheet(`<h2>${esc(kat ? kat.name : '')} · ${esc(d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' }))}, ${esc(b.zeit.slice(11, 16))}</h2>
-      <div class="feld"><label for="bh-betrag">Betrag</label><input id="bh-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(eb.betragText)}"></div>
+      <div class="feld"><label for="bh-betrag">${eb.geteilt ? 'Gesamtbetrag (was du bezahlt hast)' : 'Betrag'}</label><input id="bh-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" data-teilen="1" value="${esc(eb.betragText)}"></div>
       ${chips ? `<div class="label">${esc(kat.frage || 'Wo?')}</div><div class="chips">${chips}${wahlKnopf('bh-ort', '', 'ohne', !eb.ort, 'class="chip"')}</div>` : ''}
+      ${teilenHtml(eb)}
+      ${b.gesamt ? `<button class="schalter" role="switch" aria-checked="${!!eb.zurueckErhalten}" data-a="bh-zurueck"><span class="t">Rückzahlung bekommen<br><span class="klein">${esc((eb.teiltMit || '').trim() || b.teiltMit || 'Die andere Person')} hat dir ${R.euro((teilRechnung(eb) && teilRechnung(eb).rest) || Math.round((b.gesamt - b.betrag) * 100) / 100)} zurückgezahlt</span></span><span class="spur"></span></button>` : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="buchung-weg" data-id="${esc(b.id)}">Löschen</button><button class="knopf haupt breit" data-a="bh-speichern">Speichern</button></div>`, 'Buchung ändern');
   },
@@ -1255,7 +1302,11 @@ const AKTION = {
     if (e.art === 'ausgabe') {
       if (!e.kategorieId) { eb.fehler = 'Bitte eine Kategorie wählen.'; z.ebenen.push(eb); renderEbenen(); return; }
       const id = D.neueId('b'); const kat = R.kategorie(z.daten, e.kategorieId);
-      await aendern((d) => { d.buchungen.push({ id, zeit, kategorieId: e.kategorieId, betrag, ort: e.ort || null, quelle: 'app' }); d.einstellungen.letzteKategorie = e.kategorieId; }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
+      const tr = teilRechnung(e);
+      if (tr && tr.fehler) { eb.fehler = tr.fehler; z.ebenen.push(eb); renderEbenen(); return; }
+      const neu = { id, zeit, kategorieId: e.kategorieId, betrag: tr ? tr.mein : betrag, ort: e.ort || null, quelle: 'app' };
+      if (tr) Object.assign(neu, { gesamt: tr.gesamt, teiltMit: (e.teiltMit || '').trim() || null, zurueckErhalten: false });
+      await aendern((d) => { d.buchungen.push(neu); d.einstellungen.letzteKategorie = e.kategorieId; }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(neu.betrag)} gebucht${tr ? ' (dein Anteil)' : ''}`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
     } else {
       const name = (e.name || '').trim() || 'Einnahme';
       const id = D.neueId('ein');
@@ -1588,13 +1639,28 @@ const AKTION = {
   },
 
   // Buchungen
-  buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne({ art: 'buchung', id: b.id, betragText: R.euro(b.betrag, false), ort: b.ort || '' }); },
+  buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne(Object.assign({ art: 'buchung', id: b.id, betragText: R.euro(b.gesamt || b.betrag, false), ort: b.ort || '', zurueckErhalten: !!b.zurueckErhalten }, teilEntwurf(b))); },
+  'bh-zurueck': () => { oben().zurueckErhalten = !oben().zurueckErhalten; renderEbenen(); },
+  'tl-an': (el) => { const t = oben().entwurf || oben(); t.geteilt = el.dataset.wert === '1'; if (!t.anteil) t.anteil = '1/2'; renderEbenen(); },
+  'tl-anteil': (el) => { const t = oben().entwurf || oben(); t.anteil = el.dataset.wert; renderEbenen(); },
+  'rueck-erhalten': async (el) => {
+    const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (!b) return;
+    await aendern((d) => { const x = d.buchungen.find((y) => y.id === b.id); if (x) x.zurueckErhalten = true; },
+      { text: `${R.euro(Math.round((b.gesamt - b.betrag) * 100) / 100)} von ${b.teiltMit || 'der anderen Person'} bekommen`, rueckgaengig: (d) => { const x = d.buchungen.find((y) => y.id === b.id); if (x) x.zurueckErhalten = false; } });
+  },
   'bh-ort': (el) => { oben().ort = el.dataset.wert; renderEbenen(); },
   'bh-speichern': async () => {
     const eb = oben(); const betrag = zahl(eb.betragText);
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    const tr = teilRechnung(eb);
+    if (tr && tr.fehler) { eb.fehler = tr.fehler; renderEbenen(); return; }
     z.ebenen.pop();
-    await aendern((d) => { const b = d.buchungen.find((x) => x.id === eb.id); if (b) { b.betrag = betrag; b.ort = eb.ort || null; } }, { text: 'Buchung geändert' });
+    await aendern((d) => {
+      const b = d.buchungen.find((x) => x.id === eb.id); if (!b) return;
+      b.ort = eb.ort || null;
+      if (tr) Object.assign(b, { betrag: tr.mein, gesamt: tr.gesamt, teiltMit: (eb.teiltMit || '').trim() || null, zurueckErhalten: !!eb.zurueckErhalten });
+      else { b.betrag = betrag; delete b.gesamt; delete b.teiltMit; delete b.zurueckErhalten; }
+    }, { text: 'Buchung geändert' });
   },
   'buchung-weg': async (el) => {
     const id = el.dataset.id; const b = z.daten.buchungen.find((x) => x.id === id); if (!b) return;
@@ -1813,6 +1879,8 @@ function bindeEreignisse() {
     if (el.dataset.feld.includes('.')) setzePfad(eb, el.dataset.feld, wert);
     else (eb.entwurf || eb)[el.dataset.feld] = wert;
     if (el.dataset.neuZeichnen) aktualisiereZusammenfassung();
+    const th = document.getElementById('tl-hinweis');
+    if (th && (el.dataset.teilen || el.dataset.feld === 'betragText')) th.textContent = teilHinweis(eb.entwurf || eb);
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && z.ebenen.length && oben().art !== 'start') schliessen();
