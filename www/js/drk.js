@@ -151,4 +151,4 @@ export function gehaltRechnen(e, ym) {
 
 export const STANDARD = { eg: '9c', stufe: 3, vz: '38,5', tz: '100', schicht: true, praxis: false, zulageText: '', besitzText: '',
   nachtText: '', sonntagText: '', feiertagText: '', stkl: 1, kinder: 0, ab23: true, zkfText: '0', kvzText: '2,9', kirche: 0, sachsen: false,
-  freibetragText: '', abzugText: '' };
+  freibetragText: '', abzugText: '', offenZaehlt: '1' };

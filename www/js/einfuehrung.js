@@ -299,6 +299,8 @@ export function anwenden(d, eb, zahlFn) {
       if (p.loeschen) { d.fixkosten.splice(i, 1); continue; }
       if (!(zahl(p.betragText) > 0)) continue;
       const a = anteilVon(p);
+      // offener Betrag (v25): erst mit einem neu eingetragenen Betrag ist er geklärt
+      if (d.fixkosten[i].offen && zahl(p.betragText) !== d.fixkosten[i].betrag) delete d.fixkosten[i].offen;
       Object.assign(d.fixkosten[i], { betrag: zahl(p.betragText), wieOft: p.wieOft, tag: Number(p.tag) || 1, monat: p.wieOft === 'monatlich' ? null : Number(p.monat) || 1,
         meinAnteil: a, teiltMit: a < 100 ? (p.teiltMit || '').trim() || d.fixkosten[i].teiltMit || null : null, erstattungTag: a < 100 ? d.fixkosten[i].erstattungTag || null : null });
     }

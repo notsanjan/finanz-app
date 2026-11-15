@@ -214,3 +214,50 @@ test('Gehalt bestätigen und Schätzung, die mitlernt', () => {
   // der bestätigte Betrag zählt statt der Schätzung
   assert.equal(R.monatsRechnung(d, '2026-10').einkommen, 2470);
 });
+
+// ---------- Offene Beträge (v25) ----------
+test('Offener Betrag, zählt nicht: „Frei“ bleibt, „Mit Offenem“ zeigt die Spanne', () => {
+  const d = daten();
+  const frei = R.monatsRechnung(d, '2026-11').frei;
+  d.fixkosten.push({ id: 'fk-offen', name: 'Strom neu', betrag: 0, wieOft: 'monatlich', tag: 15, kategorieId: 'wohnen', meinAnteil: 100, offen: { von: 60, bis: 90, zaehlt: false } });
+  assert.equal(R.monatsRechnung(d, '2026-11').frei, frei);
+  const m = R.mitOffenem(d, '2026-11');
+  assert.equal(m.anzahl, 1);
+  assert.equal(m.min, frei - 90);
+  assert.equal(m.max, frei - 60);
+  assert.equal(m.betrifft, true);
+});
+
+test('Offener Betrag, zählt mit: „Frei“ rechnet mit dem oberen Wert, Umschalten hält betrag passend', () => {
+  const d = daten();
+  const frei = R.monatsRechnung(d, '2026-11').frei;
+  const o = { von: 60, bis: 90, zaehlt: true };
+  d.fixkosten.push({ id: 'fk-offen', name: 'Strom neu', betrag: R.offenBetrag(o), wieOft: 'monatlich', tag: 15, kategorieId: 'wohnen', meinAnteil: 100, offen: o });
+  assert.equal(R.monatsRechnung(d, '2026-11').frei, frei - 90);
+  const m = R.mitOffenem(d, '2026-11');
+  assert.equal(m.min, frei - 90);
+  assert.equal(m.max, frei - 60);
+  R.offenZaehltSetzen(d, 'fixkosten', 'fk-offen', false);
+  assert.equal(R.monatsRechnung(d, '2026-11').frei, frei);
+  assert.equal(d.fixkosten.find((f) => f.id === 'fk-offen').betrag, 0);
+});
+
+test('Offene Einnahme: zählt nicht = geplant, aber nicht unter „Mit Geplantem“; ohne Schätzung wird gezählt', () => {
+  const d = daten();
+  const r0 = R.monatsRechnung(d, '2026-11');
+  d.einnahmen.push({ id: 'ein-offen', name: 'Verkauf', wieOft: 'einmalig', monat: '2026-11', betrag: { von: 100, bis: 150 }, sicher: false, status: 'geplant', kommtAn: 'sofort', istWerte: [], offen: { von: 100, bis: 150, zaehlt: false } });
+  d.buchungen.push({ id: 'b-offen', zeit: '2026-11-10T12:00:00', kategorieId: 'tanken', betrag: 0, ort: null, quelle: 'app', offen: { zaehlt: false } });
+  const r = R.monatsRechnung(d, '2026-11');
+  assert.equal(r.frei, r0.frei);
+  assert.equal(r.geplantRein, r0.geplantRein);
+  const m = R.mitOffenem(d, '2026-11');
+  assert.equal(m.anzahl, 2);
+  assert.equal(m.ohne, 1);
+  assert.equal(m.min, r0.frei + 100);
+  assert.equal(m.max, r0.frei + 150);
+  R.offenZaehltSetzen(d, 'einnahme', 'ein-offen', true);
+  assert.equal(R.monatsRechnung(d, '2026-11').frei, r0.frei + 100);
+  assert.equal(R.offenText({ von: 60, bis: 90 }), '60–90 €');
+  assert.equal(R.offenText({}), 'unbekannt');
+  assert.equal(R.mitOffenem(daten(), '2026-11'), null);
+});
