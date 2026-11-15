@@ -129,6 +129,56 @@ export function verlaufMitStand(daten) {
   }).reverse();
 }
 
+// ---------- Rücklagenkonto ----------
+// Eine Sparrate mit art "ruecklage": feste Monatsrate auf ein eigenes Konto, daraus werden
+// alle nicht monatlichen Fixkosten bezahlt. Ohne Rücklagenkonto zählen sie im Monat der Abbuchung voll.
+export function ruecklage(daten) { return (daten.sparraten || []).find((sp) => sp.art === 'ruecklage') || null; }
+export function sparratenNormal(daten) { return (daten.sparraten || []).filter((sp) => sp.art !== 'ruecklage'); }
+const istMonatlich = (f) => (RHYTHMUS[f.wieOft] || 1) === 1;
+
+export function empfohleneRuecklage(daten, s) {
+  const summe = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && laeuftIm(f, s)).reduce((a, f) => a + monatsAnteil(f), 0);
+  return Math.ceil(summe / 5) * 5;
+}
+
+// Ein- und Auszahlungen der Rücklage zwischen zwei Tagen (von exklusiv, bis inklusive)
+function ruecklageBewegungen(daten, rk, von, bis) {
+  const liste = [];
+  let s = ymAus(von);
+  for (let i = 0; i < 600 && s <= ymAus(bis); i++) {
+    const rateTag = s + '-' + zweistellig(Math.min(rk.tag || 1, tageImMonat(s)));
+    if (rateTag > von && rateTag <= bis) liste.push({ datum: rateTag, betrag: Number(rk.betrag) || 0 });
+    for (const f of daten.fixkosten || []) {
+      if (istMonatlich(f) || !wirdAbgebuchtIm(f, s)) continue;
+      const d = s + '-' + zweistellig(abbuchungsTag(f, s));
+      if (d > von && d <= bis) liste.push({ datum: d, betrag: -eigenerBetrag(f), fixkosten: f });
+    }
+    s = ymPlus(s, 1);
+  }
+  // am selben Tag: erst die Rate, dann die Abbuchung
+  return liste.sort((x, y) => (x.datum < y.datum ? -1 : x.datum > y.datum ? 1 : y.betrag - x.betrag));
+}
+
+export function ruecklageStand(daten, d) {
+  const rk = ruecklage(daten);
+  if (!rk) return 0;
+  const start = rk.standDatum || d;
+  return ruecklageBewegungen(daten, rk, start, d).reduce((a, b) => a + b.betrag, Number(rk.stand) || 0);
+}
+
+// Reicht die Rücklage für die nächsten 12 Monate? Liefert die erste Lücke oder null.
+export function ruecklageLuecke(daten, heute) {
+  const rk = ruecklage(daten);
+  if (!rk) return null;
+  let stand = ruecklageStand(daten, heute);
+  const bis = ymPlus(ymAus(heute), 12) + '-01';
+  for (const b of ruecklageBewegungen(daten, rk, heute, bis)) {
+    stand += b.betrag;
+    if (stand < -0.005 && b.fixkosten) return { datum: b.datum, fehlt: -stand, fixkosten: b.fixkosten };
+  }
+  return null;
+}
+
 // ---------- Monat ----------
 export function kategorie(daten, id) { return (daten.kategorien || []).find((k) => k.id === id); }
 
@@ -136,35 +186,138 @@ export function monatsRechnung(daten, s) {
   const einnahmen = (daten.einnahmen || []).filter((e) => e.wieOft === 'monatlich').map((e) => Object.assign({ einnahme: e }, einnahmeIm(e, s)));
   const einkommen = einnahmen.reduce((a, e) => a + e.betrag, 0);
   const geschaetzt = einnahmen.some((e) => e.geschaetzt);
+  const rk = ruecklage(daten);
 
   const gruppen = [];
-  let zurueck = 0;
   for (const kat of (daten.kategorien || []).filter((k) => k.art === 'fix')) {
     const posten = (daten.fixkosten || []).filter((f) => f.kategorieId === kat.id && laeuftIm(f, s)).map((f) => {
       const faellig = wirdAbgebuchtIm(f, s);
-      const anteil = monatsAnteil(f);
-      if (!faellig) zurueck += anteil;
-      return { fixkosten: f, faellig, betrag: eigenerBetrag(f), anteil, wann: rhythmusBeschreibung(f) + (f.abo ? ' · Abo' : '') };
+      const ausRuecklage = !!rk && !istMonatlich(f);
+      return { fixkosten: f, faellig, ausRuecklage, zaehlt: faellig && !ausRuecklage, betrag: eigenerBetrag(f), anteil: monatsAnteil(f), wann: rhythmusBeschreibung(f) + (f.abo ? ' · Abo' : '') };
     });
-    const summe = posten.filter((p) => p.faellig).reduce((a, p) => a + p.betrag, 0);
-    const anteilSumme = posten.filter((p) => !p.faellig).reduce((a, p) => a + p.anteil, 0);
-    gruppen.push({ kategorie: kat, art: 'fix', farbe: kat.farbe, name: kat.name, posten, summe, anteilSumme });
+    const summe = posten.filter((p) => p.zaehlt).reduce((a, p) => a + p.betrag, 0);
+    gruppen.push({ kategorie: kat, art: 'fix', farbe: kat.farbe, name: kat.name, posten, summe });
   }
   const budgetKats = (daten.kategorien || []).filter((k) => k.art === 'budget');
   if (budgetKats.length) {
     const posten = budgetKats.map((k) => {
       const ausgegeben = ausgegebenIm(daten, s, k.id);
       const budget = Number(k.budget) || 0;
-      return { kategorie: k, faellig: true, betrag: Math.max(budget, ausgegeben), budget, ausgegeben };
+      return { kategorie: k, faellig: true, zaehlt: true, betrag: Math.max(budget, ausgegeben), budget, ausgegeben };
     });
-    gruppen.push({ art: 'budget', farbe: (daten.einstellungen && daten.einstellungen.budgetFarbe) || '#5d7d99', name: 'Budgets', posten, summe: posten.reduce((a, p) => a + p.betrag, 0), anteilSumme: 0 });
+    gruppen.push({ art: 'budget', farbe: (daten.einstellungen && daten.einstellungen.budgetFarbe) || '#5d7d99', name: 'Budgets', posten, summe: posten.reduce((a, p) => a + p.betrag, 0) });
   }
 
   const ausgaben = gruppen.reduce((a, g) => a + g.summe, 0);
-  const zuruecklegen = Math.round(zurueck);
-  const sparen = (daten.sparraten || []).reduce((a, sp) => a + (Number(sp.betrag) || 0), 0);
+  const zuruecklegen = rk ? Number(rk.betrag) || 0 : 0;
+  const sparen = sparratenNormal(daten).reduce((a, sp) => a + (Number(sp.betrag) || 0), 0);
   const frei = einkommen - ausgaben - zuruecklegen - sparen;
-  return { monat: s, einnahmen, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, sparen, frei };
+  return { monat: s, einnahmen, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, frei };
+}
+
+// Ohne Rücklagenkonto: nächster Monat (ab dem folgenden), in dem nicht monatliche Kosten anfallen
+export function naechsterBrockenMonat(daten, s) {
+  for (let i = 1; i <= 12; i++) {
+    const m = ymPlus(s, i);
+    const posten = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && wirdAbgebuchtIm(f, m));
+    if (posten.length) return { monat: m, posten, summe: posten.reduce((a, f) => a + eigenerBetrag(f), 0), frei: monatsRechnung(daten, m).frei };
+  }
+  return null;
+}
+
+// ---------- Potenzielle Ausgaben (Wünsche, Konzept §5/§15) ----------
+export function preisBis(w) { const p = w.preis; return p && typeof p === 'object' ? Number(p.bis) || Number(p.von) || 0 : Number(p) || 0; }
+export function preisVon(w) { const p = w.preis; return p && typeof p === 'object' ? Number(p.von) || 0 : Number(p) || 0; }
+export function preisText(w) {
+  const p = w.preis;
+  return p && typeof p === 'object' && Number(p.bis) > Number(p.von) ? euro(Number(p.von), false) + '–' + euro(Number(p.bis)) : euro(preisBis(w));
+}
+export function offeneWuensche(daten) { return (daten.wuensche || []).filter((w) => w.status !== 'gekauft'); }
+
+// Prüft alle geplanten Wünsche ab dem Monat ab: reicht das Geld, wird ein Budget überschritten, ab wann leistbar?
+// Gerechnet wird vorsichtig mit dem oberen Preis; was in einem Monat frei bleibt, steht in den Folgemonaten zur Verfügung.
+export function wunschPruefung(daten, ab, monate = 24) {
+  const wuensche = offeneWuensche(daten);
+  const ergebnis = {};
+  const freiIm = {};
+  for (let i = 0; i < monate; i++) { const m = ymPlus(ab, i); freiIm[m] = monatsRechnung(daten, m).frei; }
+  const monatVon = (w) => (w.monat && w.monat >= ab ? w.monat : ab);
+  // Budget-Wünsche: was über das Budget hinausgeht, kommt aus „Frei“
+  const ausFrei = {};
+  const budgetRest = {};
+  for (const w of wuensche.filter((x) => x.monat)) {
+    const m = monatVon(w);
+    let ueber = 0;
+    const k = w.kategorieId ? kategorie(daten, w.kategorieId) : null;
+    if (k && k.art === 'budget') {
+      const key = m + '|' + k.id;
+      if (budgetRest[key] == null) budgetRest[key] = Math.max(0, (Number(k.budget) || 0) - ausgegebenIm(daten, m, k.id));
+      const rest = budgetRest[key];
+      ueber = Math.max(0, preisBis(w) - rest);
+      budgetRest[key] = Math.max(0, rest - preisBis(w));
+      ergebnis[w.id] = { budgetUeber: ueber, kategorie: k };
+    } else ueber = preisBis(w);
+    ausFrei[w.id] = ueber;
+  }
+  // Monat für Monat: übrig = alles Freie bisher minus alles Geplante bisher
+  let uebrig = 0;
+  const reihenfolge = [];
+  for (let i = 0; i < monate; i++) {
+    const m = ymPlus(ab, i);
+    uebrig += freiIm[m];
+    for (const w of wuensche.filter((x) => x.monat && monatVon(x) === m)) {
+      uebrig -= ausFrei[w.id];
+      const r = ergebnis[w.id] || (ergebnis[w.id] = {});
+      r.monat = m;
+      r.fehlt = uebrig < -0.005 ? -uebrig : 0;
+      reihenfolge.push(w);
+    }
+    if (i === 0) ergebnis.__ersterMonatUebrig = uebrig;
+  }
+  // frühestens leistbar: ab welchem Monat wäre die Lücke durch freie Monate gedeckt?
+  for (const w of reihenfolge) {
+    const r = ergebnis[w.id];
+    if (!r.fehlt) continue;
+    let luecke = r.fehlt;
+    for (let i = 1; i < monate; i++) {
+      const m = ymPlus(r.monat, i);
+      if (freiIm[m] == null) break;
+      luecke -= freiIm[m];
+      if (luecke <= 0) { r.fruehestens = m; break; }
+    }
+  }
+  // Wünsche ohne Monat: ab wann leistbar, nach allen geplanten
+  let rest = 0;
+  const offen = wuensche.filter((x) => !x.monat);
+  const kum = [];
+  for (let i = 0; i < monate; i++) {
+    const m = ymPlus(ab, i);
+    rest += freiIm[m];
+    for (const w of reihenfolge.filter((x) => ergebnis[x.id].monat === m)) rest -= ausFrei[w.id];
+    kum.push([m, rest]);
+  }
+  // leistbar ab Monat k nur, wenn danach kein geplanter Monat ins Minus rutscht
+  let verbraucht = 0;
+  for (const w of offen) {
+    const brauch = preisBis(w);
+    let treffer = null;
+    for (let k = 0; k < kum.length && !treffer; k++) {
+      let minRest = Infinity;
+      for (let j = k; j < kum.length; j++) minRest = Math.min(minRest, kum[j][1] - verbraucht);
+      if (minRest >= brauch) treffer = kum[k];
+    }
+    ergebnis[w.id] = { offen: true, fruehestens: treffer ? treffer[0] : null, sofort: !!treffer && treffer[0] === ab };
+    if (treffer) verbraucht += brauch;
+  }
+  return ergebnis;
+}
+
+// Was im Monat s geplant ist und aus „Frei“ bezahlt würde
+export function geplantAusFrei(daten, s, pruefung) {
+  return offeneWuensche(daten).filter((w) => w.monat === s).reduce((a, w) => {
+    const r = pruefung && pruefung[w.id];
+    return a + (r && r.kategorie ? r.budgetUeber || 0 : preisBis(w));
+  }, 0);
 }
 
 // ---------- Jahr ----------

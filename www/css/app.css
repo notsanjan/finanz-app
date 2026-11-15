@@ -252,3 +252,25 @@ select.eingabe option { background: #1d2327; color: #eef2f0; }
 .ansicht-wahl button[aria-pressed="true"] { background: rgba(255, 255, 255, .16); color: #fff; font-weight: 600; }
 .pro-monat-summe { padding: 2px 4px; font-size: 14px; color: var(--gedaempft); line-height: 1.4; }
 .pro-monat-summe b { font-size: 17px; color: var(--text); font-weight: 500; }
+
+/* Frei-Karte: Zusatzzeilen */
+.frei-zeile { display: flex; justify-content: space-between; align-items: baseline; font-size: 15px; color: var(--gedaempft); border-top: 1px solid rgba(255, 255, 255, .10); padding-top: 10px; }
+.frei-zeile b { font-size: 20px; font-weight: 500; color: var(--text); }
+.frei-zeile b.minus { color: var(--fehler); }
+.frei-hinweis { font-size: 14px; line-height: 1.35; color: var(--hinweis); border-top: 1px solid rgba(255, 255, 255, .10); padding-top: 10px; }
+.warn-text { font-size: 13px; color: var(--fehler); margin-top: 2px; }
+.hinweis-karte { border-color: rgba(201, 210, 122, .35); background: rgba(201, 210, 122, .08); }
+.hinweis-kopf { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
+
+/* Geplant (potenzielle Ausgaben) */
+.geplant-karte { gap: 0; padding: 4px 14px 14px 16px; border-style: solid; border-color: rgba(143, 179, 217, .35); }
+.geplant-kopf { display: flex; align-items: center; gap: 12px; min-height: 58px; }
+.geplant-kopf .t { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.geplant-kopf b { font-size: 18px; font-weight: 600; }
+.geplant-kopf small { font-size: 13px; color: var(--gedaempft); }
+.geplant-karte .knopf { margin-top: 10px; }
+.posten small.status { font-size: 13px; }
+.posten small.status.gut { color: var(--akzent); }
+.posten small.status.hinweis { color: var(--hinweis); }
+.posten small.status.warn { color: var(--fehler); }
+.jahr-zeile .extra.geplant { color: var(--spar); }

@@ -21,19 +21,21 @@ export const LISTEN = [
 ];
 
 const BUDGET_VORSCHLAEGE = { lebensmittel: 300, tanken: 150, freizeit: 120, sonstiges: 0 };
-const SCHRITTE = ['gehalt', ...LISTEN.map((l) => 'liste:' + l.id), 'sparen', 'budgets', 'fertig'];
+const SCHRITTE = ['gehalt', ...LISTEN.map((l) => 'liste:' + l.id), 'ruecklage', 'sparen', 'budgets', 'fertig'];
 const RHYTHMEN = [[M, 'monatlich'], [V, 'vierteljährlich'], [H, 'halbjährlich'], [J, 'jährlich']];
 
 export function neueEinfuehrung(daten, erstStart) {
   const vorhanden = (katId, name) => (daten.fixkosten || []).some((f) => f.kategorieId === katId && f.name.toLowerCase() === name.toLowerCase());
   const g = daten.einnahmen.find((e) => e.wieOft === 'monatlich');
-  const sp = daten.sparraten[0];
+  const sp = R.sparratenNormal(daten)[0];
+  const rk = R.ruecklage(daten);
   return {
     art: 'einfuehrung', erstStart, schritt: 0,
     gehalt: { text: g && g.betrag ? String(g.betrag).replace('.', ',') : '', kommtAn: g && g.kommtAn === 'Tag' ? 'Tag' : 'Monatsende', tag: String((g && g.ankunftTag) || 1) },
     listen: Object.fromEntries(LISTEN.map((l) => [l.id, l.vorschlaege.map((x) => Object.assign({}, x, {
       gewaehlt: false, vorhanden: vorhanden(l.id, x.name), betragText: '', monat: x.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, anteilText: '100'
     }))])),
+    ruecklage: { ja: rk ? true : null, betrag: rk ? String(rk.betrag) : '', tag: String(rk ? rk.tag || 1 : 1), stand: rk ? String(Math.round(R.ruecklageStand(daten, R.datumText(new Date())))) : '' },
     sparen: { ja: sp ? true : null, betrag: sp ? String(sp.betrag) : '', tag: String(sp ? sp.tag || 1 : 1), stand: sp ? String(R.sparStand(sp, R.datumText(new Date()))) : '' },
     budgets: daten.kategorien.filter((k) => k.art === 'budget').map((k) => ({
       id: k.id, name: k.name, emoji: k.emoji || '', an: true, text: String(k.budget || (erstStart ? BUDGET_VORSCHLAEGE[k.id] || 0 : 0))
@@ -83,6 +85,28 @@ export function einfuehrungHtml(eb, h) {
       <p class="hinweistext">${esc(l.frage)} Antippen zum Auswählen. Nichts davon? Einfach „Weiter“.</p>
       <div class="chips">${chips}<button class="chip ef-chip eigen" data-a="ef-eigen" data-liste="${l.id}">${ICON.plus} Eigene hinzufügen</button></div>
       ${karten}`;
+  } else if (art === 'ruecklage') {
+    const probe = h.kopie(h.z.daten);
+    anwenden(probe, Object.assign({}, eb, { ruecklage: { ja: false } }), h.zahl);
+    const jaehrliche = probe.fixkosten.filter((f) => f.wieOft !== 'monatlich');
+    const empf = R.empfohleneRuecklage(probe, R.ymAus(R.datumText(new Date())));
+    if (eb.ruecklage.ja && !eb.ruecklage.betrag && empf) eb.ruecklage.betrag = String(empf);
+    const jahr = jaehrliche.reduce((a, f) => a + R.monatsAnteil(f) * 12, 0);
+    inhalt = `<h2 class="ef-titel">📆 Jährliche Kosten</h2>
+      ${jaehrliche.length ? `<p class="hinweistext">Du hast ${jaehrliche.length} Kosten, die nicht jeden Monat abgebucht werden (${esc(jaehrliche.slice(0, 4).map((f) => f.name).join(', '))}${jaehrliche.length > 4 ? ' …' : ''}). Zusammen ≈ ${R.euroRund(jahr)} im Jahr, also ≈ ${R.euroRund(jahr / 12)} pro Monat.</p>`
+        : '<p class="hinweistext">Du hast keine jährlichen oder vierteljährlichen Kosten eingetragen. Diesen Schritt kannst du überspringen.</p>'}
+      <section class="karte">
+        <b style="font-size:17px">Hast du ein eigenes Konto für Rücklagen?</b>
+        <p class="hinweistext">z. B. ein Unterkonto oder Tagesgeld. Ein Dauerauftrag schiebt jeden Monat denselben Betrag dorthin, und daraus zahlst du Versicherungen und Co. So ist jeden Monat gleich viel frei.</p>
+        <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="ruecklage.ja" data-wert="ja" aria-pressed="${eb.ruecklage.ja === true}">Ja / lege ich an</button><button data-a="ef-wert" data-pfad="ruecklage.ja" data-wert="nein" aria-pressed="${eb.ruecklage.ja === false}">Nein</button></div>
+        ${eb.ruecklage.ja === false ? '<p class="hinweistext">Dann zählen jährliche Kosten voll im Monat der Abbuchung, und die App warnt dich vorher.</p>' : ''}
+      </section>
+      ${eb.ruecklage.ja ? `<section class="karte">
+        <div class="zwei"><div class="feld"><label for="ef-rb">Dauerauftrag pro Monat</label><input id="ef-rb" class="eingabe" inputmode="decimal" data-feld="ruecklage.betrag" value="${esc(eb.ruecklage.betrag)}"></div>
+        <div class="feld"><label for="ef-rt">Am Tag</label>${tagAuswahl('ef-rt', 'ruecklage.tag', Number(eb.ruecklage.tag))}</div></div>
+        ${empf ? `<p class="hinweistext">Empfohlen: ${R.euroRund(empf)} pro Monat.</p>` : ''}
+        <div class="feld"><label for="ef-rs">Was liegt heute schon darauf?</label><input id="ef-rs" class="eingabe" inputmode="decimal" data-feld="ruecklage.stand" value="${esc(eb.ruecklage.stand)}" placeholder="0 €"></div>
+      </section>` : ''}`;
   } else if (art === 'sparen') {
     inhalt = `<h2 class="ef-titel">💰 Sparen</h2>
       <p class="hinweistext">Sparst du jeden Monat einen festen Betrag? Das ist keine Ausgabe: Das Geld bleibt deins, es wird nur von „Frei“ abgezogen.</p>
@@ -110,7 +134,7 @@ export function einfuehrungHtml(eb, h) {
     const anzahl = probe.fixkosten.length;
     inhalt = `<h2 class="ef-titel">Fertig eingerichtet</h2>
       <section class="karte ring"><div class="label">Frei im ${esc(h.monatsName(h.heuteYm()))}</div><div class="grosszahl ${r.frei < 0 ? 'minus' : ''}">${r.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei))}</div>
-        <p class="hinweistext">${anzahl} Fixkosten, ${probe.kategorien.filter((k) => k.art === 'budget' && k.budget > 0).length} Budgets${r.sparen ? ', ' + R.euroRund(r.sparen) + ' aufs Sparkonto' : ''}. Alles lässt sich in der Monatsansicht antippen und ändern.</p></section>
+        <p class="hinweistext">${anzahl} Fixkosten, ${probe.kategorien.filter((k) => k.art === 'budget' && k.budget > 0).length} Budgets${r.mitRuecklage ? ', ' + R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto' : ''}${r.sparen ? ', ' + R.euroRund(r.sparen) + ' aufs Sparkonto' : ''}. Alles lässt sich in der Monatsansicht antippen und ändern.</p></section>
       <section class="karte"><div class="label">Widgets auf den Homescreen legen</div>
         <ol class="hinweistext" style="margin:0;padding-left:20px;line-height:1.6"><li>Lange auf eine freie Stelle des Homescreens drücken</li><li>„Widgets“ antippen und „Finanzen“ suchen</li><li>„Budget“ auf den Homescreen ziehen und eine Kategorie wählen</li><li>Für jede Kategorie ein eigenes Widget, dazu gern „Fixkosten“</li></ol></section>`;
   }
@@ -144,6 +168,10 @@ export function pruefeSchritt(eb, zahl) {
     const anteil = posten.filter((p) => p.anteil && (isNaN(zahl(p.anteilText)) || zahl(p.anteilText) <= 0 || zahl(p.anteilText) > 100));
     if (anteil.length) return 'Der Anteil muss zwischen 1 und 100 % liegen.';
   }
+  if (art === 'ruecklage' && eb.ruecklage.ja) {
+    if (isNaN(zahl(eb.ruecklage.betrag)) || zahl(eb.ruecklage.betrag) <= 0) return 'Bitte den Dauerauftrag eintragen oder „Nein“ wählen.';
+    if (eb.ruecklage.stand.trim() && isNaN(zahl(eb.ruecklage.stand))) return 'Der Stand ist keine Zahl.';
+  }
   if (art === 'sparen' && eb.sparen.ja) {
     if (isNaN(zahl(eb.sparen.betrag)) || zahl(eb.sparen.betrag) <= 0) return 'Bitte die Sparrate eintragen oder „Nein“ wählen.';
     if (eb.sparen.stand.trim() && isNaN(zahl(eb.sparen.stand))) return 'Der Stand ist keine Zahl.';
@@ -176,9 +204,15 @@ export function anwenden(d, eb, zahlFn) {
         meinAnteil: p.anteil ? zahl(p.anteilText) || 100 : 100, endetAm: null, kuendigungsfrist: null });
     }
   }
+  if (eb.ruecklage && eb.ruecklage.ja && zahl(eb.ruecklage.betrag) > 0) {
+    const werte = { betrag: zahl(eb.ruecklage.betrag), tag: Number(eb.ruecklage.tag) || 1, stand: zahl(eb.ruecklage.stand || '0') || 0, standDatum: R.datumText(new Date()) };
+    const rk = d.sparraten.find((x) => x.art === 'ruecklage');
+    if (rk) Object.assign(rk, werte); else d.sparraten.push(Object.assign({ id: 'ruecklage', name: 'Rücklagenkonto', art: 'ruecklage', ziel: null }, werte));
+  }
   if (eb.sparen.ja && zahl(eb.sparen.betrag) > 0) {
     const werte = { betrag: zahl(eb.sparen.betrag), tag: Number(eb.sparen.tag) || 1, stand: zahl(eb.sparen.stand || '0') || 0, standDatum: R.datumText(new Date()) };
-    if (d.sparraten[0]) Object.assign(d.sparraten[0], werte);
+    const sp = d.sparraten.find((x) => x.art !== 'ruecklage');
+    if (sp) Object.assign(sp, werte);
     else d.sparraten.push(Object.assign({ id: 'sparkonto', name: 'Sparkonto', ziel: null }, werte));
   }
   for (const b of eb.budgets) {

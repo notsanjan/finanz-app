@@ -42,7 +42,8 @@ export function leereDaten(heute = new Date()) {
       { id: 'gehalt', name: 'Gehalt', wieOft: 'monatlich', betrag: 0, sicher: false, kommtAn: 'Monatsende', selbststaendig: false, istWerte: [] }
     ],
     sparraten: [],
-    buchungen: []
+    buchungen: [],
+    wuensche: []
   };
 }
 
@@ -66,7 +67,11 @@ export function beispielDaten(heute = new Date()) {
   d.kategorien = grundKategorien();
   d.einnahmen[0].betrag = 2400;
   const monat = d.einstellungen.startMonat;
-  d.sparraten = [{ id: 'sparkonto', name: 'Sparkonto', betrag: 200, tag: 1, stand: 2050, standDatum: monat + '-01', ziel: null }];
+  d.sparraten = [
+    { id: 'sparkonto', name: 'Sparkonto', betrag: 200, tag: 1, stand: 2050, standDatum: monat + '-01', ziel: null },
+    { id: 'ruecklage', name: 'Rücklagenkonto', art: 'ruecklage', betrag: 75, tag: 1, stand: 420, standDatum: monat + '-01', ziel: null }
+  ];
+  d.wuensche = [{ id: 'wunsch-starlink', name: '🛰️ Starlink', preis: 300, monat: null, kategorieId: null, status: 'geplant' }];
   d.beispiel = true;
   return d;
 }
@@ -77,7 +82,7 @@ export function vervollstaendigen(d) {
   const out = Object.assign({}, leer, d);
   out.format = FORMAT;
   out.einstellungen = Object.assign({}, leer.einstellungen, d.einstellungen || {});
-  for (const k of ['kategorien', 'fixkosten', 'einnahmen', 'sparraten', 'buchungen']) if (!Array.isArray(out[k])) out[k] = leer[k];
+  for (const k of ['kategorien', 'fixkosten', 'einnahmen', 'sparraten', 'buchungen', 'wuensche']) if (!Array.isArray(out[k])) out[k] = leer[k];
   if (!out.einnahmen.some((e) => e.wieOft === 'monatlich')) out.einnahmen.unshift(leer.einnahmen[0]);
   for (const e of out.einnahmen) if (!Array.isArray(e.istWerte)) e.istWerte = [];
   return out;
