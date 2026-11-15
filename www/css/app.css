@@ -591,3 +591,40 @@ button.ef-chip.da { opacity: .75; }
 .gr-quellen summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: var(--t-text); font-weight: 500; }
 .gr-quellen .hinweistext { margin-top: 8px; }
 .gr-start { width: 100%; margin-top: -4px; }
+
+/* v25: Offene Beträge (Betrag unbekannt) */
+.offen-link { align-self: flex-start; margin-top: 2px; color: var(--hinweis); border-color: var(--rand-mittel); }
+.betrag-gross + .offen-link { align-self: center; margin-top: -4px; }
+.offen-kasten { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--r-mittel); border: 1px dashed var(--hinweis); background: var(--flaeche-1); }
+.offen-kopf { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.offen-kopf b { font-size: var(--t-text); color: var(--hinweis); }
+.offen-kasten .hinweistext { margin: 0; }
+.offen-feld-aus { display: flex; align-items: center; color: var(--hinweis); border-style: dashed; font-weight: 600; }
+.offen-zahl { color: var(--grau); white-space: nowrap; }
+.offen-zahl.minus-zahl { color: var(--minus); }
+.offen-zahl.plus-zahl { color: var(--plus); }
+.offen-marke { display: inline-block; font-size: var(--t-mini); font-weight: 400; color: var(--grau); white-space: nowrap; }
+.offen-marke.an { color: var(--hinweis); }
+.eintrag .t b .offen-zahl { font-size: inherit; }
+.eintrag .t b .offen-marke { margin-left: 6px; }
+.mit-offenem { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; width: 100%; min-height: 48px; justify-content: center; margin-top: -6px; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--t-klein); color: var(--gedaempft); }
+.mit-offenem .mo-zeile { display: flex; gap: 6px; align-items: baseline; }
+.mit-offenem b { color: var(--text); font-weight: 500; }
+.mit-offenem small { font-size: var(--t-mini); color: var(--hinweis); }
+.of-zeile { display: flex; align-items: center; gap: 10px; min-height: 64px; padding: 8px 0; border-bottom: 1px solid var(--flaeche-2); }
+.of-zeile:last-child { border-bottom: 0; }
+.of-inhalt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: transparent; padding: 0; text-align: left; color: var(--text); }
+.of-inhalt .n { font-size: var(--t-text); font-weight: 600; }
+.of-inhalt small { font-size: var(--t-label); color: var(--gedaempft); }
+.of-wert { font-size: var(--t-klein); color: var(--grau); }
+.of-wert.minus-zahl { color: var(--minus); }
+.of-wert.plus-zahl { color: var(--plus); }
+.of-schalter { width: auto; flex-shrink: 0; gap: 8px; }
+.of-schalter .t { flex: none; color: var(--gedaempft); text-align: right; min-width: 64px; }
+.of-kopf { display: flex; flex-direction: column; gap: 2px; }
+.of-kopf .zwei { margin-top: 10px; }
+.gr-feldkopf { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.gr-frage { border: 0; background: transparent; color: var(--hinweis); font-size: var(--t-label); padding: 0; min-height: 24px; position: relative; }
+.gr-frage::before { content: ''; position: absolute; inset: -12px -8px; }
+.gr-offen { margin-top: 6px; padding: 10px 12px; border-radius: var(--r-klein); border: 1px dashed var(--hinweis); display: flex; flex-direction: column; gap: 8px; }
+.gr-offen .gr-zeile { border: 0; padding: 0; }

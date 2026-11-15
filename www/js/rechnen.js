@@ -253,7 +253,8 @@ export function monatsRechnung(daten, s, opt = {}) {
   const g = gehaltVon(daten);
   const gehaltWert = einnahmen.find((e) => g && e.einnahme === g) || { betrag: 0, geschaetzt: !!g && !g.sicher, schaetzung: g ? schaetzung(g) : 0 };
   const weitere = einnahmen.filter((e) => !g || e.einnahme !== g).reduce((a, e) => a + e.betrag, 0);
-  const geplantRein = geplanteEinnahmen.reduce((a, e) => a + e.betrag, 0);
+  // offene Beträge (v25) stehen unter „Mit Offenem“, nicht unter „Mit Geplantem“
+  const geplantRein = geplanteEinnahmen.filter((e) => !e.einnahme.offen).reduce((a, e) => a + e.betrag, 0);
   return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konten, frei, vorbei: !!opt.vorbei };
 }
 
@@ -414,4 +415,64 @@ export function gehaltStatistik(g, n = 3) {
   const l = [...((g && g.istWerte) || [])].sort((a, b) => (a.datum < b.datum ? 1 : -1)).slice(0, n).map((w) => Number(w.betrag) || 0);
   if (!l.length) return { anzahl: 0 };
   return { anzahl: l.length, schnitt: l.reduce((a, x) => a + x, 0) / l.length, min: Math.min(...l), max: Math.max(...l) };
+}
+
+// ---------- Offene Beträge (v25) ----------
+// Ein Eintrag mit unbekanntem Betrag trägt `offen: { von?, bis?, zaehlt }`. von/bis = Schätzung (fehlt = keine Ahnung).
+// Damit alle bisherigen Rechnungen (auch Widgets und CaleConnect) ohne Sonderfall stimmen, steht in `betrag`:
+// zählt mit → vorsichtiger Wert (Kosten: oberer Wert), zählt nicht → 0.
+// Einnahmen: `betrag` = Spanne { von, bis } (gerechnet wird mit dem unteren Wert), `status` „fest“ = zählt mit, „geplant“ = zählt nicht.
+export function offenSpanne(o) {
+  const v = o && o.von != null && o.von !== '' ? Number(o.von) : NaN;
+  const b = o && o.bis != null && o.bis !== '' ? Number(o.bis) : NaN;
+  const von = isNaN(v) ? b : v, bis = isNaN(b) ? v : b;
+  if (isNaN(von) || isNaN(bis)) return { hat: false, von: 0, bis: 0 };
+  return { hat: true, von: Math.min(von, bis), bis: Math.max(von, bis) };
+}
+export function offenBetrag(o, kosten = true) {
+  const sp = offenSpanne(o);
+  return o && o.zaehlt && sp.hat ? (kosten ? sp.bis : sp.von) : 0;
+}
+export function offenText(o) {
+  const sp = offenSpanne(o);
+  if (!sp.hat) return 'unbekannt';
+  return sp.von === sp.bis ? 'ungefähr ' + euro(sp.bis) : euro(sp.von, false) + '–' + euro(sp.bis);
+}
+const OFFEN_LISTEN = { fixkosten: 'fixkosten', einnahme: 'einnahmen', buchung: 'buchungen', konto: 'sparraten' };
+export function offenFinden(daten, typ, id) { return (daten[OFFEN_LISTEN[typ]] || []).find((x) => x.id === id && x.offen) || null; }
+export function offeneListe(daten) {
+  const l = [];
+  for (const f of daten.fixkosten || []) if (f.offen) l.push({ typ: 'fixkosten', id: f.id, eintrag: f, kosten: true, name: f.name, art: f.abo ? 'Abo' : 'Fixkosten', wann: RHYTHMUS_TEXT[f.wieOft] || '' });
+  for (const sp of daten.sparraten || []) if (sp.offen) l.push({ typ: 'konto', id: sp.id, eintrag: sp, kosten: true, name: 'Aufs ' + (sp.name || 'Rücklagenkonto'), art: 'Übertrag', wann: 'jeden Monat' });
+  for (const b of daten.buchungen || []) if (b.offen) { const k = kategorie(daten, b.kategorieId); l.push({ typ: 'buchung', id: b.id, eintrag: b, kosten: true, name: (k ? k.name : 'Ausgabe') + (b.ort ? ' · ' + b.ort : ''), art: 'Ausgabe', wann: Number(b.zeit.slice(8, 10)) + '. ' + MONATE_KURZ[Number(b.zeit.slice(5, 7)) - 1] }); }
+  for (const e of daten.einnahmen || []) if (e.offen) l.push({ typ: 'einnahme', id: e.id, eintrag: e, kosten: false, name: e.name, art: 'Einnahme', wann: e.wieOft === 'monatlich' ? 'jeden Monat' : (e.monat ? MONATE_KURZ[ymTeile(e.monat).monat - 1] + ' ' + ymTeile(e.monat).jahr : 'einmalig') });
+  return l;
+}
+// „zählt mit“ umschalten: hält betrag/status passend zum Feld offen
+export function offenZaehltSetzen(daten, typ, id, zaehlt) {
+  const x = offenFinden(daten, typ, id);
+  if (!x) return;
+  x.offen = Object.assign({}, x.offen, { zaehlt: !!zaehlt });
+  if (typ === 'einnahme') x.status = zaehlt ? 'fest' : 'geplant';
+  else x.betrag = offenBetrag(x.offen, true);
+}
+// Kopie der Daten, in der alle offenen Beträge mit einem Ende ihrer Schätzung gerechnet werden
+function mitOffenenWerten(daten, modus) {
+  const d = JSON.parse(JSON.stringify(daten));
+  for (const [typ, liste] of Object.entries(OFFEN_LISTEN)) for (const x of d[liste] || []) {
+    if (!x.offen) continue;
+    const sp = offenSpanne(x.offen); const kosten = typ !== 'einnahme';
+    x.betrag = (modus === 'min') === kosten ? sp.bis : sp.von;
+    if (typ === 'einnahme') x.status = 'fest';
+  }
+  return d;
+}
+// „Frei“, wenn alle offenen Beträge einträfen: min = ungünstig (Kosten oben, Einnahmen unten), max = günstig
+export function mitOffenem(daten, s, opt = {}) {
+  const liste = offeneListe(daten);
+  if (!liste.length) return null;
+  const frei = monatsRechnung(daten, s, opt).frei;
+  const min = monatsRechnung(mitOffenenWerten(daten, 'min'), s, opt).frei;
+  const max = monatsRechnung(mitOffenenWerten(daten, 'max'), s, opt).frei;
+  return { anzahl: liste.length, ohne: liste.filter((x) => !offenSpanne(x.eintrag.offen).hat).length, frei, min, max, betrifft: Math.abs(min - frei) >= 0.005 || Math.abs(max - frei) >= 0.005 };
 }
