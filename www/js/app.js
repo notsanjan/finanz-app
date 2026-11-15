@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v11';
+export const APP_VERSION = 'finanz-v12';
 const NEU_IN_VERSION = [
-  'Überträge: über ＋ → „⇄ Übertrag“ Geld auf ein Konto schieben, einmalig (z. B. 300 € extra aufs Tagesgeld) oder jeden Monat',
-  'Beliebig viele Konten mit eigenem Namen: „Sparen“ (Stand wächst) oder „Anderes Konto“ wie ein Gemeinschaftskonto (zählt wie eine Ausgabe)',
-  'Die Frei-Karte zeigt jedes Konto mit seinem Namen, ab 4 Konten zusammengefasst. Antippen öffnet die Konten'
+  'Monatsende: Im neuen Monat fragt die App, was mit dem Rest vom Vormonat passiert ist – aufs Konto geschoben, ausgegeben (nicht eingetragen) oder liegt noch auf dem Girokonto. Teilen geht auch',
+  'Vergangene Monate zeigen „Übrig im …“: Budgets zählen dort nur mit dem, was wirklich ausgegeben wurde',
+  'Überträge: über ＋ → „⇄ Übertrag“ Geld auf ein Konto schieben, einmalig oder jeden Monat; Konten mit eigenem Namen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -54,12 +54,24 @@ export async function start() {
   if (!z.daten) { z.daten = D.leereDaten(); z.ebenen.push({ art: 'start' }); }
   else zeigeNeuigkeiten();
   render();
+  pruefeMonatsende();
   D.beiRueckkehr(async () => {
     const neu = await D.laden();
-    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); }
+    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); pruefeMonatsende(); }
   });
   window.__finanz = z; // für Tests
 }
+
+// Neuer Monat: einmal pro App-Start nach dem Rest des Vormonats fragen (nur wenn nichts anderes offen ist)
+function pruefeMonatsende() {
+  if (z.monatsendeGefragt || z.ebenen.length || !z.daten) return;
+  const vm = R.ymPlus(heuteYm(), -1);
+  if (vm < z.daten.einstellungen.startMonat || R.monatAbgeschlossen(z.daten, vm)) return;
+  if (R.uebrigIm(z.daten, vm).uebrig < 5) return;
+  z.monatsendeGefragt = true;
+  AKTION.monatsende({ dataset: { wert: vm } });
+}
+const letzterTag = (s) => (s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s)));
 
 function zeigeNeuigkeiten() {
   const gesehen = z.daten.einstellungen.gesehenVersion;
@@ -90,7 +102,8 @@ function kopf() {
 }
 
 function monatTeile(s = z.monat) {
-  const r = R.monatsRechnung(z.daten, s);
+  const vorbei = s < heuteYm();
+  const r = R.monatsRechnung(z.daten, s, { vorbei });
   const g = gehalt();
   const gehaltWert = r.gehaltWert;
   const istHeute = s === heuteYm();
@@ -115,6 +128,15 @@ function monatTeile(s = z.monat) {
   const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparen, ${r.extern > 0 ? R.euroRund(r.extern) + ' an andere Konten, ' : ''}${freiText} frei`;
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
+  // Monatsende: Was ist mit dem Rest passiert? (vergangene Monate, und in den letzten 3 Tagen des aktuellen Monats)
+  const endeNah = s === heuteYm() && Number(heute().slice(8)) >= R.tageImMonat(s) - 2;
+  if (s >= z.daten.einstellungen.startMonat && (vorbei || endeNah)) {
+    if (R.monatAbgeschlossen(z.daten, s)) zusatz.push('<div class="frei-hinweis">✓ Monat abgeschlossen</div>');
+    else {
+      const u = R.uebrigIm(z.daten, s).uebrig;
+      if (u >= 5) zusatz.push(`<button class="knopf akzent" data-a="monatsende" data-wert="${s}">${vorbei ? `Was ist mit den ≈ ${R.euroRund(u)} passiert?` : `Monat abschließen: ≈ ${R.euroRund(u)} übrig`}</button>`);
+    }
+  }
   const geplantRein = s >= heuteYm() ? r.geplantRein : 0;
   let mitGeplantem = '';
   if (geplant > 0 || geplantRein > 0) {
@@ -130,7 +152,7 @@ function monatTeile(s = z.monat) {
   const ohnePunkt = '<i class="punkt-platz"></i>';
   const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? 'am ' + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? ' · geschätzt' : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
   const freiKarte = `<section class="karte ring frei-karte">
-    <div class="label">Frei im ${esc(monatsName(s))}</div>
+    <div class="label">${vorbei ? 'Übrig im' : 'Frei im'} ${esc(monatsName(s))}</div>
     <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}">${freiText}</div>
     ${mitGeplantem}
     <div class="balken" role="img" aria-label="${esc(aria)}">${stuecke}</div>
@@ -746,6 +768,33 @@ const EBENEN = {
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="et-speichern">${aus ? 'Ausgabe buchen' : 'Einnahme eintragen'}</button></div>`, 'Eintragen');
   },
+  monatsende: (eb) => {
+    const e = eb.entwurf; const s = eb.monat;
+    const { uebrig, ungenutzt } = R.uebrigIm(z.daten, s);
+    const name = monatsName(s);
+    if (uebrig < 0) return sheet(`<h2>Ende ${esc(name)}</h2>
+      <p class="hinweistext">Im ${esc(name)} ist ≈ <b class="minus-zahl">${R.euroRund(-uebrig)}</b> mehr rausgegangen als reingekommen.</p>
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Später</button><button class="knopf haupt breit" data-a="me-giro">Verstanden, abschließen</button></div>`, 'Monatsende');
+    const konten = alleKonten();
+    let teil = '';
+    if (e.wahl === 'konto') teil = `<div class="betrag-gross"><span>→</span><input id="me-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" aria-label="Betrag in Euro"><span>€</span></div>
+      <div class="label">Auf welches Konto?</div><div class="chips">${konten.map((k) => `<button class="chip" data-a="et-ziel" data-wert="${esc(k.id)}" aria-pressed="${e.kontoId === k.id}">${esc(k.name || 'Rücklagenkonto')}</button>`).join('')}<button class="chip" data-a="et-konto-neu">${ICON.plus} Neues Konto</button></div>`;
+    if (e.wahl === 'ausgabe') teil = `<div class="betrag-gross minus"><span>−</span><input id="me-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" aria-label="Betrag in Euro"><span>€</span></div>
+      <div class="label">Wofür ungefähr?</div><div class="chips">${budgetKats().map((k) => `<button class="chip" data-a="et-kat" data-wert="${esc(k.id)}" aria-pressed="${e.kategorieId === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('')}</div>`;
+    return sheet(`<h2>Ende ${esc(name)}</h2>
+      <div class="grosszahl" style="font-size:44px">≈ ${R.euroRund(uebrig)} <span style="font-size:18px;color:var(--gedaempft)">übrig</span></div>
+      ${ungenutzt >= 1 ? `<p class="hinweistext">Davon ≈ ${R.euroRund(ungenutzt)} aus Budgets, die du nicht ganz gebraucht hast.</p>` : ''}
+      <div class="label">Was ist damit passiert?</div>
+      <div class="me-wahl">
+        ${wahlKnopf('me-wahl', 'konto', '⇄ Auf ein Konto geschoben', e.wahl === 'konto')}
+        ${wahlKnopf('me-wahl', 'ausgabe', '− Ausgegeben, nicht eingetragen', e.wahl === 'ausgabe')}
+        <button data-a="me-giro">Liegt noch auf dem Girokonto</button>
+      </div>
+      ${teil}
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Später</button>${e.wahl ? `<button class="knopf haupt breit" data-a="me-speichern">${e.wahl === 'konto' ? 'Übertragen' : 'Eintragen'}</button>` : ''}</div>
+      <p class="hinweistext">Teilen geht auch: z. B. erst 100 € aufs Tagesgeld, danach fragt die App nach dem Rest.</p>`, 'Monatsende');
+  },
   katalog: () => {
     const da = new Set(kachelListe().map((k) => k.id));
     const ids = Object.keys(KACHEL_KATALOG).concat(budgetKats().map((k) => 'budget:' + k.id)).filter((id) => !da.has(id));
@@ -1016,6 +1065,43 @@ const AKTION = {
   'et-ziel': (el) => { oben().entwurf.kontoId = el.dataset.wert; oben().fehler = null; renderEbenen(); },
   'et-oft': (el) => { const e = oben().entwurf; e.oft = el.dataset.wert; const k = alleKonten().find((x) => x.id === e.kontoId); if (e.oft === 'monatlich' && k) e.tagText = String(k.tag || 1); renderEbenen(); },
   'et-konto-neu': () => { oben().wartetAufKonto = true; AKTION.sparkonto({ dataset: {} }); },
+  monatsende: (el) => {
+    const s = el.dataset.wert;
+    const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
+    oeffne({ art: 'monatsende', monat: s, entwurf: { wahl: null, betragText: R.euro(Math.max(0, R.uebrigIm(z.daten, s).uebrig), false), kontoId: erstes ? erstes.id : '', kategorieId: (budgetKats()[0] || {}).id || '' } });
+  },
+  'me-wahl': (el) => { const eb = oben(); eb.entwurf.wahl = el.dataset.wert; eb.fehler = null; eb.entwurf.betragText = R.euro(Math.max(0, R.uebrigIm(z.daten, eb.monat).uebrig), false); renderEbenen(); },
+  'me-giro': async () => {
+    const eb = oben(); const s = eb.monat; z.ebenen.pop();
+    await aendern((d) => { d.einstellungen.abgeschlossen = (d.einstellungen.abgeschlossen || []).concat([s]); },
+      { text: `${monatsName(s)} abgeschlossen`, rueckgaengig: (d) => { d.einstellungen.abgeschlossen = (d.einstellungen.abgeschlossen || []).filter((x) => x !== s); } });
+  },
+  'me-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf; const s = eb.monat;
+    const betrag = zahl(e.betragText);
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    const datum = letzterTag(s);
+    let neu; let text;
+    if (e.wahl === 'konto') {
+      const konto = alleKonten().find((k) => k.id === e.kontoId);
+      if (!konto) { eb.fehler = 'Bitte ein Konto wählen oder ein neues anlegen.'; renderEbenen(); return; }
+      neu = (d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id: D.neueId('ue'), datum, betrag, kontoId: konto.id }); };
+      text = `${R.euro(betrag)} aufs ${konto.name || 'Rücklagenkonto'}`;
+    } else {
+      if (!e.kategorieId) { eb.fehler = 'Bitte eine Kategorie wählen.'; renderEbenen(); return; }
+      const kat = R.kategorie(z.daten, e.kategorieId);
+      neu = (d) => d.buchungen.push({ id: D.neueId('b'), zeit: datum + 'T20:00:00', kategorieId: e.kategorieId, betrag, ort: null, quelle: 'monatsende' });
+      text = `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)}`;
+    }
+    const vorher = kopie(z.daten);
+    neu(z.daten);
+    const rest = R.uebrigIm(z.daten, s).uebrig;
+    const fertig = rest < 5;
+    z.daten = vorher;
+    if (fertig) z.ebenen.pop(); else { e.wahl = null; eb.fehler = null; e.betragText = R.euro(rest, false); }
+    await aendern((d) => { neu(d); if (fertig) d.einstellungen.abgeschlossen = (d.einstellungen.abgeschlossen || []).concat([s]); },
+      { text: fertig ? `${text} · ${monatsName(s)} abgeschlossen` : `${text} · noch ≈ ${R.euroRund(rest)} übrig`, rueckgaengig: (d) => { d.uebertraege = vorher.uebertraege; d.buchungen = vorher.buchungen; d.einstellungen.abgeschlossen = vorher.einstellungen.abgeschlossen; } });
+  },
   'ue-weg': async (el) => {
     const u = (z.daten.uebertraege || []).find((x) => x.id === el.dataset.wert);
     if (!u) return;
