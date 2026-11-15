@@ -3,11 +3,13 @@
 import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
+import * as DRK from './drk.js';
 
-export const APP_VERSION = 'finanz-v23';
+export const APP_VERSION = 'finanz-v24';
 const NEU_IN_VERSION = [
-  'Alle Ausgaben sind jetzt überall rot mit „−“: Ausgaben-Seite, Verlauf, Jahr, Konten, Abos, Geplant – auch in den Homescreen-Widgets',
-  'Einnahmen überall grün mit „+“. Stände (Kontostand, „noch … übrig“, Frei) bleiben weiß bzw. grau'
+  'Neu: DRK-Gehaltsrechner (Gehalt-Fenster oder Einstellungen) – Tabelle ab 01.10.2026, Schichtzulage, Nacht-/Sonntags-/Feiertagszuschläge, Lohnsteuer 2026 und Sozialversicherung',
+  'Ergebnis mit einem Tipp als Gehalt-Schätzung übernehmen; Jahressonderzahlung als Einnahme im November eintragen',
+  'Seit v23: alle Ausgaben rot mit „−“, Einnahmen grün mit „+“ – auch in den Widgets'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -246,6 +248,7 @@ function monatTeile(s = z.monat) {
     <div class="label">Einstellungen und Sicherung</div>
     <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Frei“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="einfuehrung-erneut">Einführung erneut durchgehen</button>
+    <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
     <p class="hinweistext">Alle Daten liegen nur auf diesem Handy. Exportiere ab und zu eine Sicherung, z. B. vor dem Löschen der App.${z.daten.einstellungen.letzteSicherung ? ' Zuletzt: ' + esc(z.daten.einstellungen.letzteSicherung) + '.' : ''}</p>
     <div class="zwei"><button class="knopf" data-a="export">Exportieren</button><button class="knopf" data-a="import">Importieren</button></div>
     ${z.daten.beispiel ? '<button class="knopf leise" data-a="beispiel-weg">Beispieldaten entfernen</button>' : ''}
@@ -929,6 +932,53 @@ const KONTO_NAMEN = { sparen: ['Tagesgeld', 'Notgroschen', 'Urlaub', 'ETF-Sparpl
 
 const wahlKnopf = (aktion, wert, text, an, extra = '') => `<button data-a="${aktion}" data-wert="${esc(wert)}" aria-pressed="${!!an}" ${extra}>${esc(text)}</button>`;
 
+// ---------- DRK-Gehaltsrechner (v24) ----------
+const grZahl = (t) => { const n = zahl(t); return isNaN(n) ? 0 : n; };
+function grEingaben(e) {
+  return { eg: e.eg, stufe: Number(e.stufe) || 1, vz: grZahl(e.vz) || 38.5, tz: grZahl(e.tz) || 100, schicht: !!e.schicht, praxis: !!e.praxis,
+    zulage: grZahl(e.zulageText), besitz: grZahl(e.besitzText), nacht: grZahl(e.nachtText), sonntag: grZahl(e.sonntagText), feiertag: grZahl(e.feiertagText),
+    stkl: Number(e.stkl) || 1, kinder: grZahl(e.kinder), ab23: e.ab23 !== false, zkf: grZahl(e.zkfText), kvz: grZahl(e.kvzText),
+    kirche: Number(e.kirche) || 0, sachsen: !!e.sachsen, freibetrag: grZahl(e.freibetragText), abzug: grZahl(e.abzugText) };
+}
+function grErgebnisHtml(eb) {
+  const r = DRK.gehaltRechnen(grEingaben(eb.entwurf), eb.monat);
+  const zeile = (l, w, klasse = '') => `<div class="gr-zeile ${klasse}"><span>${l}</span><b>${w}</b></div>`;
+  const prozent = (x) => String(Math.round(x * 10000) / 100).replace('.', ',') + ' %';
+  const ab = (b) => b > 0 ? rausZ(b) : R.euro(0);
+  return `<div class="label">Ergebnis ${esc(monatsName(eb.monat))}</div>
+    ${zeile(`Tabellenentgelt E ${esc(eb.entwurf.eg)} Stufe ${r.stufe}${grZahl(eb.entwurf.tz) && grZahl(eb.entwurf.tz) < 100 ? ` · ${esc(eb.entwurf.tz)} %` : ''}`, R.euro(r.tabellenentgelt))}
+    ${r.zulagen.map(([n, b]) => zeile(esc(n), R.euro(b))).join('')}
+    ${r.zuschlaege.map((x) => zeile(`${esc(x.name)} · ${String(x.stunden).replace('.', ',')} Std.`, R.euro(x.betrag))).join('')}
+    ${zeile('Brutto', R.euro(r.brutto), 'summe')}
+    ${r.steuerfrei > 0 ? `<p class="hinweistext gr-mini">Davon steuerfrei (§ 3b EStG): ${R.euro(r.steuerfrei)}${r.svfrei < r.steuerfrei ? ` · beitragsfrei nur ${R.euro(r.svfrei)}` : ' · auch beitragsfrei'}</p>` : ''}
+    ${zeile('Lohnsteuer', ab(r.lohnsteuer))}
+    ${r.soli > 0 ? zeile('Solidaritätszuschlag', ab(r.soli)) : ''}
+    ${r.kirchensteuer > 0 ? zeile('Kirchensteuer', ab(r.kirchensteuer)) : ''}
+    ${zeile(`Krankenversicherung · ${prozent(r.satz.kv)}`, ab(r.kv))}
+    ${zeile(`Pflegeversicherung · ${prozent(r.satz.pv)}${r.pvz ? ' (kinderlos)' : ''}`, ab(r.pv))}
+    ${zeile('Rentenversicherung · 9,3 %', ab(r.rv))}
+    ${zeile('Arbeitslosenversicherung · 1,3 %', ab(r.av))}
+    ${r.abzug > 0 ? zeile('Weitere Abzüge', ab(r.abzug)) : ''}
+    ${zeile('Netto', reinZ(r.netto, false, '≈ '), 'summe netto')}
+    <div class="gr-jsz"><span class="t"><b>November: Jahressonderzahlung</b><small>90 % vom Monatsentgelt · ≈ ${R.euroRund(r.jsz)} brutto, netto ≈ <span class="plus-zahl">${R.euroRund(r.jszNetto)}</span></small></span>
+      <button class="knopf klein akzent" data-a="gr-jsz" data-wert="${r.jszNetto}">Als Einnahme eintragen</button></div>`;
+}
+function grAktualisieren() {
+  const eb = oben();
+  const box = document.getElementById('gr-ergebnis');
+  if (!eb || eb.art !== 'gehaltsrechner' || !box) return;
+  box.innerHTML = grErgebnisHtml(eb);
+  const r = DRK.gehaltRechnen(grEingaben(eb.entwurf), eb.monat);
+  const k = document.getElementById('gr-uebernehmen');
+  if (k) { k.textContent = `≈ ${R.euroRund(r.netto)} als Gehalt übernehmen`; k.dataset.wert = r.netto; }
+  const h = document.getElementById('gr-saetze');
+  if (h) h.innerHTML = grSaetze(eb, r);
+}
+function grSaetze(eb, r) {
+  const basis = r.basisStunde;
+  return `Nacht 5,50 € · Sonntag ${R.euro(Math.round(basis * 25) / 100)} · Feiertag ${R.euro(Math.round(basis * 35) / 100)} je Stunde. Grundlage: ${R.euro(basis)} je Stunde (niedrigste Stufe deiner Gruppe). Zuschläge kommen meist mit dem Gehalt des Folgemonats.`;
+}
+
 const EBENEN = {
   start: () => sheet(`<h2>Willkommen</h2>
     <p class="hinweistext">Die App läuft komplett ohne Internet. Deine Daten bleiben auf diesem Handy.</p>
@@ -1136,11 +1186,60 @@ const EBENEN = {
       <div class="feld"><label for="ge-ist">Was kam an?</label><input id="ge-ist" class="eingabe" inputmode="decimal" data-feld="istText" value="${esc(eb.istText)}" placeholder="z. B. ${esc(R.euro(w.schaetzung, false))}"></div>
       <p class="hinweistext">Geschätzt: <b>${R.euro(w.schaetzung)}</b>. Leer lassen = die Schätzung gilt (≈). Netto, so wie es auf dem Konto ankommt.</p>
       <div class="feld"><label for="ge-schaetzung">Schätzung pro Monat</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
+      <button class="knopf leise gr-start" data-a="gehaltsrechner" data-monat="${s}">🧮 Schätzung mit dem DRK-Gehaltsrechner ausrechnen</button>
       ${(() => { const st = lernHinweis(g); return st && Math.abs(st.schnitt - zahl(eb.schaetzungText)) >= 1 ? `<div class="lern-box"><span>Deine letzten 3 Monate: <b>Ø ${R.euroRund(st.schnitt)}</b> (${R.euroRund(st.min)}–${R.euroRund(st.max)})</span><button class="knopf klein akzent" data-a="ge-schnitt">Als Schätzung übernehmen</button></div>` : ''; })()}
       <div class="feld"><span class="label">Kommt an</span><div class="wahl zwei-sp">${wahlKnopf('ge-ankunft', 'Monatsende', 'am Monatsende', g.kommtAn !== 'Tag')}${wahlKnopf('ge-ankunft', 'Tag', 'an einem Tag', g.kommtAn === 'Tag')}</div></div>
       ${g.kommtAn === 'Tag' ? `<div class="feld"><label for="ge-tag">Am Tag</label><input id="ge-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(eb.tagText)}"></div>` : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="ge-speichern">Speichern</button></div>`, 'Gehalt');
+  },
+
+  gehaltsrechner: (eb) => {
+    const e = eb.entwurf;
+    const r = DRK.gehaltRechnen(grEingaben(e), eb.monat);
+    const stufen = DRK.stufen(e.eg, eb.monat);
+    const feld = (id, label, f, platz, extra = '') => `<div class="feld"><label for="${id}">${label}</label><input id="${id}" class="eingabe" inputmode="decimal" data-feld="${f}" value="${esc(e[f] ?? '')}" placeholder="${esc(platz)}" ${extra}></div>`;
+    const schalter = (f, titel, unter) => `<button class="schalter" role="switch" aria-checked="${!!e[f]}" data-a="gr-schalter" data-feld="${f}"><span class="t">${titel}<br><span class="klein">${unter}</span></span><span class="spur"></span></button>`;
+    const wahl = (f, liste) => liste.map(([w, t]) => `<button data-a="gr-wahl" data-feld="${f}" data-wert="${esc(w)}" aria-pressed="${String(e[f]) === String(w)}">${esc(t)}</button>`).join('');
+    return seite('Gehaltsrechner', `
+      <p class="hinweistext">Schätzung nach dem DRK-Reformtarifvertrag (Tabelle ab ${esc(r.tarif)}) und der Lohnsteuer 2026. Keine Lohnabrechnung – vergleiche das Ergebnis mit deiner echten Abrechnung.</p>
+      <section class="karte gr-karte">
+        <div class="label">Tarif</div>
+        <div class="feld"><label for="gr-eg">Entgeltgruppe</label><select id="gr-eg" class="eingabe" data-feld="eg" data-ganz="1">${DRK.GRUPPEN.map((g) => `<option value="${g}" ${e.eg === g ? 'selected' : ''}>E ${g}${g === '9c' ? ' (Notfallsanitäter)' : ''}</option>`).join('')}</select></div>
+        <div class="feld"><span class="label">Stufe</span><div class="wahl sechs">${wahl('stufe', stufen.map((x) => [x, String(x)]))}</div></div>
+        <div class="feld"><span class="label">Vollzeit pro Woche</span><div class="wahl zwei-sp">${wahl('vz', [['38,5', '38,5 Std. Rettungsdienst'], ['39', '39 Std. sonst']])}</div></div>
+        ${feld('gr-tz', 'Teilzeit in % (leer = Vollzeit)', 'tz', '100')}
+      </section>
+      <section class="karte gr-karte">
+        <div class="label">Zulagen jeden Monat</div>
+        ${schalter('schicht', `Schichtzulage · ${R.euro(DRK.SCHICHTZULAGE)}`, 'bei ständiger Schichtarbeit (§ 14 Abs. 7)')}
+        ${schalter('praxis', `Praxisanleitung · ${R.euro(DRK.PRAXISANLEITUNG)}`, '§ 23 a Abs. 1 – mit deiner Abrechnung vergleichen')}
+        ${feld('gr-besitz', 'Besitzstand (€, falls auf der Abrechnung)', 'besitzText', 'z. B. 0')}
+        ${feld('gr-zulage', 'Weitere Zulagen (€)', 'zulageText', 'z. B. 98,12')}
+      </section>
+      <section class="karte gr-karte">
+        <div class="label">Zeitzuschläge · Stunden im Monat (Durchschnitt)</div>
+        <div class="zwei">${feld('gr-nacht', 'Nacht (20–6 Uhr)', 'nachtText', 'z. B. 40')}${feld('gr-sonntag', 'Sonntag', 'sonntagText', 'z. B. 24')}</div>
+        ${feld('gr-feiertag', 'Feiertag', 'feiertagText', 'z. B. 0')}
+        <p class="hinweistext" id="gr-saetze">${grSaetze(eb, r)}</p>
+      </section>
+      <section class="karte gr-karte">
+        <div class="label">Steuer und Versicherung</div>
+        <div class="feld"><span class="label">Steuerklasse</span><div class="wahl sechs">${wahl('stkl', [[1, 'I'], [2, 'II'], [3, 'III'], [4, 'IV'], [5, 'V'], [6, 'VI']])}</div></div>
+        <div class="feld"><span class="label">Kinder unter 25</span><div class="wahl sechs">${wahl('kinder', [[0, '0'], [1, '1'], [2, '2'], [3, '3'], [4, '4'], [5, '5+']])}</div></div>
+        ${feld('gr-zkf', 'Kinderfreibeträge (laut Abrechnung, z. B. 0,5)', 'zkfText', '0')}
+        ${grZahl(e.kinder) > 0 ? '' : schalter('ab23', '23 Jahre oder älter', 'dann zahlst du ohne Kinder 0,6 % mehr Pflegeversicherung')}
+        ${feld('gr-kvz', 'Zusatzbeitrag deiner Krankenkasse (%)', 'kvzText', '2,9 = Durchschnitt 2026')}
+        <div class="feld"><span class="label">Kirchensteuer</span><div class="wahl drei">${wahl('kirche', [[0, 'keine'], [8, '8 % (BW, BY)'], [9, '9 %']])}</div></div>
+        ${feld('gr-freibetrag', 'Steuerfreibetrag pro Monat (€, optional)', 'freibetragText', 'z. B. 0')}
+        ${feld('gr-abzug', 'Weitere Abzüge pro Monat (€, z. B. Zusatzversorgung)', 'abzugText', 'z. B. 0')}
+      </section>
+      <section class="karte gr-ergebnis" id="gr-ergebnis" aria-live="polite">${grErgebnisHtml(eb)}</section>
+      <details class="karte gr-quellen"><summary>So wird gerechnet (Quellen)</summary>
+        <p class="hinweistext">Entgelttabelle ab 01.10.2026 und E 9c ab 01.10.2027: 52. Änderungstarifvertrag zum DRK-RTV vom 10.07.2025 (Anlage A 1). Zeitzuschläge und Schichtzulage: § 14 DRK-RTV, durchgeschriebene Fassung Stand Juli 2025 – Nacht 5,50 €/Std. und Schichtzulage 115 € gelten ab 01.01.2026; Stundenanteil = Monatsbetrag ÷ (4,348 × Wochenstunden), § 29 Abs. 3. Jahressonderzahlung 90 % (§ 23 Abs. 2). Lohnsteuer: amtlicher Programmablaufplan 2026 des BMF (Schreiben vom 12.11.2025), centgenau gegen 207 Vergleichsfälle der BMF-Schnittstelle geprüft. Sozialversicherung 2026: RV 18,6 %, AV 2,6 %, KV 14,6 % + Zusatzbeitrag, PV 3,6 % (+0,6 % kinderlos); Grenzen 5.812,50 € (KV/PV) und 8.450 € (RV/AV) im Monat. Steuerfreie Zuschläge nach § 3b EStG (Grundlohn bis 50 €/Std., beitragsfrei bis 25 €/Std.).</p>
+        <p class="hinweistext">Nicht enthalten: Bereitschaftsdienst, Überstunden, Zusatzversorgung (bitte unter „Weitere Abzüge“), Abweichungen deines Arbeitgebers vom DRK-RTV. Die Jahressonderzahlung 2026 wurde noch aus Juli–September 2026 (alte Tabelle) berechnet und fällt daher etwas kleiner aus.</p>
+      </details>
+      <div class="knopfreihe"><button class="knopf leise" data-a="gr-merken">Merken</button><button class="knopf haupt breit" id="gr-uebernehmen" data-a="gr-uebernehmen" data-wert="${r.netto}">≈ ${R.euroRund(r.netto)} als Gehalt übernehmen</button></div>`);
   },
 
   sparkonto: (eb) => {
@@ -1629,6 +1728,39 @@ const AKTION = {
     eb.entwurf.betragText = R.euro(Math.max(0, R.uebrigIm(z.daten, s).uebrig), false); renderEbenen();
   },
   'ge-ankunft': (el) => { gehalt().kommtAn = el.dataset.wert; renderEbenen(); },
+  gehaltsrechner: (el) => {
+    const gespeichert = z.daten.einstellungen.gehaltsrechner;
+    oeffne({ art: 'gehaltsrechner', monat: el.dataset.monat || heuteYm(), entwurf: Object.assign({}, DRK.STANDARD, gespeichert || {}) });
+  },
+  'gr-wahl': (el) => { const eb = oben(); eb.entwurf[el.dataset.feld] = el.dataset.wert; haptik('tick'); renderEbenen(); },
+  'gr-schalter': (el) => { const eb = oben(); eb.entwurf[el.dataset.feld] = !eb.entwurf[el.dataset.feld]; haptik('tick'); renderEbenen(); },
+  'gr-merken': async () => {
+    const e = Object.assign({}, oben().entwurf);
+    await aendern((d) => { d.einstellungen.gehaltsrechner = e; }, { text: 'Eingaben im Gehaltsrechner gemerkt' });
+  },
+  'gr-uebernehmen': async (el) => {
+    const eb = oben();
+    const netto = Math.round(Number(el.dataset.wert) * 100) / 100;
+    const e = Object.assign({}, eb.entwurf);
+    const vorher = gehalt().betrag;
+    z.ebenen.pop();
+    if (oben() && oben().art === 'gehalt') z.ebenen.pop(); // vom Gehalt-Fenster aus geöffnet: beide schließen
+    await aendern((d) => { R.gehaltVon(d).betrag = netto; d.einstellungen.gehaltsrechner = e; },
+      { text: `Gehalt-Schätzung: ${R.euroRund(netto)} übernommen`, rueckgaengig: (d) => { R.gehaltVon(d).betrag = vorher; } });
+  },
+  'gr-jsz': async (el) => {
+    const netto = Math.round(Number(el.dataset.wert) * 100) / 100;
+    const h = heuteYm();
+    const jahr = R.ymTeile(h).jahr + (R.ymTeile(h).monat > 11 ? 1 : 0);
+    const monat = jahr + '-11';
+    const alt = z.daten.einnahmen.find((x) => x.name === 'Jahressonderzahlung' && x.monat === monat);
+    const id = alt ? alt.id : 'e' + Date.now().toString(36);
+    await aendern((d) => {
+      const x = d.einnahmen.find((y) => y.id === id);
+      if (x) x.betrag = netto;
+      else d.einnahmen.push({ id, name: 'Jahressonderzahlung', wieOft: 'einmalig', monat, betrag: netto, sicher: false, status: 'fest', kommtAn: 'sofort', istWerte: [] });
+    }, { text: `Jahressonderzahlung ≈ ${R.euroRund(netto)} im November ${jahr} eingetragen`, rueckgaengig: (d) => { if (alt) d.einnahmen.find((y) => y.id === id).betrag = alt.betrag; else d.einnahmen = d.einnahmen.filter((y) => y.id !== id); } });
+  },
   'ge-speichern': async () => {
     const eb = oben();
     const schaetzung = zahl(eb.schaetzungText);
@@ -2038,6 +2170,7 @@ function bindeEreignisse() {
     if (el.dataset.feld.includes('.')) setzePfad(eb, el.dataset.feld, wert);
     else (eb.entwurf || eb)[el.dataset.feld] = wert;
     if (el.dataset.neuZeichnen) aktualisiereZusammenfassung();
+    if (eb.art === 'gehaltsrechner') { if (el.dataset.ganz) renderEbenen(); else grAktualisieren(); }
     const th = document.getElementById('tl-hinweis');
     if (th && (el.dataset.teilen || el.dataset.feld === 'betragText')) th.textContent = teilHinweis(eb.entwurf || eb);
     if (eb.art === 'einfuehrung') {
