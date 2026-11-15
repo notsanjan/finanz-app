@@ -4,11 +4,10 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v15';
+export const APP_VERSION = 'finanz-v16';
 const NEU_IN_VERSION = [
-  'Einzelne Ausgaben teilen: Beim Eintragen (＋) oder später unter „Ändern“ auf „Geteilt“ tippen, Anteil wählen (½, ⅓, ¼ oder Betrag) und wer dir den Rest zurückzahlt. Belastet wird nur dein Anteil',
-  'Einnahmen-Seite: „Bekommst du noch zurück“ mit allen offenen Rückzahlungen und „✓ Bekommen“',
-  'BETA – Zahlungen automatisch erkennen (seit v14) und geteilte Fixkosten'
+  'Teilen: „Dein Anteil“ klappt erst nach „Geteilt“ auf und steht in einem eigenen, farbig abgesetzten Kasten',
+  'Einzelne Ausgaben teilen (seit v15): Anteil ½, ⅓, ¼ oder Betrag, wer dir den Rest zurückzahlt, „Bekommst du noch zurück“ auf der Einnahmen-Seite'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -789,11 +788,11 @@ function teilHinweis(t) {
 function teilenHtml(t) {
   const an = !!t.geteilt;
   return `<div class="wahl zwei-sp">${wahlKnopf('tl-an', '0', 'Allein bezahlt', !an)}${wahlKnopf('tl-an', '1', 'Geteilt', an)}</div>
-    ${an ? `<div class="label">Dein Anteil</div>
+    ${an ? `<div class="teil-box ${Date.now() - (t.teilAuf || 0) < 500 ? 'oeffnet' : ''}"><div class="label">Dein Anteil</div>
       <div class="chips">${ANTEILE.map(([w, txt]) => `<button class="chip" data-a="tl-anteil" data-wert="${w}" aria-pressed="${(t.anteil || '1/2') === w}">${txt}</button>`).join('')}</div>
       ${t.anteil === 'eigen' ? `<div class="feld"><label for="tl-mein">Dein Anteil in €</label><input id="tl-mein" class="eingabe" inputmode="decimal" data-feld="meinText" data-teilen="1" value="${esc(t.meinText || '')}" placeholder="z. B. 15"></div>` : ''}
       <div class="feld"><label for="tl-wer">Wer zahlt dir den Rest zurück?</label><input id="tl-wer" class="eingabe" data-feld="teiltMit" data-teilen="1" value="${esc(t.teiltMit || '')}" placeholder="z. B. Anna"></div>
-      <p class="hinweistext" id="tl-hinweis">${esc(teilHinweis(t))}</p>` : ''}`;
+      <p class="hinweistext" id="tl-hinweis">${esc(teilHinweis(t))}</p></div>` : ''}`;
 }
 // Felder für eine bestehende Buchung vorbelegen
 function teilEntwurf(b) {
@@ -1641,7 +1640,7 @@ const AKTION = {
   // Buchungen
   buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne(Object.assign({ art: 'buchung', id: b.id, betragText: R.euro(b.gesamt || b.betrag, false), ort: b.ort || '', zurueckErhalten: !!b.zurueckErhalten }, teilEntwurf(b))); },
   'bh-zurueck': () => { oben().zurueckErhalten = !oben().zurueckErhalten; renderEbenen(); },
-  'tl-an': (el) => { const t = oben().entwurf || oben(); t.geteilt = el.dataset.wert === '1'; if (!t.anteil) t.anteil = '1/2'; renderEbenen(); },
+  'tl-an': (el) => { const t = oben().entwurf || oben(); const vorher = !!t.geteilt; t.geteilt = el.dataset.wert === '1'; if (!t.anteil) t.anteil = '1/2'; if (t.geteilt && !vorher) t.teilAuf = Date.now(); renderEbenen(); if (t.geteilt && !vorher) { const box = document.querySelector('.teil-box'); if (box) box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } },
   'tl-anteil': (el) => { const t = oben().entwurf || oben(); t.anteil = el.dataset.wert; renderEbenen(); },
   'rueck-erhalten': async (el) => {
     const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (!b) return;
