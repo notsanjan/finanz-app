@@ -4,13 +4,12 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v3';
+export const APP_VERSION = 'finanz-v4';
 const NEU_IN_VERSION = [
-  'Ausgaben neu: eine farbige Karte pro Kategorie, Farbe und Emoji selbst wählbar',
-  'Umschalter „Pro Monat gerechnet“: jährliche Kosten auf den Monat umgerechnet',
-  'Rücklagenkonto: jährliche Kosten über einen festen Dauerauftrag, jeden Monat gleich viel frei',
-  'Potenzielle Ausgaben planen: Die App warnt, wenn das Geld oder ein Budget nicht reicht',
-  'Einführung, die alles mit dir einrichtet (unten in der Monatsansicht erneut startbar)'
+  'Weitere Einnahmen: Nebenjob, Selbstständigkeit, Geschenk, Spende … oder eigene',
+  'Einmalig oder jeden Monat, fest oder nur geplant. Geplantes zählt erst nach „Kam an“',
+  '„Mit Geplantem“ in der Frei-Karte rechnet geplante Ausgaben und Einnahmen zusammen',
+  'Einführung fragt jetzt auch nach weiteren Einnahmen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -29,7 +28,7 @@ function zahl(text) {
 }
 const fixKats = () => z.daten.kategorien.filter((k) => k.art === 'fix');
 const budgetKats = () => z.daten.kategorien.filter((k) => k.art === 'budget');
-const gehalt = () => z.daten.einnahmen.find((e) => e.wieOft === 'monatlich');
+const gehalt = () => R.gehaltVon(z.daten);
 
 const ICON = {
   stift: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7fd6c8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
@@ -94,7 +93,7 @@ function monatAnsicht() {
   const s = z.monat;
   const r = R.monatsRechnung(z.daten, s);
   const g = gehalt();
-  const gehaltWert = r.einnahmen[0];
+  const gehaltWert = r.gehaltWert;
   const istHeute = s === heuteYm();
   const nav = `<div class="monatswahl">
     <button class="knopf rund" data-a="monat" data-wert="-1" aria-label="Vorheriger Monat">${ICON.links}</button>
@@ -116,7 +115,13 @@ function monatAnsicht() {
   const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparkonto, ${freiText} frei`;
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
-  if (geplant > 0) zusatz.push(`<div class="frei-zeile"><span>Nach Geplantem</span><b class="${r.frei - geplant < 0 ? 'minus' : ''}">${r.frei - geplant < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei - geplant))}</b></div>`);
+  if (r.weitere > 0) zusatz.push(`<div class="frei-hinweis neutral">inkl. weitere Einnahmen + ${R.euroRund(r.weitere)}</div>`);
+  const geplantRein = s >= heuteYm() ? r.geplantRein : 0;
+  if (geplant > 0 || geplantRein > 0) {
+    const mit = r.frei - geplant + geplantRein;
+    const teile = [geplant > 0 ? `− ${R.euroRund(geplant)} Ausgaben` : '', geplantRein > 0 ? `+ ${R.euroRund(geplantRein)} Einnahmen` : ''].filter(Boolean).join(' · ');
+    zusatz.push(`<div class="frei-zeile"><span>Mit Geplantem<small>${teile}</small></span><b class="${mit < 0 ? 'minus' : ''}">${mit < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(mit))}</b></div>`);
+  }
   if (brocken) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
   const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
 
@@ -165,6 +170,7 @@ function monatAnsicht() {
 
   const liste = ausgabenHtml(r, s);
   const geplantKarte = s >= heuteYm() ? geplantHtml(s, pruefung) : '';
+  const einnahmenKarte = einnahmenHtml(s);
 
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
@@ -175,7 +181,7 @@ function monatAnsicht() {
     <div class="klein" style="font-size:12px">${APP_VERSION}</div>
   </section>`;
 
-  return nav + freiKarte + ruecklageKarte + sparKarten + geplantKarte + liste + sicherung;
+  return nav + freiKarte + ruecklageKarte + sparKarten + einnahmenKarte + geplantKarte + liste + sicherung;
 }
 
 // ---------- Ausgabenliste ----------
@@ -256,7 +262,8 @@ function jahrAnsicht() {
     const teile = m.teile.filter((t) => t.summe > 0).map((t) => `<span style="width:${(t.summe / max * 100).toFixed(1)}%;background:${t.kategorie.farbe}"></span>`).join('');
     const rk = !!R.ruecklage(z.daten);
     const extra = (m.zusaetzlich.length ? `<span class="extra">+ ${m.zusaetzlich.map((x) => esc(x.text)).join(' · ')}${rk ? ' · aus der Rücklage' : ''}</span>` : '')
-      + R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat).map((w) => `<span class="extra geplant">geplant: ${esc(w.name)} ${esc(R.preisText(w))}</span>`).join('');
+      + R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat).map((w) => `<span class="extra geplant">geplant: ${esc(w.name)} ${esc(R.preisText(w))}</span>`).join('')
+      + weitereEinnahmen().filter((e) => e.wieOft === 'einmalig' && R.einnahmeAktivIm(e, m.monat)).map((e) => `<span class="extra rein">+ Einnahme: ${esc(e.name)} ${esc(betragText(e))}${e.status === 'geplant' ? ' (geplant)' : ''}</span>`).join('');
     const jahr = R.ymTeile(m.monat).monat === 1 ? ` ${R.ymTeile(m.monat).jahr}` : '';
     return `<button class="jahr-zeile ${m.zusaetzlich.length ? 'gross' : ''}" data-a="zu-monat" data-wert="${m.monat}" aria-label="${esc(R.MONATE_LANG[R.ymTeile(m.monat).monat - 1] + jahr)}: ${R.euroRund(m.summe)}${m.zusaetzlich.length ? ', zusätzlich ' + esc(m.zusaetzlich.map((x) => x.text).join(', ')) : ''}">
       <span class="mon">${m.name}</span><span class="mitte"><span class="jahr-balken">${teile}</span>${extra}</span><span class="summe">${R.euroRund(m.summe)}</span></button>`;
@@ -314,6 +321,10 @@ function verlaufAnsicht() {
         }
       }
     }
+    for (const e of weitereEinnahmen().filter((x) => R.einnahmeAktivIm(x, s))) {
+      const w = R.einnahmeIm(e, s);
+      if (w.zaehlt) keine.push({ farbe: 'var(--akzent)', titel: `${e.name} · + ${R.euroRund(w.betrag)}`, text: w.angekommen ? 'angekommen' : 'fest eingeplant' });
+    }
     if (g) {
       const w = R.einnahmeIm(g, s);
       keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)} · ${w.geschaetzt ? '≈ ' : ''}${R.euroRund(w.betrag)}`, text: w.geschaetzt ? 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren' : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
@@ -359,6 +370,31 @@ function geplantHtml(s, pruefung) {
     <div class="geplant-kopf"><span class="t"><b>Geplant</b><small>potenzielle Ausgaben, noch nicht fest</small></span>${liste.length ? `<span class="kat-summe">${R.euroRund(liste.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : ''}</div>
     ${zeilen}
     <button class="knopf akzent" data-a="wunsch-neu" data-monat="${s}">${ICON.plus} Potenzielle Ausgabe planen</button>
+  </section>`;
+}
+
+// ---------- Weitere Einnahmen ----------
+const EINNAHME_VORSCHLAEGE = ['💼 Nebenjob', '🧑‍💼 Selbstständigkeit', '🎁 Geschenk', '🤝 Spende', '🏷️ Verkauf', '↩️ Rückerstattung', '⭐ Bonus'];
+function weitereEinnahmen() { const g = gehalt(); return (z.daten.einnahmen || []).filter((e) => e !== g); }
+function betragText(e) {
+  const b = e.betrag;
+  return b && typeof b === 'object' && Number(b.bis) > Number(b.von) ? R.euro(Number(b.von), false) + '–' + R.euro(Number(b.bis)) : R.euro(R.schaetzung(e));
+}
+function einnahmenHtml(s) {
+  const liste = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
+  if (!liste.length) return `<button class="knopf leise einnahme-knopf" data-a="einnahme-neu" data-monat="${s}">${ICON.plus} Weitere Einnahme eintragen</button>`;
+  const zeilen = liste.map((e) => {
+    const w = R.einnahmeIm(e, s);
+    const wie = e.wieOft === 'monatlich' ? 'jeden Monat' : 'einmalig';
+    const status = w.angekommen ? 'angekommen' : w.zaehlt ? 'fest eingeplant' : 'nur geplant, zählt erst, wenn es da ist';
+    return `<button class="posten ${w.zaehlt ? '' : 'grau'}" data-a="einnahme" data-id="${esc(e.id)}" data-monat="${s}" aria-label="${esc(e.name)} bearbeiten"><span class="t"><span class="n">${esc(e.name)}</span><small>${wie} · ${status}</small></span><span class="b plus">+ ${w.angekommen ? R.euro(w.betrag) : esc(betragText(e))}</span>${PFEIL}</button>`;
+  }).join('');
+  const fest = liste.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? w.betrag : 0); }, 0);
+  const geplantSumme = liste.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? 0 : w.betrag); }, 0);
+  return `<section class="karte geplant-karte einnahmen-karte">
+    <div class="geplant-kopf"><span class="t"><b>Weitere Einnahmen</b><small>${geplantSumme ? `dazu + ${R.euroRund(geplantSumme)} nur geplant` : 'neben dem Gehalt'}</small></span><span class="kat-summe plus">+ ${R.euroRund(fest)}</span></div>
+    ${zeilen}
+    <button class="knopf akzent" data-a="einnahme-neu" data-monat="${s}">${ICON.plus} Einnahme eintragen</button>
   </section>`;
 }
 
@@ -558,6 +594,30 @@ const EBENEN = {
         : `<div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="wu-speichern">Planen</button></div>`}`, 'Potenzielle Ausgabe');
   },
 
+  einnahme: (eb) => {
+    const e = eb.entwurf;
+    const monate = Array.from({ length: 13 }, (_, i) => R.ymPlus(heuteYm(), i));
+    if (e.monat && !monate.includes(e.monat)) monate.unshift(e.monat);
+    const monatOpt = (sel, leer) => (leer ? `<option value="" ${!sel ? 'selected' : ''}>${leer}</option>` : '') + monate.map((m) => `<option value="${m}" ${sel === m ? 'selected' : ''}>${R.MONATE_LANG[R.ymTeile(m).monat - 1]} ${R.ymTeile(m).jahr}</option>`).join('');
+    const kannAnkommen = eb.id && e.status === 'geplant' && eb.monatAnsicht <= heuteYm();
+    return sheet(`<h2>${eb.id ? 'Einnahme' : 'Weitere Einnahme'}</h2>
+      <div class="feld"><label for="ei-name">Was?</label><input id="ei-name" class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="z. B. Nebenjob"></div>
+      <div class="chips">${EINNAHME_VORSCHLAEGE.map((v) => `<button class="chip" data-a="ei-vorschlag" data-wert="${esc(v)}" aria-pressed="${e.name === v}">${esc(v)}</button>`).join('')}</div>
+      <div class="feld"><label for="ei-betrag">Betrag (oder Spanne, z. B. 200–300)</label><input id="ei-betrag" class="eingabe" data-feld="betragText" value="${esc(e.betragText)}" placeholder="z. B. 300"></div>
+      <div class="label">Wie oft?</div>
+      <div class="wahl zwei-sp">${wahlKnopf('ei-wieoft', 'einmalig', 'einmalig', e.wieOft === 'einmalig')}${wahlKnopf('ei-wieoft', 'monatlich', 'jeden Monat', e.wieOft === 'monatlich')}</div>
+      ${e.wieOft === 'einmalig'
+        ? `<div class="feld"><label for="ei-monat">In welchem Monat?</label><select id="ei-monat" class="eingabe" data-feld="monat">${monatOpt(e.monat)}</select></div>`
+        : `<div class="zwei"><div class="feld"><label for="ei-ab">Ab</label><select id="ei-ab" class="eingabe" data-feld="ab">${monatOpt(e.ab)}</select></div><div class="feld"><label for="ei-bis">Bis</label><select id="ei-bis" class="eingabe" data-feld="bis">${monatOpt(e.bis, 'offen')}</select></div></div>`}
+      <div class="label">Wie sicher?</div>
+      <div class="wahl zwei-sp">${wahlKnopf('ei-status', 'fest', 'Fest – zählt zu „Frei“', e.status !== 'geplant')}${wahlKnopf('ei-status', 'geplant', 'Nur geplant', e.status === 'geplant')}</div>
+      <p class="hinweistext">${e.status === 'geplant' ? 'Zählt erst zu „Frei“, wenn du „Kam an“ antippst. Bis dahin steht sie unter „Mit Geplantem“.' : 'Wird fest mit eingerechnet. Bei einer Spanne rechnet die App vorsichtig mit dem unteren Wert.'}</p>
+      <button class="schalter" role="switch" aria-checked="${!!e.selbststaendig}" data-a="ei-selbst"><span class="t">Selbstständig / nebenberuflich<br><span class="klein">zählt zur Kleinunternehmergrenze</span></span><span class="spur"></span></button>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      ${eb.id ? `<div class="knopfreihe"><button class="knopf leise" data-a="ei-loeschen">Löschen</button>${kannAnkommen ? '<button class="knopf" data-a="ei-angekommen">Kam an</button>' : ''}<button class="knopf haupt ${kannAnkommen ? '' : 'breit'}" data-a="ei-speichern">Speichern</button></div>`
+        : `<div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="ei-speichern">Eintragen</button></div>`}`, 'Einnahme');
+  },
+
   ruecklage: (eb) => {
     const e = eb.entwurf;
     const empf = R.empfohleneRuecklage(z.daten, heuteYm());
@@ -629,6 +689,8 @@ const AKTION = {
     renderEbenen();
     const felder = document.querySelectorAll('.ef-posten input[data-feld$=".name"]'); if (felder.length) felder[felder.length - 1].focus();
   },
+  'ef-ein-dazu': (el) => { oben().einnahmen.push({ name: el.dataset.wert, betragText: '', wieOft: 'monatlich', status: 'fest', monat: heuteYm() }); oben().fehler = null; renderEbenen(); },
+  'ef-ein-weg': (el) => { oben().einnahmen.splice(Number(el.dataset.i), 1); renderEbenen(); },
   'ef-budget-an': (el) => { const b = oben().budgets[Number(el.dataset.i)]; b.an = !b.an; renderEbenen(); },
   'ef-budget-neu': () => { oben().budgets.push({ id: null, name: '', emoji: '', an: true, text: '', neu: true }); renderEbenen(); },
   'ef-weiter': async () => {
@@ -766,7 +828,7 @@ const AKTION = {
     if (ist !== null && (isNaN(ist) || ist < 0)) { eb.fehler = 'Der Betrag ist keine Zahl.'; renderEbenen(); return; }
     z.ebenen.pop();
     await aendern((d) => {
-      const g = d.einnahmen.find((e) => e.wieOft === 'monatlich');
+      const g = R.gehaltVon(d);
       g.betrag = schaetzung;
       if (g.kommtAn === 'Tag') g.ankunftTag = isNaN(tag) ? 1 : Math.min(31, Math.max(1, Math.round(tag)));
       g.istWerte = g.istWerte.filter((w) => R.ymAus(w.datum) !== eb.monat);
@@ -827,6 +889,48 @@ const AKTION = {
     const rk = R.ruecklage(z.daten); const i = z.daten.sparraten.indexOf(rk);
     z.ebenen.pop();
     await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.art !== 'ruecklage'); }, { text: 'Ohne Rücklagenkonto: jährliche Kosten zählen jetzt im Monat der Abbuchung', rueckgaengig: (d) => d.sparraten.splice(i, 0, rk) });
+  },
+
+  // Weitere Einnahmen
+  'einnahme-neu': (el) => { const m = el.dataset.monat || heuteYm(); oeffne({ art: 'einnahme', id: null, monatAnsicht: m, entwurf: { name: '', betragText: '', wieOft: 'einmalig', monat: m < heuteYm() ? heuteYm() : m, ab: m < heuteYm() ? heuteYm() : m, bis: '', status: 'geplant', selbststaendig: false } }); },
+  einnahme: (el) => {
+    const e = z.daten.einnahmen.find((x) => x.id === el.dataset.id); if (!e) return;
+    oeffne({ art: 'einnahme', id: e.id, monatAnsicht: el.dataset.monat || heuteYm(), entwurf: { name: e.name, betragText: betragText(e).replace(' €', ''), wieOft: e.wieOft === 'monatlich' ? 'monatlich' : 'einmalig', monat: e.monat || heuteYm(), ab: e.ab || heuteYm(), bis: e.bis || '', status: e.status === 'geplant' ? 'geplant' : 'fest', selbststaendig: !!e.selbststaendig } });
+  },
+  'ei-vorschlag': (el) => { oben().entwurf.name = el.dataset.wert; if (/Selbstständig/.test(el.dataset.wert)) oben().entwurf.selbststaendig = true; renderEbenen(); },
+  'ei-wieoft': (el) => { oben().entwurf.wieOft = el.dataset.wert; renderEbenen(); },
+  'ei-status': (el) => { oben().entwurf.status = el.dataset.wert; renderEbenen(); },
+  'ei-selbst': () => { oben().entwurf.selbststaendig = !oben().entwurf.selbststaendig; renderEbenen(); },
+  'ei-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf;
+    const betrag = preisAusText(e.betragText);
+    if (!String(e.name || '').trim()) { eb.fehler = 'Bitte eintragen, was reinkommt.'; renderEbenen(); return; }
+    if (typeof betrag === 'number' && (isNaN(betrag) || betrag <= 0)) { eb.fehler = 'Bitte einen Betrag eintragen, z. B. 300 oder 200–300.'; renderEbenen(); return; }
+    if (e.wieOft === 'monatlich' && e.bis && e.bis < e.ab) { eb.fehler = '„Bis“ liegt vor „Ab“.'; renderEbenen(); return; }
+    const werte = { name: e.name.trim(), wieOft: e.wieOft, betrag, sicher: typeof betrag === 'number', status: e.status === 'geplant' ? 'geplant' : 'fest', selbststaendig: !!e.selbststaendig,
+      monat: e.wieOft === 'einmalig' ? e.monat : null, ab: e.wieOft === 'monatlich' ? e.ab : null, bis: e.wieOft === 'monatlich' ? (e.bis || null) : null };
+    z.ebenen.pop();
+    await aendern((d) => {
+      const x = d.einnahmen.find((y) => y.id === eb.id);
+      if (x) Object.assign(x, werte); else d.einnahmen.push(Object.assign({ id: D.neueId('ein'), kommtAn: 'sofort', istWerte: [] }, werte));
+    }, { text: `${werte.name} eingetragen` });
+  },
+  'ei-angekommen': async () => {
+    const eb = oben(); const b = preisAusText(eb.entwurf.betragText);
+    const betrag = typeof b === 'object' ? b.von : b;
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte eintragen, wie viel angekommen ist.'; renderEbenen(); return; }
+    const m = eb.monatAnsicht;
+    z.ebenen.pop();
+    await aendern((d) => {
+      const x = d.einnahmen.find((y) => y.id === eb.id);
+      x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== m);
+      x.istWerte.push({ datum: m === heuteYm() ? heute() : m + '-' + R.zweistellig(R.tageImMonat(m)), betrag });
+    }, { text: `${eb.entwurf.name}: ${R.euro(betrag)} angekommen`, rueckgaengig: (d) => { const x = d.einnahmen.find((y) => y.id === eb.id); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== m); } });
+  },
+  'ei-loeschen': async () => {
+    const id = oben().id; const e = z.daten.einnahmen.find((x) => x.id === id); const i = z.daten.einnahmen.indexOf(e);
+    z.ebenen.pop();
+    await aendern((d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); }, { text: `${e.name} gelöscht`, rueckgaengig: (d) => d.einnahmen.splice(i, 0, e) });
   },
 
   // Potenzielle Ausgaben

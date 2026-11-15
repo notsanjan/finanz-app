@@ -76,10 +76,23 @@ export function rhythmusBeschreibung(fk) {
 
 // ---------- Einnahmen (Konzept §13) ----------
 // Wert der Einnahme im Monat s: Ist-Wert, wenn eingetragen, sonst Schätzung (bei Spanne der untere Wert)
+export function gehaltVon(daten) {
+  const l = daten.einnahmen || [];
+  return l.find((e) => e.id === 'gehalt') || l.find((e) => e.wieOft === 'monatlich' && !e.status) || null;
+}
+// Ist die Einnahme im Monat s vorgesehen? monatlich (mit ab/bis) oder einmalig im Monat
+export function einnahmeAktivIm(e, s) {
+  if ((e.istWerte || []).some((w) => ymAus(w.datum) === s)) return true;
+  if (e.wieOft === 'einmalig') return e.monat === s;
+  if (e.wieOft === 'monatlich') return !(e.ab && s < e.ab) && !(e.bis && s > e.bis);
+  return false;
+}
+// Wert der Einnahme im Monat s: Ist-Wert, wenn eingetragen, sonst Schätzung (bei Spanne der untere Wert).
+// Zählt zu „Frei“, wenn sie fest ist oder im Monat angekommen ist; „geplant“ zählt erst nach „Kam an“.
 export function einnahmeIm(e, s) {
   const ist = (e.istWerte || []).find((w) => ymAus(w.datum) === s);
-  if (ist) return { betrag: Number(ist.betrag) || 0, geschaetzt: false, schaetzung: schaetzung(e) };
-  return { betrag: schaetzung(e), geschaetzt: !e.sicher, schaetzung: schaetzung(e) };
+  if (ist) return { betrag: Number(ist.betrag) || 0, geschaetzt: false, schaetzung: schaetzung(e), zaehlt: true, angekommen: true };
+  return { betrag: schaetzung(e), geschaetzt: !e.sicher, schaetzung: schaetzung(e), zaehlt: e.status !== 'geplant', angekommen: false };
 }
 export function schaetzung(e) {
   const b = e.betrag;
@@ -183,7 +196,9 @@ export function ruecklageLuecke(daten, heute) {
 export function kategorie(daten, id) { return (daten.kategorien || []).find((k) => k.id === id); }
 
 export function monatsRechnung(daten, s) {
-  const einnahmen = (daten.einnahmen || []).filter((e) => e.wieOft === 'monatlich').map((e) => Object.assign({ einnahme: e }, einnahmeIm(e, s)));
+  const alle = (daten.einnahmen || []).filter((e) => einnahmeAktivIm(e, s)).map((e) => Object.assign({ einnahme: e }, einnahmeIm(e, s)));
+  const einnahmen = alle.filter((e) => e.zaehlt);
+  const geplanteEinnahmen = alle.filter((e) => !e.zaehlt);
   const einkommen = einnahmen.reduce((a, e) => a + e.betrag, 0);
   const geschaetzt = einnahmen.some((e) => e.geschaetzt);
   const rk = ruecklage(daten);
@@ -212,7 +227,11 @@ export function monatsRechnung(daten, s) {
   const zuruecklegen = rk ? Number(rk.betrag) || 0 : 0;
   const sparen = sparratenNormal(daten).reduce((a, sp) => a + (Number(sp.betrag) || 0), 0);
   const frei = einkommen - ausgaben - zuruecklegen - sparen;
-  return { monat: s, einnahmen, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, frei };
+  const g = gehaltVon(daten);
+  const gehaltWert = einnahmen.find((e) => g && e.einnahme === g) || { betrag: 0, geschaetzt: !!g && !g.sicher, schaetzung: g ? schaetzung(g) : 0 };
+  const weitere = einnahmen.filter((e) => !g || e.einnahme !== g).reduce((a, e) => a + e.betrag, 0);
+  const geplantRein = geplanteEinnahmen.reduce((a, e) => a + e.betrag, 0);
+  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, frei };
 }
 
 // Ohne Rücklagenkonto: nächster Monat (ab dem folgenden), in dem nicht monatliche Kosten anfallen

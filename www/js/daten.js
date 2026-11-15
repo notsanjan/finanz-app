@@ -66,6 +66,8 @@ export function beispielDaten(heute = new Date()) {
   ];
   d.kategorien = grundKategorien();
   d.einnahmen[0].betrag = 2400;
+  const naechster = (() => { const x = new Date(heute); x.setMonth(x.getMonth() + 1); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0'); })();
+  d.einnahmen.push({ id: 'ein-beispiel', name: '💼 Nebenjob', wieOft: 'einmalig', monat: naechster, betrag: 300, sicher: true, status: 'geplant', selbststaendig: false, istWerte: [] });
   const monat = d.einstellungen.startMonat;
   d.sparraten = [
     { id: 'sparkonto', name: 'Sparkonto', betrag: 200, tag: 1, stand: 2050, standDatum: monat + '-01', ziel: null },
@@ -83,7 +85,7 @@ export function vervollstaendigen(d) {
   out.format = FORMAT;
   out.einstellungen = Object.assign({}, leer.einstellungen, d.einstellungen || {});
   for (const k of ['kategorien', 'fixkosten', 'einnahmen', 'sparraten', 'buchungen', 'wuensche']) if (!Array.isArray(out[k])) out[k] = leer[k];
-  if (!out.einnahmen.some((e) => e.wieOft === 'monatlich')) out.einnahmen.unshift(leer.einnahmen[0]);
+  if (!out.einnahmen.some((e) => e.id === 'gehalt') && !out.einnahmen.some((e) => e.wieOft === 'monatlich' && !e.status)) out.einnahmen.unshift(leer.einnahmen[0]);
   for (const e of out.einnahmen) if (!Array.isArray(e.istWerte)) e.istWerte = [];
   return out;
 }

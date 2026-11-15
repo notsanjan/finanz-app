@@ -21,12 +21,13 @@ export const LISTEN = [
 ];
 
 const BUDGET_VORSCHLAEGE = { lebensmittel: 300, tanken: 150, freizeit: 120, sonstiges: 0 };
-const SCHRITTE = ['gehalt', ...LISTEN.map((l) => 'liste:' + l.id), 'ruecklage', 'sparen', 'budgets', 'fertig'];
+const SCHRITTE = ['gehalt', 'einnahmen', ...LISTEN.map((l) => 'liste:' + l.id), 'ruecklage', 'sparen', 'budgets', 'fertig'];
+const EINNAHMEN = ['💼 Nebenjob', '🧑‍💼 Selbstständigkeit', '👶 Kindergeld', '🤝 Unterhalt', '🏠 Mieteinnahmen'];
 const RHYTHMEN = [[M, 'monatlich'], [V, 'vierteljährlich'], [H, 'halbjährlich'], [J, 'jährlich']];
 
 export function neueEinfuehrung(daten, erstStart) {
   const vorhanden = (katId, name) => (daten.fixkosten || []).some((f) => f.kategorieId === katId && f.name.toLowerCase() === name.toLowerCase());
-  const g = daten.einnahmen.find((e) => e.wieOft === 'monatlich');
+  const g = R.gehaltVon(daten);
   const sp = R.sparratenNormal(daten)[0];
   const rk = R.ruecklage(daten);
   return {
@@ -35,6 +36,7 @@ export function neueEinfuehrung(daten, erstStart) {
     listen: Object.fromEntries(LISTEN.map((l) => [l.id, l.vorschlaege.map((x) => Object.assign({}, x, {
       gewaehlt: false, vorhanden: vorhanden(l.id, x.name), betragText: '', monat: x.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, anteilText: '100'
     }))])),
+    einnahmen: [],
     ruecklage: { ja: rk ? true : null, betrag: rk ? String(rk.betrag) : '', tag: String(rk ? rk.tag || 1 : 1), stand: rk ? String(Math.round(R.ruecklageStand(daten, R.datumText(new Date())))) : '' },
     sparen: { ja: sp ? true : null, betrag: sp ? String(sp.betrag) : '', tag: String(sp ? sp.tag || 1 : 1), stand: sp ? String(R.sparStand(sp, R.datumText(new Date()))) : '' },
     budgets: daten.kategorien.filter((k) => k.art === 'budget').map((k) => ({
@@ -60,6 +62,21 @@ export function einfuehrungHtml(eb, h) {
         <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="gehalt.kommtAn" data-wert="Monatsende" aria-pressed="${eb.gehalt.kommtAn === 'Monatsende'}">am Monatsende</button><button data-a="ef-wert" data-pfad="gehalt.kommtAn" data-wert="Tag" aria-pressed="${eb.gehalt.kommtAn === 'Tag'}">an einem Tag</button></div>
         ${eb.gehalt.kommtAn === 'Tag' ? `<div class="feld"><label for="ef-gtag">Am Tag</label>${tagAuswahl('ef-gtag', 'gehalt.tag', Number(eb.gehalt.tag))}</div>` : ''}
       </section>`;
+  } else if (art === 'einnahmen') {
+    const jetzt = R.ymAus(R.datumText(new Date()));
+    const monate = Array.from({ length: 13 }, (_, i) => R.ymPlus(jetzt, i));
+    const zeilen = eb.einnahmen.map((e, i) => `<section class="karte ef-posten">
+        <div class="ef-zeile"><input class="eingabe" data-feld="einnahmen.${i}.name" value="${esc(e.name)}" placeholder="Name" aria-label="Name">
+          <input class="eingabe ef-betrag" inputmode="decimal" data-feld="einnahmen.${i}.betragText" value="${esc(e.betragText)}" placeholder="Betrag €" aria-label="Betrag">
+          <button class="knopf rund leise klein-x" data-a="ef-ein-weg" data-i="${i}" aria-label="Entfernen">${ICON.x}</button></div>
+        <div class="wahl zwei-sp ef-rhythmus"><button data-a="ef-wert" data-pfad="einnahmen.${i}.wieOft" data-wert="monatlich" aria-pressed="${e.wieOft === 'monatlich'}">jeden Monat</button><button data-a="ef-wert" data-pfad="einnahmen.${i}.wieOft" data-wert="einmalig" aria-pressed="${e.wieOft === 'einmalig'}">einmalig</button></div>
+        ${e.wieOft === 'einmalig' ? `<div class="feld"><label for="ef-em-${i}">In welchem Monat?</label><select id="ef-em-${i}" class="eingabe" data-feld="einnahmen.${i}.monat">${monate.map((m) => `<option value="${m}" ${e.monat === m ? 'selected' : ''}>${R.MONATE_LANG[R.ymTeile(m).monat - 1]} ${R.ymTeile(m).jahr}</option>`).join('')}</select></div>` : ''}
+        <div class="wahl zwei-sp ef-rhythmus"><button data-a="ef-wert" data-pfad="einnahmen.${i}.status" data-wert="fest" aria-pressed="${e.status === 'fest'}">fest</button><button data-a="ef-wert" data-pfad="einnahmen.${i}.status" data-wert="geplant" aria-pressed="${e.status === 'geplant'}">nur geplant</button></div>
+      </section>`).join('');
+    inhalt = `<h2 class="ef-titel">➕ Weitere Einnahmen</h2>
+      <p class="hinweistext">Kommt neben dem Gehalt noch etwas rein? „Fest“ zählt zu „Frei“, „nur geplant“ erst, wenn es da ist. Nichts davon? Einfach „Weiter“.</p>
+      <div class="chips">${EINNAHMEN.map((n) => `<button class="chip ef-chip" data-a="ef-ein-dazu" data-wert="${esc(n)}">${ICON.plus} ${esc(n)}</button>`).join('')}<button class="chip ef-chip eigen" data-a="ef-ein-dazu" data-wert="">${ICON.plus} Eigene</button></div>
+      ${zeilen}`;
   } else if (art.startsWith('liste:')) {
     const l = LISTEN.find((x) => 'liste:' + x.id === art);
     const posten = eb.listen[l.id];
@@ -159,6 +176,11 @@ function tagAuswahl(id, pfad, wert) {
 export function pruefeSchritt(eb, zahl) {
   const art = SCHRITTE[eb.schritt];
   if (art === 'gehalt' && eb.gehalt.text.trim() && (isNaN(zahl(eb.gehalt.text)) || zahl(eb.gehalt.text) < 0)) return 'Das Gehalt ist keine Zahl.';
+  if (art === 'einnahmen') {
+    if (eb.einnahmen.some((e) => !String(e.name).trim())) return 'Bitte jeder Einnahme einen Namen geben oder sie mit ✕ entfernen.';
+    const ohne = eb.einnahmen.filter((e) => isNaN(zahl(e.betragText)) || zahl(e.betragText) <= 0);
+    if (ohne.length) return `Bei ${ohne.map((e) => e.name).join(', ')} fehlt noch der Betrag.`;
+  }
   if (art.startsWith('liste:')) {
     const posten = eb.listen[art.slice(6)].filter((p) => p.gewaehlt);
     const ohneName = posten.filter((p) => !String(p.name || '').trim());
@@ -186,7 +208,7 @@ export function pruefeSchritt(eb, zahl) {
 
 export function anwenden(d, eb, zahlFn) {
   const zahl = zahlFn || ((t) => Number(String(t).replace(/[€\s.]/g, '').replace(',', '.')));
-  const g = d.einnahmen.find((e) => e.wieOft === 'monatlich');
+  const g = R.gehaltVon(d);
   if (g && eb.gehalt.text.trim() && !isNaN(zahl(eb.gehalt.text))) {
     g.betrag = zahl(eb.gehalt.text);
     g.kommtAn = eb.gehalt.kommtAn;
@@ -203,6 +225,11 @@ export function anwenden(d, eb, zahlFn) {
         monat: p.wieOft === 'monatlich' ? null : Number(p.monat) || 1, kategorieId: l.id, abo: !!p.abo,
         meinAnteil: p.anteil ? zahl(p.anteilText) || 100 : 100, endetAm: null, kuendigungsfrist: null });
     }
+  }
+  for (const e of eb.einnahmen || []) {
+    if (!String(e.name).trim() || !(zahl(e.betragText) > 0)) continue;
+    d.einnahmen.push({ id: D.neueId('ein'), name: String(e.name).trim(), wieOft: e.wieOft, betrag: zahl(e.betragText), sicher: true, status: e.status, kommtAn: 'sofort',
+      selbststaendig: /Selbstständig/.test(e.name), monat: e.wieOft === 'einmalig' ? e.monat : null, ab: e.wieOft === 'monatlich' ? R.ymAus(R.datumText(new Date())) : null, bis: null, istWerte: [] });
   }
   if (eb.ruecklage && eb.ruecklage.ja && zahl(eb.ruecklage.betrag) > 0) {
     const werte = { betrag: zahl(eb.ruecklage.betrag), tag: Number(eb.ruecklage.tag) || 1, stand: zahl(eb.ruecklage.stand || '0') || 0, standDatum: R.datumText(new Date()) };

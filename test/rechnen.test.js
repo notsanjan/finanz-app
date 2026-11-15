@@ -153,3 +153,21 @@ test('Potenzielle Ausgaben: passt, fehlt, frühestens, Budget', () => {
   assert.equal(p.d.fruehestens, '2027-01'); // Nov hätte gereicht, aber dann fehlt im Dez mehr
   assert.equal(R.geplantAusFrei(d, '2026-11', p), 520);
 });
+
+test('Weitere Einnahmen: fest zählt, geplant erst nach „Kam an“', () => {
+  const d = daten();
+  d.einnahmen = d.einnahmen.filter((e) => e.id !== 'ein-beispiel');
+  const basis = R.monatsRechnung(d, '2026-11').frei;
+  d.einnahmen.push({ id: 'n', name: 'Nebenjob', wieOft: 'einmalig', monat: '2026-12', betrag: 300, sicher: true, status: 'geplant', istWerte: [] });
+  d.einnahmen.push({ id: 'k', name: 'Kindergeld', wieOft: 'monatlich', ab: '2026-11', bis: null, betrag: 255, sicher: true, status: 'fest', istWerte: [] });
+  const nov = R.monatsRechnung(d, '2026-11');
+  assert.equal(nov.frei, basis + 255);
+  assert.equal(nov.gehaltWert.betrag, 2400);
+  assert.equal(nov.weitere, 255);
+  const dez = R.monatsRechnung(d, '2026-12');
+  assert.equal(dez.geplantRein, 300);
+  assert.equal(dez.frei, basis + 255);
+  d.einnahmen.find((e) => e.id === 'n').istWerte.push({ datum: '2026-12-05', betrag: 280 });
+  assert.equal(R.monatsRechnung(d, '2026-12').frei, basis + 255 + 280);
+  assert.equal(R.monatsRechnung(d, '2027-01').weitere, 255);
+});
