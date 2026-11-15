@@ -145,13 +145,14 @@ object Widgets {
         }
         v.setTextViewText(R.id.name, kat.optString("name"))
         v.setTextViewText(R.id.budget, if (budget > 0) "Budget " + Logik.euro(budget) else "ohne Budget")
-        v.setTextViewText(R.id.label, "AUSGEGEBEN IM " + Logik.MONATE_LANG[Logik.monatsNummer(ym) - 1].uppercase())
+        v.setTextViewText(R.id.label, "AUSGEGEBEN IM " + Logik.MONATE_LANG[Logik.monatsNummer(ym) - 1].uppercase() + "  ✎")
         v.setTextViewText(R.id.betrag, Logik.euro(ausgegeben + vorl))
         val rest = max(0.0, budget - ausgegeben - vorl)
         v.setTextViewText(R.id.rest, if (budget > 0) "noch " + Logik.euro(rest) else "")
         v.setImageViewBitmap(R.id.balken, balken(budget, ausgegeben, vorl.toDouble()))
         v.setOnClickPendingIntent(R.id.kopf, appOeffnen(ctx, 2))
-        v.setOnClickPendingIntent(R.id.betragbereich, appOeffnen(ctx, 3))
+        // Betrag antippen: genauen Betrag in der App eintippen (Kategorie ist schon gewählt)
+        v.setOnClickPendingIntent(R.id.betragbereich, PendingIntent.getActivity(ctx, 700000 + id, Kurzbefehle.eintragenIntent(ctx, kat.getString("id")), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
 
         // Knöpfe +5 / +10 / −5 (klein: höchstens 2)
         val alle = mutableListOf<Int>()

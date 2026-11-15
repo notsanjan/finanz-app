@@ -1,6 +1,9 @@
 package de.jan.finanzapp
 
 import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.view.inputmethod.InputMethodManager
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -29,6 +32,7 @@ class FinanzSpeicherPlugin : Plugin() {
         if (text == null) { call.reject("Keine Daten übergeben"); return }
         Speicher.schreibenText(context, text)
         Widgets.alleAktualisieren(context)
+        Kurzbefehle.aktualisieren(context, Speicher.lesen(context))
         call.resolve()
     }
 
@@ -62,6 +66,42 @@ class FinanzSpeicherPlugin : Plugin() {
         } catch (e: Exception) {
             call.reject(e.message ?: "Export fehlgeschlagen")
         }
+    }
+
+    /** Auftrag aus Widget oder Kurzbefehl („Ausgabe eintragen“, optional mit Kategorie). Wird nach dem Lesen gelöscht. */
+    @PluginMethod
+    fun auftragHolen(call: PluginCall) {
+        val r = JSObject()
+        val i = activity?.intent
+        val ausVerlauf = i != null && (i.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0
+        val art = i?.getStringExtra(Kurzbefehle.AUFTRAG)
+        if (i != null && art != null && !ausVerlauf) {
+            r.put("art", art)
+            r.put("kategorie", i.getStringExtra(Kurzbefehle.KATEGORIE) ?: "")
+        }
+        i?.removeExtra(Kurzbefehle.AUFTRAG)
+        i?.removeExtra(Kurzbefehle.KATEGORIE)
+        call.resolve(r)
+    }
+
+    /** Tastatur öffnen (ein focus() aus JavaScript reicht in der WebView ohne Fingertipp nicht). */
+    @PluginMethod
+    fun tastaturZeigen(call: PluginCall) {
+        val web = bridge?.webView
+        activity?.runOnUiThread {
+            if (web != null) {
+                web.requestFocus()
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                imm.showSoftInput(web, InputMethodManager.SHOW_IMPLICIT)
+            }
+            call.resolve()
+        }
+    }
+
+    override fun handleOnNewIntent(intent: Intent) {
+        super.handleOnNewIntent(intent)
+        activity?.intent = intent
+        notifyListeners("auftrag", JSObject())
     }
 
     override fun handleOnResume() {
