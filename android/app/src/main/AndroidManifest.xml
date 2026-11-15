@@ -24,6 +24,17 @@
 
         </activity>
 
+        <!-- BETA: Zahlungen aus Benachrichtigungen erkennen (nur nach Freigabe durch den Nutzer) -->
+        <service
+            android:name=".ZahlungsLeser"
+            android:label="@string/app_name"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <!-- Budget-Widget: eins pro Kategorie -->
         <receiver android:name=".BudgetWidget" android:exported="false" android:label="@string/widget_budget_name">
             <intent-filter>
@@ -61,6 +72,7 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
     </application>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Permissions -->
 

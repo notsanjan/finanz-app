@@ -142,6 +142,29 @@ export function tastaturZeigen() {
   const p = plugin();
   if (p && p.tastaturZeigen) p.tastaturZeigen().catch(() => {});
 }
+// ---------- BETA: Zahlungen aus Benachrichtigungen ----------
+// Im Browser (Test): localStorage 'finanz.vorschlaege' (Liste) und 'finanz.erkennungTest' = '1'
+const VS = 'finanz.vorschlaege';
+const lsListe = () => { try { return JSON.parse(localStorage.getItem(VS) || '[]'); } catch (e) { return []; } };
+export async function erkennungStatus() {
+  const p = plugin();
+  if (p && p.erkennungStatus) { try { return await p.erkennungStatus(); } catch (e) { return { verfuegbar: false }; } }
+  if (localStorage.getItem('finanz.erkennungTest')) return { verfuegbar: true, an: true, erlaubt: true, meldungen: true, apps: [{ paket: 'com.paypal.android.p2pmobile', name: 'PayPal', an: true, bekannt: true }, { paket: 'com.google.android.apps.walletnfcrel', name: 'Google Wallet', an: true, bekannt: true }, { paket: 'de.fiduciagad.android.vrbanking', name: 'VR Banking', an: true, bekannt: true }] };
+  return { verfuegbar: false };
+}
+export async function erkennungEinstellen(an) { const p = plugin(); if (p && p.erkennungEinstellen) await p.erkennungEinstellen({ an }); }
+export async function erkennungApp(paket, an) { const p = plugin(); if (p && p.erkennungApp) await p.erkennungApp({ paket, an }); }
+export async function erkennungErlauben() { const p = plugin(); if (p && p.erkennungErlauben) await p.erkennungErlauben(); }
+export async function vorschlaegeHolen() {
+  const p = plugin();
+  if (p && p.vorschlaegeHolen) { try { const r = await p.vorschlaegeHolen(); return (r && r.liste) || []; } catch (e) { return []; } }
+  return lsListe();
+}
+export async function vorschlaegeEntfernen(ids) {
+  const p = plugin();
+  if (p && p.vorschlaegeEntfernen) { await p.vorschlaegeEntfernen({ ids }); return; }
+  localStorage.setItem(VS, JSON.stringify(lsListe().filter((v) => !ids.includes(v.id))));
+}
 export function beiAuftrag(fn) {
   const p = plugin();
   if (p && p.addListener) p.addListener('auftrag', fn);

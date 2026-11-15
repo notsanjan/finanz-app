@@ -1,6 +1,10 @@
 package de.jan.finanzapp
 
+import android.Manifest
 import android.content.ContentValues
+import android.content.pm.PackageManager
+import android.provider.Settings
+import com.getcapacitor.JSArray
 import android.content.Context
 import android.content.Intent
 import android.view.inputmethod.InputMethodManager
@@ -96,6 +100,62 @@ class FinanzSpeicherPlugin : Plugin() {
             }
             call.resolve()
         }
+    }
+
+    // ---------- BETA: Zahlungen aus Benachrichtigungen ----------
+    @PluginMethod
+    fun erkennungStatus(call: PluginCall) {
+        val r = JSObject()
+        r.put("verfuegbar", true)
+        r.put("an", Erkennung.eingeschaltet(context))
+        r.put("erlaubt", Erkennung.erlaubt(context))
+        r.put("meldungen", Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+        r.put("apps", JSArray(Erkennung.apps(context).toString()))
+        call.resolve(r)
+    }
+
+    @PluginMethod
+    fun erkennungEinstellen(call: PluginCall) {
+        val an = call.getBoolean("an", false) ?: false
+        Erkennung.setzeEin(context, an)
+        if (an && Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            activity?.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 4712)
+        call.resolve()
+    }
+
+    @PluginMethod
+    fun erkennungApp(call: PluginCall) {
+        val paket = call.getString("paket")
+        if (paket == null) { call.reject("Kein Paket"); return }
+        Erkennung.setzeApp(context, paket, call.getBoolean("an", false) ?: false)
+        call.resolve()
+    }
+
+    /** Öffnet die Android-Einstellung „Zugriff auf Benachrichtigungen“. */
+    @PluginMethod
+    fun erkennungErlauben(call: PluginCall) {
+        try {
+            val i = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(i)
+            call.resolve()
+        } catch (e: Exception) { call.reject(e.message ?: "Einstellungen nicht erreichbar") }
+    }
+
+    @PluginMethod
+    fun vorschlaegeHolen(call: PluginCall) {
+        val r = JSObject()
+        r.put("liste", JSArray(Erkennung.vorschlaege(context).toString()))
+        call.resolve(r)
+    }
+
+    @PluginMethod
+    fun vorschlaegeEntfernen(call: PluginCall) {
+        val ids = call.getArray("ids")
+        val set = mutableSetOf<String>()
+        if (ids != null) for (i in 0 until ids.length()) set.add(ids.getString(i))
+        Erkennung.entfernen(context, set)
+        if (Erkennung.vorschlaege(context).length() == 0) Erkennung.meldungWeg(context)
+        call.resolve()
     }
 
     override fun handleOnNewIntent(intent: Intent) {
