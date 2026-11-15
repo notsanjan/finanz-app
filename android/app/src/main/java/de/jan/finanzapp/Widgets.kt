@@ -14,12 +14,25 @@ import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.util.SizeF
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
 import kotlin.math.max
 import kotlin.math.min
+
+// Geld-Farbe (v23): Ausgaben rot wie in der App (--minus #EF9A8F). Färbt nur den Betrag im Text.
+private const val ROT = 0xFFEF9A8F.toInt()
+private fun rotBetrag(text: String, betrag: String): CharSequence {
+    val i = text.indexOf(betrag)
+    if (i < 0) return text
+    val sp = SpannableString(text)
+    sp.setSpan(ForegroundColorSpan(ROT), i, i + betrag.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+    return sp
+}
 
 /** Zustand eines einzelnen Widgets (vorläufiger Betrag, letzte Buchung). Nicht Teil der gemeinsamen Daten. */
 object WidgetZustand {
@@ -146,7 +159,8 @@ object Widgets {
         v.setTextViewText(R.id.name, kat.optString("name"))
         v.setTextViewText(R.id.budget, if (budget > 0) "Budget " + Logik.euro(budget) else "ohne Budget")
         v.setTextViewText(R.id.label, "AUSGEGEBEN IM " + Logik.MONATE_LANG[Logik.monatsNummer(ym) - 1].uppercase() + "  ✎")
-        v.setTextViewText(R.id.betrag, Logik.euro(ausgegeben + vorl))
+        v.setTextViewText(R.id.betrag, if (ausgegeben + vorl > 0) "− " + Logik.euro(ausgegeben + vorl) else Logik.euro(0.0))
+        v.setTextColor(R.id.betrag, if (ausgegeben + vorl > 0) ROT else 0xFFEEF2F0.toInt())
         val rest = max(0.0, budget - ausgegeben - vorl)
         v.setTextViewText(R.id.rest, if (budget > 0) "noch " + Logik.euro(rest) else "")
         v.setImageViewBitmap(R.id.balken, balken(budget, ausgegeben, vorl.toDouble()))
@@ -181,8 +195,8 @@ object Widgets {
             v.setViewVisibility(R.id.info, View.VISIBLE)
             v.setTextViewText(R.id.info, when {
                 hatVorl -> vorherText
-                phase == "gebucht" && letzte != null -> Logik.euro(letzte.optDouble("betrag")) + " gebucht. " + kat.optString("frage", "Wo?")
-                letzte != null && System.currentTimeMillis() - WidgetZustand.letzteZeit(ctx, id) < ZULETZT_ZEIGEN_MS -> "Zuletzt: " + Logik.euro(letzte.optDouble("betrag")) + " · " + (letzte.optString("ort").takeIf { it.isNotEmpty() && it != "null" } ?: "ohne Ort")
+                phase == "gebucht" && letzte != null -> Logik.euro(letzte.optDouble("betrag")).let { b -> rotBetrag("− $b gebucht. " + kat.optString("frage", "Wo?"), "− $b") }
+                letzte != null && System.currentTimeMillis() - WidgetZustand.letzteZeit(ctx, id) < ZULETZT_ZEIGEN_MS -> Logik.euro(letzte.optDouble("betrag")).let { b -> rotBetrag("Zuletzt: − $b · " + (letzte.optString("ort").takeIf { it.isNotEmpty() && it != "null" } ?: "ohne Ort"), "− $b") }
                 budget > 0 -> "noch " + Logik.euro(rest) + " von " + Logik.euro(budget)
                 else -> "ohne Budget"
             })
@@ -198,7 +212,7 @@ object Widgets {
         val zeigeGebucht = phase == "gebucht" && letzte != null && !hatVorl
         v.setViewVisibility(R.id.gebucht, if (zeigeGebucht) View.VISIBLE else View.GONE)
         if (zeigeGebucht && letzte != null) {
-            v.setTextViewText(R.id.gebuchtText, if (klein) "" else Logik.euro(letzte.optDouble("betrag")) + " gebucht. " + kat.optString("frage", "Wo?") + " (optional)")
+            v.setTextViewText(R.id.gebuchtText, if (klein) "" else Logik.euro(letzte.optDouble("betrag")).let { b -> rotBetrag("− $b gebucht. " + kat.optString("frage", "Wo?") + " (optional)", "− $b") })
             v.setViewVisibility(R.id.gebuchtText, if (klein) View.GONE else View.VISIBLE)
             v.setOnClickPendingIntent(R.id.rueck1, aktion(ctx, id, "rueckgaengig", "", 30))
             val chips = mutableListOf<String>()
@@ -229,7 +243,7 @@ object Widgets {
         v.setViewVisibility(R.id.zuletzt, if (zeigeZuletzt) View.VISIBLE else View.GONE)
         if (zeigeZuletzt && letzte != null) {
             val ort = letzte.optString("ort").takeIf { it.isNotEmpty() && it != "null" } ?: "ohne Ort"
-            v.setTextViewText(R.id.zuletztText, "Zuletzt: " + Logik.euro(letzte.optDouble("betrag")) + " · " + ort)
+            v.setTextViewText(R.id.zuletztText, Logik.euro(letzte.optDouble("betrag")).let { b -> rotBetrag("Zuletzt: − $b · $ort", "− $b") })
             v.setOnClickPendingIntent(R.id.rueck2, aktion(ctx, id, "rueckgaengig", "", 31))
         }
         return v
@@ -326,17 +340,17 @@ object Widgets {
             m.updateAppWidget(id, v)
             return
         }
-        v.setTextViewText(R.id.summe, "≈ " + Logik.euro(Math.rint(Logik.fixkostenProMonat(daten))) + " im Monat")
+        v.setTextViewText(R.id.summe, Logik.euro(Math.rint(Logik.fixkostenProMonat(daten))).let { b -> rotBetrag("≈ − $b im Monat", "− $b") })
         val erstesDatum = liste[0].datum
         val gruppe = liste.filter { it.datum == erstesDatum }
         val namen = gruppe.take(2).joinToString(", ") { it.name } + if (gruppe.size > 2) " …" else ""
         v.setTextViewText(R.id.naechsteName, "Nächste: $namen")
-        v.setTextViewText(R.id.naechsteWann, Logik.datumKurz(erstesDatum) + " · " + Logik.euro(gruppe.sumOf { it.betrag }))
+        v.setTextViewText(R.id.naechsteWann, Logik.euro(gruppe.sumOf { it.betrag }).let { b -> rotBetrag(Logik.datumKurz(erstesDatum) + " · − " + b, "− $b") })
         val brocken = liste.firstOrNull { !it.monatlich && it.datum > erstesDatum }
         if (brocken != null) {
             v.setViewVisibility(R.id.zeile2, View.VISIBLE)
             v.setTextViewText(R.id.brockenName, "Großer Brocken: " + brocken.name)
-            v.setTextViewText(R.id.brockenWann, Logik.datumKurz(brocken.datum) + " · " + Logik.euro(brocken.betrag))
+            v.setTextViewText(R.id.brockenWann, Logik.euro(brocken.betrag).let { b -> rotBetrag(Logik.datumKurz(brocken.datum) + " · − " + b, "− $b") })
         } else v.setViewVisibility(R.id.zeile2, View.GONE)
         m.updateAppWidget(id, v)
     }

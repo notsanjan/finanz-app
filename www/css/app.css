@@ -566,3 +566,9 @@ button.ef-chip.da { opacity: .75; }
 .bl-zeile .mini { margin-top: 0; }
 
 .sheet > .knopfreihe:last-child { background: linear-gradient(to bottom, transparent, var(--flaeche-fenster) 35%); }
+
+/* v23: Geld-Farben auch in Zeilen-Titeln (Verlauf, Konten) – Größe vom Titel, Farbe rot/grün */
+.eintrag .t b > .minus-zahl, .eintrag .t b > .plus-zahl { font-size: inherit; }
+.eintrag .t b > .minus-zahl { color: var(--minus); }
+.eintrag .t b > .plus-zahl { color: var(--plus); }
+.jahr-zeile .marke .minus-zahl { color: var(--minus); }
