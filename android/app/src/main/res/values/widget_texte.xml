@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_budget_name">Budget</string>
+    <string name="widget_budget_beschreibung">Ausgaben einer Kategorie mit +5 / +10 buchen</string>
+    <string name="widget_fixkosten_name">Fixkosten</string>
+    <string name="widget_fixkosten_beschreibung">Nächste Abbuchung und nächster großer Brocken</string>
+</resources>

@@ -4,12 +4,12 @@
   "private": true,
   "description": "Offline-Finanz-App fuer Android (Capacitor + natives Widget)",
   "scripts": {
-    "sync": "cap sync android"
+    "sync": "cap sync android",
+    "test": "node --experimental-default-type=module --test test/*.test.js"
   },
   "dependencies": {
     "@capacitor/android": "^8.6.2",
-    "@capacitor/core": "^8.6.2",
-    "@capacitor/preferences": "^8.0.1"
+    "@capacitor/core": "^8.6.2"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.6.2"

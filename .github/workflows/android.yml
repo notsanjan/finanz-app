@@ -27,12 +27,16 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: npm ci
 
+      - name: Tests der Rechenlogik
+        run: npm test
+
       - name: Web-Teil ins Android-Projekt kopieren
         run: npx cap sync android
 
       - name: Versionsnummer festlegen
         env:
           GH_TOKEN: ${{ github.token }}
+          COMMIT_TEXT: ${{ github.event.head_commit.message }}
         run: |
           V=$(tr -d ' \r\n' < version.txt)
           if [[ ! "$V" =~ ^finanz-v[0-9]+$ ]]; then
@@ -40,7 +44,10 @@ jobs:
           fi
           echo "VERSION_NAME=$V" >> "$GITHUB_ENV"
           echo "VERSION_CODE=${V#finanz-v}" >> "$GITHUB_ENV"
-          if gh release view "$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          if [[ "$COMMIT_TEXT" == *"[kein-release]"* ]]; then
+            echo "NEUES_RELEASE=nein" >> "$GITHUB_ENV"
+            echo "Commit mit [kein-release] – nur Test-Build."
+          elif gh release view "$V" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "NEUES_RELEASE=nein" >> "$GITHUB_ENV"
             echo "Release $V gibt es schon – nur Test-Build."
           else

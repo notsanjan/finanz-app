@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#14181b">
 <title>Finanzen</title>
-<style>
-  body { margin:0; background:#14181b; color:#eef2f0; font-family: system-ui, sans-serif;
-         display:flex; align-items:center; justify-content:center; min-height:100vh; }
-  .karte { background:#1d2327; border-radius:20px; padding:24px 28px; text-align:center; }
-  .klein { color:#b7c1be; font-size:14px; }
-</style>
+<link rel="stylesheet" href="css/app.css">
 </head>
 <body>
-  <div class="karte">
-    <div>Finanz-App</div>
-    <div class="klein">Grundgerüst – Build-Test</div>
-  </div>
+<main id="app" aria-live="off"></main>
+<div id="ebene"></div>
+<input type="file" id="import-datei" hidden>
+<script type="module">
+  import { start } from './js/app.js';
+  start();
+</script>
 </body>
 </html>
