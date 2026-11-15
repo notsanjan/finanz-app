@@ -473,3 +473,24 @@ body.kachel-zieht { overflow: hidden; }
 .ef-weg-karte { border: 1px solid rgba(239, 154, 143, .45); background: rgba(239, 154, 143, .06); }
 .ef-weg-text { color: var(--minus); font-size: 13px; margin-left: auto; }
 .ef-budget .klein-x { flex-shrink: 0; }
+
+/* Einrichtung v19: Karten einklappen, Anteil in €, vorhandene ändern */
+.ef-zu { padding: 0; }
+.ef-zu-knopf { display: flex; align-items: center; gap: 10px; width: 100%; padding: 14px 16px; background: none; border: 0; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.ef-zu-knopf .t { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ef-zu-knopf b { font-size: 16px; }
+.ef-zu-knopf small { color: var(--gedaempft); font-size: 13px; }
+.ef-zu-knopf .ef-zweite { color: var(--akzent); }
+.ef-pfeil { color: var(--gedaempft); font-size: 18px; }
+.ef-fehlt { color: var(--minus); }
+.ef-unten { display: flex; justify-content: flex-end; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ef-fertig { color: var(--akzent); }
+.ef-loeschen { color: var(--minus); margin-right: auto; }
+.ef-teilen-knopf { align-self: flex-start; }
+.ef-teilen { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 16px; background: rgba(127, 214, 200, .07); border: 1px solid rgba(127, 214, 200, .25); }
+.ef-teilen > .knopf { align-self: flex-start; }
+.ef-anteil-hinweis { margin: 0; color: var(--text); }
+.ef-gesamt, .ef-vorhanden-text { margin: 0; font-size: 13px; }
+.ef-vorhanden-text { color: var(--akzent); }
+button.ef-chip.da { opacity: .75; }
+.ef-beispiel-hinweis { border: 1px solid rgba(201, 210, 122, .45); }

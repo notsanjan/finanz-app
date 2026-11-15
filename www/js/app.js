@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v18';
+export const APP_VERSION = 'finanz-v19';
 const NEU_IN_VERSION = [
-  'Einrichtung: Vorschläge, die du nicht hast, mit ✕ ausblenden (z. B. Kindergeld). Einnahmen nochmal antippen = wieder weg',
-  'Einrichtung: Ganze Kategorien entfernen („Brauche ich nicht“), Budgets mit ✕ entfernen – mit Rückgängig',
-  'Gehalt bestätigen (seit v17): Karte „Gehalt da?“, Monatsende fragt zuerst das Gehalt, Schätzung lernt mit'
+  'Einrichtung: Karten klappen ein („✓ Fertig, einklappen“ oder automatisch beim nächsten Posten), antippen klappt wieder auf',
+  'Geteilte Kosten: Du trägst ein, wie viel du zahlst (€) – die Prozent rechnet die App aus. Auch unter „Fixkosten bearbeiten“',
+  'Einrichtung: „schon da“ antippen = ändern oder löschen. Mit Beispieldaten ersetzt die Einrichtung das Beispiel'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -833,18 +833,25 @@ function geteiltText(f) {
   const teile = [];
   if (anteil < 100) {
     const rest = (Number(f.betrag) || 0) - R.eigenerBetrag(f);
-    teile.push(`gesamt ${R.euro(f.betrag)} · dein Anteil ${String(anteil).replace('.', ',')} %`);
+    teile.push(`gesamt ${R.euro(f.betrag)} · dein Anteil ${R.euro(Math.round(R.eigenerBetrag(f) * 100) / 100)} (${String(Math.round(anteil * 10) / 10).replace('.', ',')} %)`);
     if (f.teiltMit) teile.push(`↩ ${f.teiltMit} überweist dir ${R.euro(Math.round(rest * 100) / 100)}${f.erstattungTag ? ' am ' + f.erstattungTag + '.' : ''}`);
   }
   if (f.konto) teile.push(`Abbuchung: ${f.konto}`);
   return teile;
 }
+function fkAnteil(f) {
+  // Anteil in % aus dem eingetragenen Euro-Betrag; leer = 100 %
+  if (!String(f.meinText || '').trim()) return 100;
+  return E.anteilAusEuro(zahl(f.betragText || String(f.betrag || '')), f.meinText, zahl);
+}
 function geteiltFelder(f) {
-  const anteil = zahl(String(f.meinAnteil == null ? 100 : f.meinAnteil));
   const betrag = zahl(f.betragText || String(f.betrag || ''));
-  if (isNaN(anteil) || anteil >= 100) return '<p class="hinweistext">Teilst du das mit jemandem? Trag deinen Anteil ein, z. B. 50 %. Gerechnet wird dann nur mit deinem Teil.</p>';
-  const rest = !isNaN(betrag) && betrag > 0 ? betrag - betrag * anteil / 100 : null;
-  return `<p class="hinweistext">${!isNaN(betrag) && betrag > 0 ? `Gesamt ${R.euro(betrag)} · du zahlst ${R.euro(Math.round(betrag * anteil) / 100)} · zurück bekommst du ${R.euro(Math.round(rest * 100) / 100)}.` : ''} Belastet wird nur dein Anteil.</p>
+  const anteil = fkAnteil(f);
+  if (!String(f.meinText || '').trim()) return '<p class="hinweistext">Teilst du das mit jemandem? Trag ein, wie viel du selbst zahlst, z. B. 525 €. Die Prozent rechnet die App aus, gerechnet wird nur mit deinem Teil.</p>';
+  if (anteil === null) return `<p class="hinweistext fehlertext">Dein Teil muss mehr als 0 € und höchstens ${!isNaN(betrag) && betrag > 0 ? R.euro(betrag) : 'der Betrag'} sein.</p>`;
+  if (anteil >= 100) return '<p class="hinweistext">Du zahlst alles selbst.</p>';
+  const mein = zahl(f.meinText);
+  return `<p class="hinweistext">= ${String(Math.round(anteil * 10) / 10).replace('.', ',')} % · gesamt ${R.euro(betrag)} · du zahlst ${R.euro(mein)} · zurück bekommst du ${R.euro(Math.round((betrag - mein) * 100) / 100)}. Belastet wird nur dein Anteil.</p>
     <div class="zwei">
       <div class="feld"><label for="fk-teilt">Wer zahlt dir den Rest?</label><input id="fk-teilt" class="eingabe" data-feld="teiltMit" value="${esc(f.teiltMit || '')}" placeholder="z. B. Anna"></div>
       <div class="feld"><label for="fk-etag">Überweist am Tag</label><input id="fk-etag" class="eingabe" inputmode="numeric" data-feld="erstattungTag" value="${esc(f.erstattungTag || '')}" placeholder="z. B. 5"></div>
@@ -997,13 +1004,13 @@ const EBENEN = {
     const betrag = zahl(f.betragText);
     let zus = '';
     if (!isNaN(betrag) && betrag > 0) {
-      const eigen = R.eigenerBetrag(Object.assign({}, f, { betrag }));
+      const eigen = R.eigenerBetrag(Object.assign({}, f, { betrag, meinAnteil: fkAnteil(f) || 100 }));
       zus = monatlich ? `Wird jeden Monat am ${f.tag}. abgebucht: ${R.euro(eigen)}.`
-        : `Wird am ${f.tag}. abgebucht: ${aktiv.map((m) => f.wieOft === 'jaehrlich' ? R.MONATE_LANG[m - 1] : R.MONATE_KURZ[m - 1]).join(', ')}. ${R.ruecklage(z.daten) ? 'Bezahlt aus dem Rücklagenkonto' : 'Zählt im Monat der Abbuchung voll'}, auf den Monat gerechnet ≈ ${R.euro(Math.round(R.monatsAnteil(Object.assign({}, f, { betrag })) * 100) / 100)}.`;
+        : `Wird am ${f.tag}. abgebucht: ${aktiv.map((m) => f.wieOft === 'jaehrlich' ? R.MONATE_LANG[m - 1] : R.MONATE_KURZ[m - 1]).join(', ')}. ${R.ruecklage(z.daten) ? 'Bezahlt aus dem Rücklagenkonto' : 'Zählt im Monat der Abbuchung voll'}, auf den Monat gerechnet ≈ ${R.euro(Math.round(R.monatsAnteil(Object.assign({}, f, { betrag, meinAnteil: fkAnteil(f) || 100 })) * 100) / 100)}.`;
     } else zus = 'Trage einen Betrag ein.';
     const mehr = eb.mehr ? `<section class="karte">
         <button class="schalter" role="switch" aria-checked="${!!f.abo}" data-a="fk-abo"><span class="t">Ist ein Abo<br><span class="klein">Abos stehen gesammelt und lassen sich kündigen</span></span><span class="spur"></span></button>
-        <div class="feld"><label for="fk-anteil">Wie viel davon zahlst du? (%)</label><input id="fk-anteil" class="eingabe" inputmode="decimal" data-feld="meinAnteil" data-neu-zeichnen="1" value="${esc(f.meinAnteil == null ? 100 : f.meinAnteil)}"></div>
+        <div class="feld"><label for="fk-anteil">Davon zahlst du selbst (€) – leer = alles</label><input id="fk-anteil" class="eingabe" inputmode="decimal" data-feld="meinText" data-neu-zeichnen="1" value="${esc(f.meinText || '')}" placeholder="z. B. 525"></div>
         <div data-geteilt>${geteiltFelder(f)}</div>
         <div class="feld"><label for="fk-konto">Abgebucht von Konto (optional)</label><input id="fk-konto" class="eingabe" data-feld="konto" value="${esc(f.konto || '')}" placeholder="z. B. Girokonto ••4417"></div>
         <div class="feld"><label for="fk-ende">Endet am (z. B. gekündigt zum)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
@@ -1359,18 +1366,41 @@ const AKTION = {
 
   // Start
   'start-einrichten': () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; oeffne(E.neueEinfuehrung(z.daten, true)); },
-  'einfuehrung-erneut': () => oeffne(E.neueEinfuehrung(z.daten, false)),
+  'einfuehrung-erneut': () => {
+    // Mit Beispieldaten: von vorne mit leeren Daten, am Ende ersetzen die Angaben das Beispiel
+    if (z.daten.beispiel) { const leer = D.leereDaten(); oeffne(Object.assign(E.neueEinfuehrung(leer, true), { basis: leer })); }
+    else oeffne(E.neueEinfuehrung(z.daten, false));
+  },
   'ef-wert': (el) => {
     let w = el.dataset.wert; if (w === 'ja') w = true; else if (w === 'nein') w = false;
     setzePfad(oben(), el.dataset.pfad, w); oben().fehler = null; renderEbenen();
   },
   'ef-waehlen': (el) => {
     const liste = oben().listen[el.dataset.liste]; const i = Number(el.dataset.i); const p = liste[i];
-    if (p.eigen) liste.splice(i, 1); else p.gewaehlt = !p.gewaehlt;
+    if (p.eigen) liste.splice(i, 1);
+    else { p.gewaehlt = !p.gewaehlt; if (p.gewaehlt) { efAndereEinklappen(liste, p); p.zu = false; } else p.loeschen = false; }
     oben().fehler = null; renderEbenen();
   },
+  // schon eingetragene Fixkosten in der Einrichtung bearbeiten: Werte übernehmen und Karte öffnen
+  'ef-vorhanden': (el) => {
+    const liste = oben().listen[el.dataset.liste]; const p = liste[Number(el.dataset.i)];
+    const f = z.daten.fixkosten.find((x) => x.id === p.vorhandenId); if (!f) return;
+    const anteil = f.meinAnteil == null ? 100 : Number(f.meinAnteil);
+    efAndereEinklappen(liste, p);
+    Object.assign(p, { gewaehlt: true, zu: false, loeschen: false, betragText: R.euro(f.betrag, false), wieOft: f.wieOft, tag: f.tag || 1, monat: f.monat || p.monat,
+      geteilt: anteil < 100, meinText: anteil < 100 ? R.euro(Math.round(R.eigenerBetrag(f) * 100) / 100, false) : '', teiltMit: f.teiltMit || '' });
+    oben().fehler = null; renderEbenen();
+  },
+  'ef-zu': (el) => {
+    const eb = oben(); const zu = el.dataset.wert === '1';
+    const p = el.dataset.pfad.split('.').reduce((o, k) => o[k], eb);
+    p.zu = zu; eb.fehler = null; renderEbenen();
+    if (!zu) { const k = document.querySelector(`[data-feld="${el.dataset.pfad}.betragText"]`); if (k) k.closest('.ef-posten').scrollIntoView({ block: 'nearest' }); }
+  },
   'ef-eigen': (el) => {
-    oben().listen[el.dataset.liste].push({ name: '', eigen: true, gewaehlt: true, wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, betragText: '', anteilText: '100' });
+    const liste = oben().listen[el.dataset.liste];
+    const neu = { name: '', eigen: true, gewaehlt: true, wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, betragText: '', geteilt: false, meinText: '', teiltMit: '' };
+    efAndereEinklappen(liste, neu); liste.push(neu);
     renderEbenen();
     const felder = document.querySelectorAll('.ef-posten input[data-feld$=".name"]'); if (felder.length) felder[felder.length - 1].focus();
   },
@@ -1378,7 +1408,7 @@ const AKTION = {
     const eb = oben(); const n = el.dataset.wert;
     const i = n ? eb.einnahmen.findIndex((e) => e.name === n) : -1;
     if (i >= 0) eb.einnahmen.splice(i, 1); // nochmal antippen = wieder weg
-    else eb.einnahmen.push({ name: n, betragText: '', wieOft: 'monatlich', status: 'fest', monat: heuteYm() });
+    else efAndereEinklappen(eb.einnahmen, null), eb.einnahmen.push({ name: n, betragText: '', wieOft: 'monatlich', status: 'fest', monat: heuteYm() });
     eb.fehler = null; renderEbenen();
   },
   'ef-ausblenden': (el) => { const eb = oben(); eb.ausgeblendet = [...new Set([...(eb.ausgeblendet || []), el.dataset.wert])]; renderEbenen(); },
@@ -1399,7 +1429,14 @@ const AKTION = {
     eb.fehler = null;
     if (E.SCHRITTE[eb.schritt] === 'fertig') {
       z.ebenen = []; z.ansicht = 'monat'; z.monat = heuteYm();
-      await aendern((d) => E.anwenden(d, eb, zahl), { text: 'Eingerichtet. Alles lässt sich antippen und ändern.' });
+      if (eb.basis) {
+        const vorher = kopie(z.daten);
+        await aendern((d) => {
+          const neu = E.anwenden(kopie(eb.basis), eb, zahl);
+          neu.einstellungen = Object.assign({}, d.einstellungen, { ausgeblendet: neu.einstellungen.ausgeblendet, abgeschlossen: [] });
+          Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, neu);
+        }, { text: 'Eingerichtet, Beispieldaten ersetzt.', rueckgaengig: (d) => { Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, vorher); } });
+      } else await aendern((d) => E.anwenden(d, eb, zahl), { text: 'Eingerichtet. Alles lässt sich antippen und ändern.' });
       return;
     }
     eb.schritt += 1; renderEbenen(); oben0();
@@ -1418,11 +1455,12 @@ const AKTION = {
   fixkosten: (el) => {
     const f = z.daten.fixkosten.find((x) => x.id === el.dataset.id);
     if (!f) return;
-    const entwurf = Object.assign(kopie(f), { betragText: R.euro(f.betrag, false) });
+    const anteilF = f.meinAnteil == null ? 100 : Number(f.meinAnteil);
+    const entwurf = Object.assign(kopie(f), { betragText: R.euro(f.betrag, false), meinText: anteilF < 100 ? R.euro(Math.round(R.eigenerBetrag(f) * 100) / 100, false) : '' });
     if (!entwurf.monat) entwurf.monat = R.ymTeile(heuteYm()).monat;
     oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist || f.konto || f.teiltMit) });
   },
-  'fixkosten-neu': (el) => oeffne({ art: 'fixkosten', id: null, entwurf: { name: '', betragText: '', wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, kategorieId: el.dataset.kat || (fixKats()[0] || {}).id, abo: false, meinAnteil: 100, endetAm: null, kuendigungsfrist: null } }),
+  'fixkosten-neu': (el) => oeffne({ art: 'fixkosten', id: null, entwurf: { name: '', betragText: '', wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, kategorieId: el.dataset.kat || (fixKats()[0] || {}).id, abo: false, meinAnteil: 100, meinText: '', endetAm: null, kuendigungsfrist: null } }),
   'fk-rhythmus': (el) => { oben().entwurf.wieOft = el.dataset.wert; renderEbenen(); },
   'fk-monat': (el) => { oben().entwurf.monat = Number(el.dataset.wert); renderEbenen(); },
   'fk-tag': (el) => { const e = oben().entwurf; e.tag = Math.min(31, Math.max(1, e.tag + Number(el.dataset.wert))); renderEbenen(); },
@@ -1460,11 +1498,11 @@ const AKTION = {
   'fk-speichern': async () => {
     const eb = oben(); const f = eb.entwurf;
     const betrag = zahl(f.betragText);
-    const anteil = zahl(String(f.meinAnteil));
+    const anteil = fkAnteil(f);
     const etag = String(f.erstattungTag || '').trim() ? zahl(String(f.erstattungTag)) : null;
     if (!f.name.trim()) { eb.fehler = 'Bitte einen Namen eintragen.'; renderEbenen(); return; }
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
-    if (isNaN(anteil) || anteil <= 0 || anteil > 100) { eb.fehler = 'Der Anteil muss zwischen 1 und 100 % liegen.'; renderEbenen(); return; }
+    if (anteil === null) { eb.fehler = `Dein Teil muss mehr als 0 € und höchstens ${R.euro(betrag)} sein (leer = du zahlst alles).`; renderEbenen(); return; }
     if (etag !== null && (isNaN(etag) || etag < 1 || etag > 31)) { eb.fehler = 'Der Tag der Überweisung muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
     const fertig = { id: eb.id || D.neueId('fk'), name: f.name.trim(), betrag, wieOft: f.wieOft, tag: f.tag, monat: f.wieOft === 'monatlich' ? null : f.monat, kategorieId: f.kategorieId, abo: !!f.abo, meinAnteil: anteil, endetAm: f.endetAm || null, kuendigungsfrist: f.kuendigungsfrist || null,
       teiltMit: anteil < 100 ? (f.teiltMit || '').trim() || null : null, erstattungTag: anteil < 100 && etag ? Math.round(etag) : null, konto: (f.konto || '').trim() || null };
@@ -1932,6 +1970,11 @@ function gehaltEbene(s) {
   return { art: 'gehalt', monat: s, istText: ist ? R.euro(ist.betrag, false) : '', schaetzungText: R.euro(R.schaetzung(g), false), tagText: String(g.ankunftTag || 1) };
 }
 
+// Einrichtung: Wenn etwas Neues dazukommt, fertige Karten (mit Betrag) einklappen, damit es übersichtlich bleibt
+function efAndereEinklappen(liste, ausser) {
+  liste.forEach((x) => { if (x !== ausser && (x.gewaehlt !== false) && zahl(String(x.betragText || '')) > 0 && !(x.geteilt && E.anteilAusEuro(zahl(x.betragText), x.meinText, zahl) === null)) x.zu = true; });
+}
+
 // ---------- Ereignisse ----------
 function bindeEreignisse() {
   bindeKachelZiehen();
@@ -1954,6 +1997,11 @@ function bindeEreignisse() {
     if (el.dataset.neuZeichnen) aktualisiereZusammenfassung();
     const th = document.getElementById('tl-hinweis');
     if (th && (el.dataset.teilen || el.dataset.feld === 'betragText')) th.textContent = teilHinweis(eb.entwurf || eb);
+    if (eb.art === 'einfuehrung') {
+      const m = el.dataset.feld.match(/^listen\.(\w+)\.(\d+)\./);
+      const ah = m && document.getElementById(`ef-ah-${m[1]}-${m[2]}`);
+      if (ah) ah.textContent = E.anteilHinweis(eb.listen[m[1]][Number(m[2])], zahl);
+    }
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape' && z.ebenen.length && oben().art !== 'start') schliessen();
