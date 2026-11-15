@@ -208,7 +208,9 @@ export function ruecklageLuecke(daten, heute) {
 // ---------- Monat ----------
 export function kategorie(daten, id) { return (daten.kategorien || []).find((k) => k.id === id); }
 
-export function monatsRechnung(daten, s) {
+// opt.vorbei: Der Monat ist vorbei → Budgets zählen nur mit dem, was wirklich ausgegeben wurde.
+// „Frei“ ist dann das, was tatsächlich übrig blieb.
+export function monatsRechnung(daten, s, opt = {}) {
   const alle = (daten.einnahmen || []).filter((e) => einnahmeAktivIm(e, s)).map((e) => Object.assign({ einnahme: e }, einnahmeIm(e, s)));
   const einnahmen = alle.filter((e) => e.zaehlt);
   const geplanteEinnahmen = alle.filter((e) => !e.zaehlt);
@@ -231,7 +233,7 @@ export function monatsRechnung(daten, s) {
     const posten = budgetKats.map((k) => {
       const ausgegeben = ausgegebenIm(daten, s, k.id);
       const budget = Number(k.budget) || 0;
-      return { kategorie: k, faellig: true, zaehlt: true, betrag: Math.max(budget, ausgegeben), budget, ausgegeben };
+      return { kategorie: k, faellig: true, zaehlt: true, betrag: opt.vorbei ? ausgegeben : Math.max(budget, ausgegeben), budget, ausgegeben };
     });
     gruppen.push({ art: 'budget', farbe: (daten.einstellungen && daten.einstellungen.budgetFarbe) || '#5d7d99', name: 'Budgets', posten, summe: posten.reduce((a, p) => a + p.betrag, 0) });
   }
@@ -252,7 +254,7 @@ export function monatsRechnung(daten, s) {
   const gehaltWert = einnahmen.find((e) => g && e.einnahme === g) || { betrag: 0, geschaetzt: !!g && !g.sicher, schaetzung: g ? schaetzung(g) : 0 };
   const weitere = einnahmen.filter((e) => !g || e.einnahme !== g).reduce((a, e) => a + e.betrag, 0);
   const geplantRein = geplanteEinnahmen.reduce((a, e) => a + e.betrag, 0);
-  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konten, frei };
+  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konten, frei, vorbei: !!opt.vorbei };
 }
 
 // Ohne Rücklagenkonto: nächster Monat (ab dem folgenden), in dem nicht monatliche Kosten anfallen
@@ -395,3 +397,12 @@ export function naechsteAbbuchungen(daten, heute) {
 export function fixkostenProMonat(daten) {
   return (daten.fixkosten || []).filter((f) => laeuftIm(f, ymAus(datumText(new Date())))).reduce((a, f) => a + monatsAnteil(f), 0);
 }
+
+// ---------- Monatsende ----------
+// Was blieb im Monat s wirklich übrig? (Budgets nur mit dem Ausgegebenen)
+export function uebrigIm(daten, s) {
+  const echt = monatsRechnung(daten, s, { vorbei: true });
+  const geplant = monatsRechnung(daten, s);
+  return { uebrig: echt.frei, ungenutzt: echt.frei - geplant.frei };
+}
+export function monatAbgeschlossen(daten, s) { return ((daten.einstellungen && daten.einstellungen.abgeschlossen) || []).includes(s); }

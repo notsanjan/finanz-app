@@ -419,3 +419,8 @@ body.kachel-zieht { overflow: hidden; }
 .ue-liste { display: flex; flex-direction: column; gap: 4px; }
 .ue-zeile { display: flex; align-items: center; gap: 10px; padding: 4px 0 4px 2px; border-bottom: 1px solid rgba(255, 255, 255, .06); font-size: 15px; }
 .ue-zeile span:first-child { flex: 1; color: var(--gedaempft); }
+
+/* Monatsende: Auswahl untereinander */
+.me-wahl { display: flex; flex-direction: column; gap: 8px; }
+.me-wahl button { min-height: 48px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .05); color: var(--text); font-size: 15px; text-align: left; padding: 0 16px; }
+.me-wahl button[aria-pressed="true"] { background: rgba(127, 214, 200, .16); border-color: var(--akzent); font-weight: 600; }
