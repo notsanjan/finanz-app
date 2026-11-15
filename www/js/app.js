@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v19';
+export const APP_VERSION = 'finanz-v20';
 const NEU_IN_VERSION = [
-  'Einrichtung: Karten klappen ein („✓ Fertig, einklappen“ oder automatisch beim nächsten Posten), antippen klappt wieder auf',
-  'Geteilte Kosten: Du trägst ein, wie viel du zahlst (€) – die Prozent rechnet die App aus. Auch unter „Fixkosten bearbeiten“',
-  'Einrichtung: „schon da“ antippen = ändern oder löschen. Mit Beispieldaten ersetzt die Einrichtung das Beispiel'
+  'Jede Änderung zeigt unten kurz „✓ …“ mit kurzer Vibration – du siehst sofort, dass es gespeichert ist. Fehler erscheinen rot mit „!“',
+  'Einrichtung: unten steht, dass erst „Fertig“ alles speichert; Knöpfe reagieren sichtbar beim Antippen',
+  'Seit v19: Karten in der Einrichtung einklappen, Anteil in € statt %, „schon da“ antippen = ändern'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -59,7 +59,7 @@ export async function start() {
   D.beiAuftrag(() => pruefeAuftrag());
   D.beiRueckkehr(async () => {
     const neu = await D.laden();
-    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); await ladeVorschlaege(); if (z.erkennung) { z.erkennung = await D.erkennungStatus(); renderEbenen(); } pruefeMonatsende(); }
+    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); await ladeVorschlaege(); if (z.erkennung) { const vorher = z.erkennung.erlaubt; z.erkennung = await D.erkennungStatus(); if (!vorher && z.erkennung.erlaubt) zeigeToast('Zugriff erlaubt – Zahlungen werden jetzt erkannt'); renderEbenen(); } pruefeMonatsende(); }
   });
   window.__finanz = z; // für Tests
 }
@@ -107,11 +107,19 @@ function zeigeNeuigkeiten() {
   if (gesehen !== APP_VERSION) { z.daten.einstellungen.gesehenVersion = APP_VERSION; D.speichern(z.daten); }
 }
 
+// Jede Änderung wird sofort gespeichert und bestätigt (Wunsch Jan: immer sehen, dass es geklappt hat).
+// toast: { text, rueckgaengig } · ohne Angabe „Gespeichert“ · false = keine Meldung (reine Ansicht)
 async function aendern(fn, toast) {
-  fn(z.daten);
-  await D.speichern(z.daten);
-  if (toast) zeigeToast(toast.text, toast.rueckgaengig);
+  try {
+    fn(z.daten);
+    await D.speichern(z.daten);
+  } catch (e) {
+    zeigeToast('Nicht gespeichert: ' + (e && e.message ? e.message : 'unbekannter Fehler') + '. Bitte nochmal versuchen.', null, 'fehler');
+    haptik('stark'); render(); return false;
+  }
+  if (toast !== false) { zeigeToast(toast ? toast.text : 'Gespeichert', toast && toast.rueckgaengig); haptik('leicht'); }
   render();
+  return true;
 }
 
 // ---------- Darstellung ----------
@@ -866,7 +874,7 @@ function erkennungKarte() {
   const kopf = '<div class="label">Zahlungen automatisch erkennen <span class="beta">BETA</span></div>';
   const info = '<p class="hinweistext">Die App liest Benachrichtigungen von PayPal, Google Wallet oder deiner Banking-App mit und schlägt daraus Buchungen vor. Sie bucht nie selbst – du bestätigst jede Zahlung. Alles bleibt auf diesem Handy. <b>Beta:</b> Die Erkennung wird noch erprobt, nicht jede Zahlung wird gefunden.</p>';
   if (!e.verfuegbar) return `<section class="karte">${kopf}${info}<p class="hinweistext">Nur in der Android-App verfügbar.</p></section>`;
-  const apps = (e.apps || []).map((a) => `<button class="chip" data-a="er-app" data-wert="${esc(a.paket)}" data-an="${a.an ? 1 : 0}" aria-pressed="${!!a.an}">${a.an ? '✓ ' : ''}${esc(a.name)}</button>`).join('');
+  const apps = (e.apps || []).map((a) => `<button class="chip" data-a="er-app" data-wert="${esc(a.paket)}" data-name="${esc(a.name)}" data-an="${a.an ? 1 : 0}" aria-pressed="${!!a.an}">${a.an ? '✓ ' : ''}${esc(a.name)}</button>`).join('');
   return `<section class="karte">${kopf}${info}
     <div class="wahl zwei-sp">${wahlKnopf('er-an', '1', 'Ein', !!e.an)}${wahlKnopf('er-an', '0', 'Aus', !e.an)}</div>
     ${e.an ? `<div class="er-status">${e.erlaubt ? '<span class="plus-zahl">✓</span> Zugriff auf Benachrichtigungen erlaubt' : '<span class="minus-zahl">!</span> Zugriff auf Benachrichtigungen fehlt noch'}</div>
@@ -1211,11 +1219,12 @@ const EBENEN = {
 
 function toastHtml() {
   if (!z.toast) return '';
-  return `<div class="toast" role="status"><span class="t">${esc(z.toast.text)}</span>${z.toast.rueckgaengig ? '<button class="knopf klein akzent" data-a="toast-rueck">Rückgängig</button>' : ''}<button class="knopf klein leise rund" style="width:36px" data-a="toast-zu" aria-label="Hinweis schließen">${ICON.x}</button></div>`;
+  const t = z.toast; const neu = Date.now() - (t.zeit || 0) < 350;
+  return `<div class="toast ${t.art === 'fehler' ? 'fehler' : t.art === 'info' ? 'info' : 'ok'} ${neu ? 'neu' : ''}" role="${t.art === 'fehler' ? 'alert' : 'status'}"><span class="toast-zeichen" aria-hidden="true">${t.art === 'fehler' ? '!' : t.art === 'info' ? 'i' : '✓'}</span><span class="t">${esc(t.text)}</span>${z.toast.rueckgaengig ? '<button class="knopf klein akzent" data-a="toast-rueck">Rückgängig</button>' : ''}<button class="knopf klein leise rund" style="width:36px" data-a="toast-zu" aria-label="Hinweis schließen">${ICON.x}</button></div>`;
 }
 let toastTimer = null;
-function zeigeToast(text, rueckgaengig) {
-  z.toast = { text, rueckgaengig };
+function zeigeToast(text, rueckgaengig, art = 'ok') {
+  z.toast = { text, rueckgaengig, art, zeit: Date.now() };
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { z.toast = null; renderEbenen(); }, 6000);
   renderEbenen();
@@ -1234,10 +1243,10 @@ const AKTION = {
   'zu-monat': (el) => { z.monat = el.dataset.wert; z.ansicht = 'monat'; window.scrollTo(0, 0); render(); },
   bereich: (el) => oeffne({ art: 'bereich', typ: el.dataset.wert }),
   'abo-neu': () => { AKTION['fixkosten-neu']({ dataset: { kat: R.kategorie(z.daten, 'abos') ? 'abos' : '' } }); const e = oben().entwurf; e.abo = true; oben().mehr = true; renderEbenen(); },
-  'kachel-auf': async (el) => { const l = kachelListe().map((k) => Object.assign({}, k)); const k = l.find((x) => x.id === el.dataset.wert); if (k) k.offen = !k.offen; await aendern((d) => { d.einstellungen.kacheln = l; }); },
+  'kachel-auf': async (el) => { const l = kachelListe().map((k) => Object.assign({}, k)); const k = l.find((x) => x.id === el.dataset.wert); if (k) k.offen = !k.offen; await aendern((d) => { d.einstellungen.kacheln = l; }, false); },
   'kachel-katalog': () => oeffne({ art: 'katalog' }),
   'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('leicht'); render(); },
-  'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; render(); },
+  'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; zeigeToast('Übersicht gespeichert'); haptik('leicht'); render(); },
   'kachel-x': async (el) => { haptik('mittel'); await kachelEntfernen(el.dataset.wert); },
   eintragen: (el) => {
     const b = budgetKats();
@@ -1285,9 +1294,18 @@ const AKTION = {
     }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
     if (z.vorschlaege.length) AKTION.vorschlaege();
   },
-  'er-an': async (el) => { const an = el.dataset.wert === '1'; await D.erkennungEinstellen(an); z.erkennung = await D.erkennungStatus(); renderEbenen(); },
+  'er-an': async (el) => {
+    const an = el.dataset.wert === '1';
+    try { await D.erkennungEinstellen(an); } catch (e) { zeigeToast('Konnte die Erkennung nicht umstellen.', null, 'fehler'); return; }
+    z.erkennung = await D.erkennungStatus();
+    zeigeToast(an ? (z.erkennung && z.erkennung.erlaubt ? 'Erkennung eingeschaltet' : 'Eingeschaltet – jetzt noch den Zugriff erlauben') : 'Erkennung ausgeschaltet', null, an && !(z.erkennung && z.erkennung.erlaubt) ? 'info' : 'ok'); haptik('leicht');
+  },
   'er-erlauben': async () => { await D.erkennungErlauben(); },
-  'er-app': async (el) => { await D.erkennungApp(el.dataset.wert, el.dataset.an !== '1'); z.erkennung = await D.erkennungStatus(); renderEbenen(); },
+  'er-app': async (el) => {
+    const an = el.dataset.an !== '1';
+    await D.erkennungApp(el.dataset.wert, an); z.erkennung = await D.erkennungStatus();
+    zeigeToast(`${el.dataset.name || 'App'}: ${an ? 'wird erkannt' : 'wird ignoriert'}`); haptik('leicht');
+  },
   monatsende: (el) => {
     const s = el.dataset.wert;
     const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
@@ -1354,15 +1372,15 @@ const AKTION = {
     }
   },
   'kachel-dazu': async (el) => { const id = el.dataset.wert; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().concat([{ id, breit: !!(KACHEL_KATALOG[id] && KACHEL_KATALOG[id].breit) }]); }, { text: 'Kachel hinzugefügt' }); },
-  'kachel-breit': async (el) => { const id = oben().id; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: el.dataset.wert === '1' }) : k)); }); },
+  'kachel-breit': async (el) => { const id = oben().id; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: el.dataset.wert === '1' }) : k)); }, { text: el.dataset.wert === '1' ? 'Kachel jetzt ganze Breite' : 'Kachel jetzt halbe Breite' }); },
   'kachel-weg': async () => { const id = oben().id; z.ebenen.pop(); await kachelEntfernen(id); },
-  'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }); },
+  'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }, false); },
   'verlauf-alle': () => { z.verlaufAlle = true; render(); },
   schliessen,
   'schliessen-schleier': (el, ev) => { if (ev.target === el) schliessen(); },
   mehr: () => { oben().mehr = !oben().mehr; renderEbenen(); },
   'toast-zu': () => { z.toast = null; renderEbenen(); },
-  'toast-rueck': async () => { const r = z.toast && z.toast.rueckgaengig; z.toast = null; if (r) await aendern(r); else renderEbenen(); },
+  'toast-rueck': async () => { const r = z.toast && z.toast.rueckgaengig; z.toast = null; if (r) await aendern(r, { text: 'Rückgängig gemacht' }); else renderEbenen(); },
 
   // Start
   'start-einrichten': () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; oeffne(E.neueEinfuehrung(z.daten, true)); },
@@ -1443,8 +1461,8 @@ const AKTION = {
   },
   'ef-zurueck': () => { const eb = oben(); if (eb.schritt > 0) { eb.schritt -= 1; eb.fehler = null; renderEbenen(); oben0(); } else schliessen(); },
   'ef-ueberspringen': () => { const eb = oben(); eb.schritt = E.SCHRITTE.length - 1; eb.fehler = null; renderEbenen(); oben0(); },
-  'start-beispiel': async () => { z.daten = D.beispielDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}); },
-  'start-leer': async () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}); oeffne(gehaltEbene(heuteYm())); },
+  'start-beispiel': async () => { z.daten = D.beispielDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}, { text: 'Beispieldaten geladen. Später unter Einstellungen ersetzen oder entfernen.' }); },
+  'start-leer': async () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}, false); oeffne(gehaltEbene(heuteYm())); },
   'beispiel-weg': () => oeffne({ art: 'frage', titel: 'Beispieldaten entfernen?', text: 'Alle Beispiel-Fixkosten, das Beispiel-Sparkonto und alle Buchungen werden gelöscht. Kategorien und Budgets bleiben.', ja: 'Entfernen', bei: async () => {
     const vorher = kopie(z.daten);
     await aendern((d) => { d.fixkosten = []; d.sparraten = []; d.uebertraege = []; d.buchungen = []; d.einnahmen.forEach((e) => { e.betrag = 0; e.istWerte = []; }); delete d.beispiel; }, { text: 'Beispieldaten entfernt', rueckgaengig: (d) => Object.assign(d, vorher) });
@@ -1643,7 +1661,7 @@ const AKTION = {
       : { betragText: String(empf || ''), tagText: '1', standText: '0' } });
   },
   'rk-empfohlen': () => { oben().entwurf.betragText = String(R.empfohleneRuecklage(z.daten, heuteYm())); renderEbenen(); },
-  'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }); },
+  'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }, { text: 'Hinweis ausgeblendet' }); },
   'rk-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
     const betrag = zahl(e.betragText); const tag = zahl(e.tagText); const stand = zahl(e.standText || '0');
@@ -1818,7 +1836,7 @@ async function kachelGroesse(id, aenderung) {
   if (!k) return;
   Object.assign(k, aenderung);
   if (!AUFKLAPPBAR.has(id)) k.offen = false;
-  await aendern((d) => { d.einstellungen.kacheln = l; });
+  await aendern((d) => { d.einstellungen.kacheln = l; }, { text: 'Größe gespeichert' });
 }
 function bindeKachelZiehen() {
   let zug = null; // { platz, id, startX, startY, timer, aktiv, bewegt, klon, dx, dy }
@@ -1943,7 +1961,7 @@ function bindeKachelZiehen() {
     haptik('leicht');
     const reihe = [...document.querySelectorAll('#kacheln .kachel-platz')].map((x) => x.dataset.kachel);
     const alt = kachelListe();
-    await aendern((d) => { d.einstellungen.kacheln = reihe.map((id) => alt.find((k) => k.id === id)).filter(Boolean); });
+    await aendern((d) => { d.einstellungen.kacheln = reihe.map((id) => alt.find((k) => k.id === id)).filter(Boolean); }, { text: 'Reihenfolge gespeichert' });
   };
   document.addEventListener('touchstart', start, { passive: true });
   document.addEventListener('touchmove', bewegen, { passive: false });

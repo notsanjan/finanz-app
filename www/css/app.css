@@ -494,3 +494,20 @@ body.kachel-zieht { overflow: hidden; }
 .ef-vorhanden-text { color: var(--akzent); }
 button.ef-chip.da { opacity: .75; }
 .ef-beispiel-hinweis { border: 1px solid rgba(201, 210, 122, .45); }
+
+/* v20: Rückmeldung bei jeder Aktion */
+.toast-zeichen { width: 26px; height: 26px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; background: rgba(143, 214, 160, .2); color: #8fd6a0; border: 1px solid rgba(143, 214, 160, .5); }
+.toast { padding-left: 10px; }
+.toast.ok { border-color: rgba(143, 214, 160, .45); }
+.toast.fehler { border-color: rgba(239, 154, 143, .6); background: #3a2a2a; }
+.toast.fehler .toast-zeichen { background: rgba(239, 154, 143, .2); color: var(--minus); border-color: rgba(239, 154, 143, .6); }
+.toast.info .toast-zeichen { background: rgba(223, 230, 176, .18); color: #dfe6b0; border-color: rgba(223, 230, 176, .5); }
+.toast.neu { animation: toastRein .28s ease-out; }
+@keyframes toastRein { from { opacity: 0; transform: translateX(-50%) translateY(16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+.toast.neu .toast-zeichen { animation: zeichenPop .4s ease-out .1s both; }
+@keyframes zeichenPop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .toast.neu, .toast.neu .toast-zeichen { animation: none; } }
+.knopf, .chip, .wahl button, .chip-x, .ef-zu-knopf { transition: transform .08s ease, filter .08s ease; }
+.knopf:active, .chip:active, .wahl button:active, .chip-x:active { transform: scale(.96); filter: brightness(1.25); }
+.ef-speicher { margin: 0 0 8px; text-align: center; font-size: 12.5px; color: var(--gedaempft); }
+.toast { width: calc(100% - 32px); margin-left: 0; bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 92px); }
