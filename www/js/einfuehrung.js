@@ -147,14 +147,14 @@ export function einfuehrungHtml(eb, h) {
     const gewaehlt = posten.map((p, i) => ({ p, i })).filter((x) => x.p.gewaehlt);
     const karten = gewaehlt.map(({ p, i }) => {
       const pf = `listen.${l.id}.${i}`;
-      if (p.loeschen) return `<section class="karte ef-posten ef-weg-karte"><div class="ef-zeile"><b class="ef-name">${esc(p.name)}</b><small class="ef-weg-text">wird gelöscht</small><button class="knopf klein leise" data-a="ef-wert" data-pfad="${pf}.loeschen" data-wert="nein">Rückgängig</button></div></section>`;
+      if (p.loeschen) return `<section class="karte ef-posten ef-weg-karte"><div class="ef-zeile"><b class="ef-name">${esc(p.name)}</b><small class="ef-weg-text">wird gelöscht</small><button class="knopf klein akzent" data-a="ef-wert" data-pfad="${pf}.loeschen" data-wert="nein">Rückgängig</button></div></section>`;
       if (p.zu) return zugeklappt(p.name, p, pf, h.zahl, esc, p.vorhandenId ? '<small class="ef-zweite">schon eingetragen · wird geändert</small>' : '');
       const monat = p.wieOft === M ? '' : `<div class="feld"><label for="ef-m-${l.id}-${i}">${p.wieOft === J ? 'Im Monat' : 'Ab Monat'}</label><select id="ef-m-${l.id}-${i}" class="eingabe" data-feld="${pf}.monat" data-zahl="1">${R.MONATE_LANG.map((n, k) => `<option value="${k + 1}" ${Number(p.monat) === k + 1 ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
       const teilen = p.geteilt ? `<div class="ef-teilen">
           <div class="zwei"><div class="feld"><label for="ef-a-${l.id}-${i}">Davon zahlst du (€)</label><input id="ef-a-${l.id}-${i}" class="eingabe" inputmode="decimal" data-feld="${pf}.meinText" value="${esc(p.meinText)}" placeholder="z. B. 525"></div>
           <div class="feld"><label for="ef-w-${l.id}-${i}">Rest zahlt</label><input id="ef-w-${l.id}-${i}" class="eingabe" data-feld="${pf}.teiltMit" value="${esc(p.teiltMit || '')}" placeholder="Anna (optional)"></div></div>
           <p class="hinweistext ef-anteil-hinweis" id="ef-ah-${l.id}-${i}">${esc(anteilHinweis(p, h.zahl))}</p>
-          <button class="knopf klein leise" data-a="ef-wert" data-pfad="${pf}.geteilt" data-wert="nein">Doch nicht geteilt</button></div>`
+          <button class="knopf klein akzent" data-a="ef-wert" data-pfad="${pf}.geteilt" data-wert="nein">Doch nicht geteilt</button></div>`
         : `<button class="knopf klein leise ef-teilen-knopf" data-a="ef-wert" data-pfad="${pf}.geteilt" data-wert="ja">👥 Teile ich mit jemandem</button>`;
       return `<section class="karte ef-posten">
         ${p.vorhandenId ? '<p class="hinweistext ef-vorhanden-text">Schon eingetragen. Was du hier änderst, wird übernommen.</p>' : ''}
@@ -187,7 +187,7 @@ export function einfuehrungHtml(eb, h) {
       ${jaehrliche.length ? `<p class="hinweistext">Du hast ${jaehrliche.length} Kosten, die nicht jeden Monat abgebucht werden (${esc(jaehrliche.slice(0, 4).map((f) => f.name).join(', '))}${jaehrliche.length > 4 ? ' …' : ''}). Zusammen ≈ ${R.euroRund(jahr)} im Jahr, also ≈ ${R.euroRund(jahr / 12)} pro Monat.</p>`
         : '<p class="hinweistext">Du hast keine jährlichen oder vierteljährlichen Kosten eingetragen. Diesen Schritt kannst du überspringen.</p>'}
       <section class="karte">
-        <b style="font-size:17px">Hast du ein eigenes Konto für Rücklagen?</b>
+        <b style="font-size:var(--t-titel-karte)">Hast du ein eigenes Konto für Rücklagen?</b>
         <p class="hinweistext">z. B. ein Unterkonto oder Tagesgeld. Ein Dauerauftrag schiebt jeden Monat denselben Betrag dorthin, und daraus zahlst du Versicherungen und Co. So ist jeden Monat gleich viel frei.</p>
         <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="ruecklage.ja" data-wert="ja" aria-pressed="${eb.ruecklage.ja === true}">Ja / lege ich an</button><button data-a="ef-wert" data-pfad="ruecklage.ja" data-wert="nein" aria-pressed="${eb.ruecklage.ja === false}">Nein</button></div>
         ${eb.ruecklage.ja === false ? '<p class="hinweistext">Dann zählen jährliche Kosten voll im Monat der Abbuchung, und die App warnt dich vorher.</p>' : ''}
@@ -208,7 +208,7 @@ export function einfuehrungHtml(eb, h) {
         <div class="feld"><label for="ef-ss">Was liegt heute schon auf dem Sparkonto?</label><input id="ef-ss" class="eingabe" inputmode="decimal" data-feld="sparen.stand" value="${esc(eb.sparen.stand)}" placeholder="0 €"></div>
       </section>` : ''}`;
   } else if (art === 'budgets') {
-    const zeilen = eb.budgets.map((b, i) => !b.an ? `<div class="ef-budget aus"><span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + (b.name || 'Budget'))}</span><small class="ef-weg-text">wird entfernt</small><button class="knopf klein leise" data-a="ef-budget-an" data-i="${i}">Rückgängig</button></div>` : `<div class="ef-budget">
+    const zeilen = eb.budgets.map((b, i) => !b.an ? `<div class="ef-budget aus"><span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + (b.name || 'Budget'))}</span><small class="ef-weg-text">wird entfernt</small><button class="knopf klein akzent" data-a="ef-budget-an" data-i="${i}">Rückgängig</button></div>` : `<div class="ef-budget">
         ${b.neu ? `<input class="eingabe emoji-feld klein-emoji" data-feld="budgets.${i}.emoji" value="${esc(b.emoji)}" placeholder="🙂" aria-label="Emoji" maxlength="8"><input class="eingabe" data-feld="budgets.${i}.name" value="${esc(b.name)}" placeholder="Name" aria-label="Name">`
           : `<span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + b.name)}</span>`}
         <input class="eingabe ef-betrag" inputmode="decimal" data-feld="budgets.${i}.text" value="${esc(b.text)}" aria-label="Budget ${esc(b.name)} pro Monat">

@@ -142,6 +142,12 @@ export function tastaturZeigen() {
   const p = plugin();
   if (p && p.tastaturZeigen) p.tastaturZeigen().catch(() => {});
 }
+// Haptik nach Bedeutung (bestaetigt, fehler, tick, gegriffen) über die eigene Android-Ansicht
+export function haptik(art) {
+  const p = plugin();
+  if (p && p.haptik) { p.haptik({ art }).catch(() => {}); return true; }
+  return false;
+}
 // ---------- BETA: Zahlungen aus Benachrichtigungen ----------
 // Im Browser (Test): localStorage 'finanz.vorschlaege' (Liste) und 'finanz.erkennungTest' = '1'
 const VS = 'finanz.vorschlaege';
