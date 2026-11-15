@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v20';
+export const APP_VERSION = 'finanz-v21';
 const NEU_IN_VERSION = [
-  'Jede Änderung zeigt unten kurz „✓ …“ mit kurzer Vibration – du siehst sofort, dass es gespeichert ist. Fehler erscheinen rot mit „!“',
-  'Einrichtung: unten steht, dass erst „Fertig“ alles speichert; Knöpfe reagieren sichtbar beim Antippen',
-  'Seit v19: Karten in der Einrichtung einklappen, Anteil in € statt %, „schon da“ antippen = ändern'
+  'Vibration nach Bedeutung: deutlich bei Buchen und Speichern, kurzer Tick bei Auswahl, anders bei Fehlern – und jetzt auch im Widget',
+  'Größere Tippflächen, besser sichtbare Eingabefelder, Platzhalter und graue Texte besser lesbar',
+  'Jahr übersichtlicher, Betrag leuchtet nach dem Buchen kurz auf, Fehler am Fenster-Griff behoben'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -115,9 +115,10 @@ async function aendern(fn, toast) {
     await D.speichern(z.daten);
   } catch (e) {
     zeigeToast('Nicht gespeichert: ' + (e && e.message ? e.message : 'unbekannter Fehler') + '. Bitte nochmal versuchen.', null, 'fehler');
-    haptik('stark'); render(); return false;
+    haptik('fehler'); render(); return false;
   }
-  if (toast !== false) { zeigeToast(toast ? toast.text : 'Gespeichert', toast && toast.rueckgaengig); haptik('leicht'); }
+  // Vibration nur bei wichtigen Speicherungen (Text angegeben); toast.haptik: false = still, 'tick' = leicht
+  if (toast !== false) { zeigeToast(toast ? toast.text : 'Gespeichert', toast && toast.rueckgaengig); if (toast && toast.haptik !== false) haptik(toast.haptik || 'bestaetigt'); }
   render();
   return true;
 }
@@ -211,9 +212,9 @@ function monatTeile(s = z.monat) {
     const luecke = R.ruecklageLuecke(z.daten, heute());
     ruecklageKarte = `<button class="karte spar ruecklage" data-a="ruecklage">
       <span class="symbol">${ICON.pfeil}</span>
-      <span class="mitte"><span style="font-size:15px;font-weight:600">Aufs Rücklagenkonto · ${R.euro(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
+      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Aufs Rücklagenkonto · ${R.euro(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
         ${luecke ? `<span class="warn-text">Bis ${esc(Number(luecke.datum.slice(8)) + '. ' + R.MONATE_LANG[R.ymTeile(R.ymAus(luecke.datum)).monat - 1])} fehlen ≈ ${R.euroRund(luecke.fehlt)} (${esc(luecke.fixkosten.name)})</span>` : ''}</span>
-      <span class="stand"><span class="klein" style="font-size:12px">Stand</span><span style="font-size:17px;font-weight:500">${R.euroRund(R.ruecklageStand(z.daten, stichtag))}</span></span>
+      <span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.ruecklageStand(z.daten, stichtag))}</span></span>
     </button>`;
   } else if (hatJaehrliche && !z.daten.einstellungen.ruecklageHinweisAus) {
     ruecklageKarte = `<section class="karte hinweis-karte"><div class="hinweis-kopf"><b>Jährliche Kosten glätten?</b><button class="knopf klein leise rund" style="width:36px" data-a="ruecklage-hinweis-weg" aria-label="Hinweis schließen">${ICON.x}</button></div>
@@ -229,10 +230,10 @@ function monatTeile(s = z.monat) {
     const unter = (rate > 0 ? `am ${sp.tag || 1}. · ` : 'kein fester Übertrag · ') + (extern ? 'das Geld wird dort ausgegeben' : 'keine Ausgabe, das Geld bleibt deins') + (extra > 0 ? ` · im ${monatsName(s)} + ${R.euroRund(extra)} extra` : '');
     return `<button class="karte spar ${extern ? 'extern' : ''}" data-a="sparkonto" data-id="${esc(sp.id)}">
       <span class="symbol">${ICON.pfeil}</span>
-      <span class="mitte"><span style="font-size:15px;font-weight:600">${titel}</span><span class="klein">${unter}</span></span>
-      ${extern ? '' : `<span class="stand"><span class="klein" style="font-size:12px">Stand</span><span style="font-size:17px;font-weight:500">${R.euroRund(R.sparStand(sp, stichtag, z.daten))}</span></span>`}
+      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">${titel}</span><span class="klein">${unter}</span></span>
+      ${extern ? '' : `<span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.sparStand(sp, stichtag, z.daten))}</span></span>`}
     </button>`;
-  }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:15px;font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
+  }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
 
   const liste = ausgabenHtml(r, s);
   const geplantKarte = s >= heuteYm() ? geplantHtml(s, pruefung) : '';
@@ -244,7 +245,7 @@ function monatTeile(s = z.monat) {
     <p class="hinweistext">Alle Daten liegen nur auf diesem Handy. Exportiere ab und zu eine Sicherung, z. B. vor dem Löschen der App.${z.daten.einstellungen.letzteSicherung ? ' Zuletzt: ' + esc(z.daten.einstellungen.letzteSicherung) + '.' : ''}</p>
     <div class="zwei"><button class="knopf" data-a="export">Exportieren</button><button class="knopf" data-a="import">Importieren</button></div>
     ${z.daten.beispiel ? '<button class="knopf leise" data-a="beispiel-weg">Beispieldaten entfernen</button>' : ''}
-    <div class="klein" style="font-size:12px">${APP_VERSION}</div>
+    <div class="klein" style="font-size:var(--t-mini)">${APP_VERSION}</div>
   </section>`;
 
   return { s, r, pruefung, rk, hatJaehrliche, nav, freiKarte, konten: ruecklageKarte + sparKarten, liste, geplantKarte, einnahmenKarte, sicherung };
@@ -279,13 +280,15 @@ const KACHEL_KATALOG = {
   naechste: { titel: 'Nächste Abbuchungen', beschreibung: 'Die nächsten Fixkosten, aufklappbar', breit: true }
 };
 
+// Erfolgsmoment (v21): Nach dem Buchen leuchtet der betroffene Betrag kurz auf
+function leuchtet(katId) { const l = z.leuchten; return !!(l && Date.now() < l.bis && (!katId || l.kat === katId)); }
 function monatAnsicht() {
   const t = monatTeile(z.monat);
   const { s, r, pruefung, rk, hatJaehrliche } = t;
   const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
   const kachel = (typ, titel, wert, unter, unterArt = '', aktion = 'bereich') => `<button class="kachel" data-a="${aktion}" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
       <span class="kachel-kopf">${KACHEL_ICON[typ] || ''}<span>${esc(titel)}</span></span>
-      <span class="kachel-wert">${wert}</span>
+      <span class="kachel-wert ${typ === 'ausgaben' && leuchtet() ? 'leuchtet' : ''}">${wert}</span>
       <span class="kachel-unter ${unterArt}">${unter}</span></button>`;
   const klappKnopf = (k) => `<button class="aufklapp klein-auf" data-a="kachel-auf" data-wert="${esc(k.id)}" aria-expanded="false" aria-label="Aufklappen">${ICON.runter}</button>`;
   const tagText = (zeit) => { const d = zeit.slice(0, 10); return d === heute() ? 'heute ' + zeit.slice(11, 16) : Number(d.slice(8)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1]; };
@@ -352,7 +355,7 @@ function monatAnsicht() {
     const ueber = b > 0 && aus > b;
     return `<button class="kachel" data-a="budget" data-id="${esc(kat.id)}" aria-label="${esc(kat.name)} bearbeiten">
       <span class="kachel-kopf"><span>${esc((kat.emoji ? kat.emoji + ' ' : '') + kat.name)}</span></span>
-      <span class="kachel-wert"><span class="minus-zahl">− ${R.euroRund(aus)}</span></span>
+      <span class="kachel-wert ${leuchtet(kat.id) ? 'leuchtet' : ''}"><span class="minus-zahl">− ${R.euroRund(aus)}</span></span>
       ${b > 0 ? `<span class="mini kachel-mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}
       <span class="kachel-unter ${ueber ? 'warn' : ''}">${b > 0 ? (ueber ? `${R.euroRund(aus - b)} über Budget` : `noch ${R.euroRund(b - aus)} von ${R.euroRund(b)}`) : 'ohne Budget'}</span></button>`;
   };
@@ -362,7 +365,7 @@ function monatAnsicht() {
     const breit = k.breit || k.offen || (KACHEL_KATALOG[k.id] && KACHEL_KATALOG[k.id].breit && k.breit !== false);
     const gewaehlt = bearbeiten && z.gewaehlt === k.id;
     const steuer = bearbeiten ? `<span class="kachel-steuer"><button class="steuer-knopf weg" data-a="kachel-x" data-wert="${esc(k.id)}" aria-label="Kachel entfernen">${ICON.x}</button></span>` : '';
-    const griffe = gewaehlt ? `<span class="griff" data-seite="l" aria-hidden="true"></span><span class="griff" data-seite="r" aria-hidden="true"></span>${AUFKLAPPBAR.has(k.id) ? '<span class="griff" data-seite="o" aria-hidden="true"></span><span class="griff" data-seite="u" aria-hidden="true"></span>' : ''}` : '';
+    const griffe = gewaehlt ? `<span class="groessen-griff" data-seite="l" aria-hidden="true"></span><span class="groessen-griff" data-seite="r" aria-hidden="true"></span>${AUFKLAPPBAR.has(k.id) ? '<span class="groessen-griff" data-seite="o" aria-hidden="true"></span><span class="groessen-griff" data-seite="u" aria-hidden="true"></span>' : ''}` : '';
     return `<div class="kachel-platz ${breit ? 'breit' : ''} ${bearbeiten && !gewaehlt ? 'wackeln' : ''} ${gewaehlt ? 'gewaehlt' : ''}" data-kachel="${esc(k.id)}">${html}${steuer}${griffe}</div>`;
   }).join('');
   const leiste = `<div class="kachel-leiste"><span class="label">Übersicht</span>${bearbeiten
@@ -436,7 +439,7 @@ function abosHtml(s) {
   };
   return `<section class="karte ring abo-kopf">
       <div class="label">Abos zusammen</div>
-      <div class="grosszahl" style="font-size:40px"><span class="minus-zahl">− ${R.euroRund(monat)}</span><small style="font-size:16px;color:var(--gedaempft)"> pro Monat</small></div>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)"><span class="minus-zahl">− ${R.euroRund(monat)}</span><small style="font-size:var(--t-text);color:var(--gedaempft)"> pro Monat</small></div>
       <div class="hinweistext">${R.euroRund(monat * 12)} im Jahr · ${laufend.length} laufend${gekuendigt.length ? ` · ${gekuendigt.length} gekündigt` : ''}</div>
     </section>
     <section class="karte liste">${laufend.length ? laufend.map(zeile).join('') : '<div class="leer-zeile" style="border:0">Noch keine Abos. Mit ＋ unten rechts eins anlegen.</div>'}
@@ -540,16 +543,23 @@ function jahrAnsicht() {
   const zeilen = monate.map((m) => {
     const teile = m.teile.filter((t) => t.summe > 0).map((t) => `<span style="width:${(t.summe / max * 100).toFixed(1)}%;background:${t.kategorie.farbe}"></span>`).join('');
     const rk = !!R.ruecklage(z.daten);
-    const extra = (m.zusaetzlich.length ? `<span class="extra">+ ${m.zusaetzlich.map((x) => esc(x.text)).join(' · ')}${rk ? ' · aus der Rücklage' : ''}</span>` : '')
-      + R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat).map((w) => `<span class="extra geplant">geplant: ${esc(w.name)} ${esc(R.preisText(w))}</span>`).join('')
-      + weitereEinnahmen().filter((e) => e.wieOft === 'einmalig' && R.einnahmeAktivIm(e, m.monat)).map((e) => `<span class="extra rein">+ Einnahme: ${esc(e.name)} ${esc(betragText(e))}${e.status === 'geplant' ? ' (geplant)' : ''}</span>`).join('');
+    // Jahr kompakt (v21): pro Monat höchstens eine kurze Zeile mit Kennzeichen; Einzelheiten im Monat (antippen)
+    const zus = m.zusaetzlich.reduce((a, x) => a + R.eigenerBetrag(x.fixkosten), 0);
+    const wuensche = R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat);
+    const rein = weitereEinnahmen().filter((e) => e.wieOft === 'einmalig' && R.einnahmeAktivIm(e, m.monat));
+    const marken = [
+      zus > 0 ? `<span class="marke ${rk ? '' : 'warn'}" title="${esc(m.zusaetzlich.map((x) => x.text).join(' · '))}">${rk ? '↺' : '!'} ${R.euroRund(zus)} ${rk ? 'aus Rücklage' : 'extra fällig'}</span>` : '',
+      wuensche.length ? `<span class="marke geplant">● ${wuensche.length === 1 ? esc(wuensche[0].name) : wuensche.length + ' geplant'}</span>` : '',
+      rein.length ? `<span class="marke rein">+ ${R.euroRund(rein.reduce((a, e) => a + (Number(e.betrag) || 0), 0))}</span>` : ''
+    ].filter(Boolean).join('');
+    const extra = marken ? `<span class="marken">${marken}</span>` : '';
     const jahr = R.ymTeile(m.monat).monat === 1 ? ` ${R.ymTeile(m.monat).jahr}` : '';
     return `<button class="jahr-zeile ${m.zusaetzlich.length ? 'gross' : ''}" data-a="zu-monat" data-wert="${m.monat}" aria-label="${esc(R.MONATE_LANG[R.ymTeile(m.monat).monat - 1] + jahr)}: ${R.euroRund(m.summe)}${m.zusaetzlich.length ? ', zusätzlich ' + esc(m.zusaetzlich.map((x) => x.text).join(', ')) : ''}">
       <span class="mon">${m.name}</span><span class="mitte"><span class="jahr-balken">${teile}</span>${extra}</span><span class="summe">${R.euroRund(m.summe)}</span></button>`;
   }).join('');
   const legende = fixKats().map((k) => `<span><i class="punkt" style="background:${k.farbe}"></i>${esc(k.name)}</span>`).join('');
   const leer = !z.daten.fixkosten.length ? '<div class="leerzustand">Noch keine Fixkosten. Trage sie in der Monatsansicht ein.</div>' : '';
-  return `<p class="hinweistext">Fixkosten pro Monat, so wie sie wirklich abgebucht werden. Darunter steht, was zusätzlich fällig ist.</p>
+  return `<p class="hinweistext">Fixkosten pro Monat, so wie sie wirklich abgebucht werden. Antippen zeigt den Monat mit allen Einzelheiten.</p>
     <section class="karte" style="padding:12px 14px;gap:6px">${leer || zeilen}</section><div class="legende-zeile">${legende}</div>`;
 }
 
@@ -580,7 +590,7 @@ function verlaufAnsicht() {
       return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${R.euro(e.betrag)}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
     }).join('')}</section>`;
   }
-  if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Gebucht wird über die Widgets auf dem Homescreen: lange auf eine freie Stelle drücken → Widgets → Finanzen.</div></section>`;
+  if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Tippe unten rechts auf ＋ oder buche über ein Widget auf dem Homescreen.</div><button class="knopf haupt" data-a="eintragen">${ICON.plus} Ausgabe eintragen</button></section>`;
   else if (!z.verlaufAlle && eintraege.length > anzahl) teile += '<button class="knopf leise" data-a="verlauf-alle">Ältere Buchungen anzeigen</button>';
 
   // Keine Ausgaben: Gehalt und Sparkonto der letzten Monate
@@ -972,7 +982,7 @@ const EBENEN = {
     if (e.wahl === 'ausgabe') teil = `<div class="betrag-gross minus"><span>−</span><input id="me-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" aria-label="Betrag in Euro"><span>€</span></div>
       <div class="label">Wofür ungefähr?</div><div class="chips">${budgetKats().map((k) => `<button class="chip" data-a="et-kat" data-wert="${esc(k.id)}" aria-pressed="${e.kategorieId === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('')}</div>`;
     return sheet(`<h2>Ende ${esc(name)}</h2>
-      <div class="grosszahl" style="font-size:44px">≈ ${R.euroRund(uebrig)} <span style="font-size:18px;color:var(--gedaempft)">übrig</span></div>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)">≈ ${R.euroRund(uebrig)} <span style="font-size:var(--t-titel-karte);color:var(--gedaempft)">übrig</span></div>
       ${ungenutzt >= 1 ? `<p class="hinweistext">Davon ≈ ${R.euroRund(ungenutzt)} aus Budgets, die du nicht ganz gebraucht hast.</p>` : ''}
       <div class="label">Was ist damit passiert?</div>
       <div class="me-wahl">
@@ -1089,7 +1099,7 @@ const EBENEN = {
       <section class="karte">
         <div class="label">Knöpfe im Widget (bis zu 3)</div>
         <div class="wahl sechs" style="grid-template-columns:repeat(3,minmax(0,1fr))">${schritte}</div>
-        <p class="hinweistext">Plus und Minus gibt es nur im Widget auf dem Homescreen.</p>
+        <p class="hinweistext">So viel bucht ein Tipp im Widget. Genaue Beträge: ＋ in der App oder auf den Betrag im Widget tippen.</p>
       </section>
       <section class="karte">
         <div class="label">Nach dem Buchen fragen</div>
@@ -1108,8 +1118,8 @@ const EBENEN = {
     const s = eb.monat;
     const w = R.einnahmeIm(g, s);
     return sheet(`<h2>${esc(g.name)} im ${esc(monatsName(s))}</h2>
-      <div class="feld"><label for="ge-ist">Was kam an?</label><input id="ge-ist" class="eingabe" inputmode="decimal" data-feld="istText" value="${esc(eb.istText)}" placeholder="${esc(R.euro(w.schaetzung, false))} (geschätzt)"></div>
-      <p class="hinweistext">Leer lassen = die Schätzung gilt (≈). Netto, so wie es auf dem Konto ankommt.</p>
+      <div class="feld"><label for="ge-ist">Was kam an?</label><input id="ge-ist" class="eingabe" inputmode="decimal" data-feld="istText" value="${esc(eb.istText)}" placeholder="z. B. ${esc(R.euro(w.schaetzung, false))}"></div>
+      <p class="hinweistext">Geschätzt: <b>${R.euro(w.schaetzung)}</b>. Leer lassen = die Schätzung gilt (≈). Netto, so wie es auf dem Konto ankommt.</p>
       <div class="feld"><label for="ge-schaetzung">Schätzung pro Monat</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
       ${(() => { const st = lernHinweis(g); return st && Math.abs(st.schnitt - zahl(eb.schaetzungText)) >= 1 ? `<div class="lern-box"><span>Deine letzten 3 Monate: <b>Ø ${R.euroRund(st.schnitt)}</b> (${R.euroRund(st.min)}–${R.euroRund(st.max)})</span><button class="knopf klein akzent" data-a="ge-schnitt">Als Schätzung übernehmen</button></div>` : ''; })()}
       <div class="feld"><span class="label">Kommt an</span><div class="wahl zwei-sp">${wahlKnopf('ge-ankunft', 'Monatsende', 'am Monatsende', g.kommtAn !== 'Tag')}${wahlKnopf('ge-ankunft', 'Tag', 'an einem Tag', g.kommtAn === 'Tag')}</div></div>
@@ -1245,9 +1255,9 @@ const AKTION = {
   'abo-neu': () => { AKTION['fixkosten-neu']({ dataset: { kat: R.kategorie(z.daten, 'abos') ? 'abos' : '' } }); const e = oben().entwurf; e.abo = true; oben().mehr = true; renderEbenen(); },
   'kachel-auf': async (el) => { const l = kachelListe().map((k) => Object.assign({}, k)); const k = l.find((x) => x.id === el.dataset.wert); if (k) k.offen = !k.offen; await aendern((d) => { d.einstellungen.kacheln = l; }, false); },
   'kachel-katalog': () => oeffne({ art: 'katalog' }),
-  'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('leicht'); render(); },
-  'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; zeigeToast('Übersicht gespeichert'); haptik('leicht'); render(); },
-  'kachel-x': async (el) => { haptik('mittel'); await kachelEntfernen(el.dataset.wert); },
+  'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('tick'); render(); },
+  'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; zeigeToast('Übersicht gespeichert'); render(); },
+  'kachel-x': async (el) => { await kachelEntfernen(el.dataset.wert); },
   eintragen: (el) => {
     const b = budgetKats();
     const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
@@ -1258,8 +1268,8 @@ const AKTION = {
     oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: katId, ort: '', datum: heute(), name: '', kontoId: erstes ? erstes.id : '', oft: 'einmalig', tagText: '1' } });
     setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) f.focus(); }, 60);
   },
-  'et-art': (el) => { if (el.dataset.wert === 'abo') { z.ebenen.pop(); AKTION['abo-neu'](); return; } oben().entwurf.art = el.dataset.wert; oben().fehler = null; renderEbenen(); const f = document.getElementById('et-betrag'); if (f) f.focus(); },
-  'et-kat': (el) => { oben().entwurf.kategorieId = el.dataset.wert; if (oben().art === 'eintragen') oben().entwurf.ort = ''; renderEbenen(); },
+  'et-art': (el) => { haptik('tick'); if (el.dataset.wert === 'abo') { z.ebenen.pop(); AKTION['abo-neu'](); return; } oben().entwurf.art = el.dataset.wert; oben().fehler = null; renderEbenen(); const f = document.getElementById('et-betrag'); if (f) f.focus(); },
+  'et-kat': (el) => { haptik('tick'); oben().entwurf.kategorieId = el.dataset.wert; if (oben().art === 'eintragen') oben().entwurf.ort = ''; renderEbenen(); },
   'et-ort': (el) => { const e = oben().entwurf; e.ort = e.ort === el.dataset.wert ? '' : el.dataset.wert; renderEbenen(); },
   'et-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
   'et-ziel': (el) => { oben().entwurf.kontoId = el.dataset.wert; oben().fehler = null; renderEbenen(); },
@@ -1298,13 +1308,13 @@ const AKTION = {
     const an = el.dataset.wert === '1';
     try { await D.erkennungEinstellen(an); } catch (e) { zeigeToast('Konnte die Erkennung nicht umstellen.', null, 'fehler'); return; }
     z.erkennung = await D.erkennungStatus();
-    zeigeToast(an ? (z.erkennung && z.erkennung.erlaubt ? 'Erkennung eingeschaltet' : 'Eingeschaltet – jetzt noch den Zugriff erlauben') : 'Erkennung ausgeschaltet', null, an && !(z.erkennung && z.erkennung.erlaubt) ? 'info' : 'ok'); haptik('leicht');
+    zeigeToast(an ? (z.erkennung && z.erkennung.erlaubt ? 'Erkennung eingeschaltet' : 'Eingeschaltet – jetzt noch den Zugriff erlauben') : 'Erkennung ausgeschaltet', null, an && !(z.erkennung && z.erkennung.erlaubt) ? 'info' : 'ok');
   },
   'er-erlauben': async () => { await D.erkennungErlauben(); },
   'er-app': async (el) => {
     const an = el.dataset.an !== '1';
     await D.erkennungApp(el.dataset.wert, an); z.erkennung = await D.erkennungStatus();
-    zeigeToast(`${el.dataset.name || 'App'}: ${an ? 'wird erkannt' : 'wird ignoriert'}`); haptik('leicht');
+    zeigeToast(`${el.dataset.name || 'App'}: ${an ? 'wird erkannt' : 'wird ignoriert'}`);
   },
   monatsende: (el) => {
     const s = el.dataset.wert;
@@ -1364,6 +1374,7 @@ const AKTION = {
       if (tr && tr.fehler) { eb.fehler = tr.fehler; z.ebenen.push(eb); renderEbenen(); return; }
       const neu = { id, zeit, kategorieId: e.kategorieId, betrag: tr ? tr.mein : betrag, ort: e.ort || null, quelle: 'app' };
       if (tr) Object.assign(neu, { gesamt: tr.gesamt, teiltMit: (e.teiltMit || '').trim() || null, zurueckErhalten: false });
+      z.leuchten = { kat: e.kategorieId, bis: Date.now() + 1500 };
       await aendern((d) => { d.buchungen.push(neu); d.einstellungen.letzteKategorie = e.kategorieId; }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(neu.betrag)} gebucht${tr ? ' (dein Anteil)' : ''}`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
     } else {
       const name = (e.name || '').trim() || 'Einnahme';
@@ -1372,7 +1383,7 @@ const AKTION = {
     }
   },
   'kachel-dazu': async (el) => { const id = el.dataset.wert; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().concat([{ id, breit: !!(KACHEL_KATALOG[id] && KACHEL_KATALOG[id].breit) }]); }, { text: 'Kachel hinzugefügt' }); },
-  'kachel-breit': async (el) => { const id = oben().id; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: el.dataset.wert === '1' }) : k)); }, { text: el.dataset.wert === '1' ? 'Kachel jetzt ganze Breite' : 'Kachel jetzt halbe Breite' }); },
+  'kachel-breit': async (el) => { const id = oben().id; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: el.dataset.wert === '1' }) : k)); }, { text: el.dataset.wert === '1' ? 'Kachel jetzt ganze Breite' : 'Kachel jetzt halbe Breite', haptik: false }); },
   'kachel-weg': async () => { const id = oben().id; z.ebenen.pop(); await kachelEntfernen(id); },
   'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }, false); },
   'verlauf-alle': () => { z.verlaufAlle = true; render(); },
@@ -1380,7 +1391,7 @@ const AKTION = {
   'schliessen-schleier': (el, ev) => { if (ev.target === el) schliessen(); },
   mehr: () => { oben().mehr = !oben().mehr; renderEbenen(); },
   'toast-zu': () => { z.toast = null; renderEbenen(); },
-  'toast-rueck': async () => { const r = z.toast && z.toast.rueckgaengig; z.toast = null; if (r) await aendern(r, { text: 'Rückgängig gemacht' }); else renderEbenen(); },
+  'toast-rueck': async () => { const r = z.toast && z.toast.rueckgaengig; z.toast = null; if (r) await aendern(r, { text: 'Rückgängig gemacht', haptik: 'tick' }); else renderEbenen(); },
 
   // Start
   'start-einrichten': () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; oeffne(E.neueEinfuehrung(z.daten, true)); },
@@ -1393,7 +1404,7 @@ const AKTION = {
     let w = el.dataset.wert; if (w === 'ja') w = true; else if (w === 'nein') w = false;
     setzePfad(oben(), el.dataset.pfad, w); oben().fehler = null; renderEbenen();
   },
-  'ef-waehlen': (el) => {
+  'ef-waehlen': (el) => { haptik('tick');
     const liste = oben().listen[el.dataset.liste]; const i = Number(el.dataset.i); const p = liste[i];
     if (p.eigen) liste.splice(i, 1);
     else { p.gewaehlt = !p.gewaehlt; if (p.gewaehlt) { efAndereEinklappen(liste, p); p.zu = false; } else p.loeschen = false; }
@@ -1422,7 +1433,7 @@ const AKTION = {
     renderEbenen();
     const felder = document.querySelectorAll('.ef-posten input[data-feld$=".name"]'); if (felder.length) felder[felder.length - 1].focus();
   },
-  'ef-ein-dazu': (el) => {
+  'ef-ein-dazu': (el) => { haptik('tick');
     const eb = oben(); const n = el.dataset.wert;
     const i = n ? eb.einnahmen.findIndex((e) => e.name === n) : -1;
     if (i >= 0) eb.einnahmen.splice(i, 1); // nochmal antippen = wieder weg
@@ -1461,7 +1472,7 @@ const AKTION = {
   },
   'ef-zurueck': () => { const eb = oben(); if (eb.schritt > 0) { eb.schritt -= 1; eb.fehler = null; renderEbenen(); oben0(); } else schliessen(); },
   'ef-ueberspringen': () => { const eb = oben(); eb.schritt = E.SCHRITTE.length - 1; eb.fehler = null; renderEbenen(); oben0(); },
-  'start-beispiel': async () => { z.daten = D.beispielDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}, { text: 'Beispieldaten geladen. Später unter Einstellungen ersetzen oder entfernen.' }); },
+  'start-beispiel': async () => { z.daten = D.beispielDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}, { text: 'Beispieldaten geladen. Später unter Einstellungen ersetzen oder entfernen.', haptik: false }); },
   'start-leer': async () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}, false); oeffne(gehaltEbene(heuteYm())); },
   'beispiel-weg': () => oeffne({ art: 'frage', titel: 'Beispieldaten entfernen?', text: 'Alle Beispiel-Fixkosten, das Beispiel-Sparkonto und alle Buchungen werden gelöscht. Kategorien und Budgets bleiben.', ja: 'Entfernen', bei: async () => {
     const vorher = kopie(z.daten);
@@ -1661,7 +1672,7 @@ const AKTION = {
       : { betragText: String(empf || ''), tagText: '1', standText: '0' } });
   },
   'rk-empfohlen': () => { oben().entwurf.betragText = String(R.empfohleneRuecklage(z.daten, heuteYm())); renderEbenen(); },
-  'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }, { text: 'Hinweis ausgeblendet' }); },
+  'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }, { text: 'Hinweis ausgeblendet', haptik: false }); },
   'rk-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
     const betrag = zahl(e.betragText); const tag = zahl(e.tagText); const stand = zahl(e.standText || '0');
@@ -1771,7 +1782,7 @@ const AKTION = {
   buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne(Object.assign({ art: 'buchung', id: b.id, betragText: R.euro(b.gesamt || b.betrag, false), ort: b.ort || '', zurueckErhalten: !!b.zurueckErhalten }, teilEntwurf(b))); },
   'bh-zurueck': () => { oben().zurueckErhalten = !oben().zurueckErhalten; renderEbenen(); },
   'tl-an': (el) => { const t = oben().entwurf || oben(); const vorher = !!t.geteilt; t.geteilt = el.dataset.wert === '1'; if (!t.anteil) t.anteil = '1/2'; if (t.geteilt && !vorher) t.teilAuf = Date.now(); renderEbenen(); if (t.geteilt && !vorher) { const box = document.querySelector('.teil-box'); if (box) box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } },
-  'tl-anteil': (el) => { const t = oben().entwurf || oben(); t.anteil = el.dataset.wert; renderEbenen(); },
+  'tl-anteil': (el) => { haptik('tick'); const t = oben().entwurf || oben(); t.anteil = el.dataset.wert; renderEbenen(); },
   'rueck-erhalten': async (el) => {
     const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (!b) return;
     await aendern((d) => { const x = d.buchungen.find((y) => y.id === b.id); if (x) x.zurueckErhalten = true; },
@@ -1821,13 +1832,11 @@ async function kachelEntfernen(id) {
 
 // ---------- Kacheln ziehen wie auf dem Android-Homescreen ----------
 function haptik(art) {
+  // Bedeutung statt Stärke: bestaetigt (wichtig gespeichert), fehler, tick (Auswahl), gegriffen (langes Drücken)
   try {
-    const h = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics;
-    if (h && window.Capacitor.isNativePlatform()) {
-      if (art === 'wechsel') h.selectionChanged(); else h.impact({ style: art === 'stark' ? 'HEAVY' : art === 'leicht' ? 'LIGHT' : 'MEDIUM' });
-      return;
-    }
-    if (navigator.vibrate) navigator.vibrate(art === 'stark' ? 30 : art === 'wechsel' ? 8 : 15);
+    const nativ = window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform();
+    if (nativ && D.haptik(art)) return;
+    if (navigator.vibrate) navigator.vibrate(art === 'fehler' ? [20, 60, 20] : art === 'bestaetigt' ? 18 : art === 'gegriffen' ? 25 : 8);
   } catch (e) { /* ohne Vibration weiter */ }
 }
 async function kachelGroesse(id, aenderung) {
@@ -1836,7 +1845,7 @@ async function kachelGroesse(id, aenderung) {
   if (!k) return;
   Object.assign(k, aenderung);
   if (!AUFKLAPPBAR.has(id)) k.offen = false;
-  await aendern((d) => { d.einstellungen.kacheln = l; }, { text: 'Größe gespeichert' });
+  await aendern((d) => { d.einstellungen.kacheln = l; }, { text: 'Größe gespeichert', haptik: false });
 }
 function bindeKachelZiehen() {
   let zug = null; // { platz, id, startX, startY, timer, aktiv, bewegt, klon, dx, dy }
@@ -1855,7 +1864,7 @@ function bindeKachelZiehen() {
     const breit = platz.classList.contains('breit');
     gzug = { platz, id: platz.dataset.kachel, seite: griff.dataset.seite, r, c, rahmen, breit, offen: !!k.offen, zielBreit: breit, zielOffen: !!k.offen };
     document.body.classList.add('kachel-zieht');
-    haptik('leicht');
+    haptik('gegriffen');
   };
   const griffBewegen = (p) => {
     const g = gzug, r = g.r, c = g.c;
@@ -1868,7 +1877,7 @@ function bindeKachelZiehen() {
     let zielBreit = g.zielBreit, zielOffen = g.zielOffen;
     if (g.seite === 'l' || g.seite === 'r') zielBreit = w > c.width * 0.74;
     else zielOffen = g.offen ? h > r.height - 50 : h > r.height + 50;
-    if (zielBreit !== g.zielBreit || zielOffen !== g.zielOffen) haptik('wechsel');
+    if (zielBreit !== g.zielBreit || zielOffen !== g.zielOffen) haptik('tick');
     g.zielBreit = zielBreit; g.zielOffen = zielOffen;
     g.rahmen.classList.toggle('schnapp', zielBreit !== g.breit || zielOffen !== g.offen);
   };
@@ -1879,16 +1888,16 @@ function bindeKachelZiehen() {
     klickSperre = true; setTimeout(() => { klickSperre = false; }, 400);
     if (g.seite === 'l' || g.seite === 'r') {
       if (g.zielBreit === g.breit) return;
-      haptik('mittel');
+      haptik('tick');
       await kachelGroesse(g.id, g.zielBreit ? { breit: true } : { breit: false, offen: false });
     } else {
       if (g.zielOffen === g.offen) return;
-      haptik('mittel');
+      haptik('tick');
       await kachelGroesse(g.id, { offen: g.zielOffen });
     }
   };
   const start = (e) => {
-    const griff = e.target.closest('.griff');
+    const griff = e.target.closest('.groessen-griff');
     if (griff && z.bearbeiten && !z.ebenen.length) { griffStart(griff); return; }
     const platz = e.target.closest('.kachel-platz');
     if (!platz || z.ebenen.length || e.target.closest('[data-a="kachel-auf"]') || e.target.closest('.kachel-steuer')) return;
@@ -1899,7 +1908,7 @@ function bindeKachelZiehen() {
   const aufheben = () => {
     if (!zug) return;
     zug.aktiv = true;
-    haptik('mittel');
+    haptik('gegriffen');
     const r = zug.platz.getBoundingClientRect();
     zug.dx = zug.startX - r.left; zug.dy = zug.startY - r.top;
     const klon = zug.platz.cloneNode(true);
@@ -1928,7 +1937,7 @@ function bindeKachelZiehen() {
     zug.klon.style.top = (p.clientY - zug.dy) + 'px';
     const ziel = document.getElementById('entfernen-ziel');
     const ueberZiel = p.clientY < 90;
-    if (ziel) { if (ueberZiel && !ziel.classList.contains('aktiv')) haptik('wechsel'); ziel.classList.toggle('aktiv', ueberZiel); }
+    if (ziel) { if (ueberZiel && !ziel.classList.contains('aktiv')) haptik('tick'); ziel.classList.toggle('aktiv', ueberZiel); }
     zug.klon.style.visibility = 'hidden';
     const unter = document.elementFromPoint(p.clientX, p.clientY);
     zug.klon.style.visibility = '';
@@ -1937,7 +1946,7 @@ function bindeKachelZiehen() {
       const geschwister = [...zug.platz.parentNode.querySelectorAll('.kachel-platz')];
       const iA = geschwister.indexOf(zug.platz), iB = geschwister.indexOf(anderer);
       zug.platz.parentNode.insertBefore(zug.platz, iA < iB ? anderer.nextSibling : anderer);
-      haptik('wechsel');
+      haptik('tick');
     }
   };
   const ende = async (e) => {
@@ -1946,7 +1955,7 @@ function bindeKachelZiehen() {
     clearTimeout(zug.timer);
     const z2 = zug; zug = null;
     if (!z2.aktiv) {
-      if (z.bearbeiten && !(e.target.closest && e.target.closest('.kachel-steuer'))) { z.gewaehlt = z.gewaehlt === z2.id ? null : z2.id; haptik('leicht'); render(); }
+      if (z.bearbeiten && !(e.target.closest && e.target.closest('.kachel-steuer'))) { z.gewaehlt = z.gewaehlt === z2.id ? null : z2.id; haptik('tick'); render(); }
       return;
     }
     klickSperre = true; setTimeout(() => { klickSperre = false; }, 400);
@@ -1956,12 +1965,12 @@ function bindeKachelZiehen() {
     if (z2.klon) z2.klon.remove();
     z2.platz.classList.remove('kachel-luecke');
     document.body.classList.remove('kachel-zieht');
-    if (entfernen) { haptik('stark'); await kachelEntfernen(z2.id); return; }
-    if (!z2.bewegt) { haptik('leicht'); z.bearbeiten = true; z.gewaehlt = z2.id; render(); return; }
-    haptik('leicht');
+    if (entfernen) { await kachelEntfernen(z2.id); return; }
+    if (!z2.bewegt) { haptik('gegriffen'); z.bearbeiten = true; z.gewaehlt = z2.id; render(); return; }
+    haptik('tick');
     const reihe = [...document.querySelectorAll('#kacheln .kachel-platz')].map((x) => x.dataset.kachel);
     const alt = kachelListe();
-    await aendern((d) => { d.einstellungen.kacheln = reihe.map((id) => alt.find((k) => k.id === id)).filter(Boolean); }, { text: 'Reihenfolge gespeichert' });
+    await aendern((d) => { d.einstellungen.kacheln = reihe.map((id) => alt.find((k) => k.id === id)).filter(Boolean); }, { text: 'Reihenfolge gespeichert', haptik: false });
   };
   document.addEventListener('touchstart', start, { passive: true });
   document.addEventListener('touchmove', bewegen, { passive: false });

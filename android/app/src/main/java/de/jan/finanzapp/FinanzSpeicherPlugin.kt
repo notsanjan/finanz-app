@@ -102,6 +102,17 @@ class FinanzSpeicherPlugin : Plugin() {
         }
     }
 
+    /** Haptik nach Bedeutung: bestaetigt, fehler, tick, gegriffen */
+    @PluginMethod
+    fun haptik(call: PluginCall) {
+        val art = call.getString("art") ?: "tick"
+        val web = bridge?.webView
+        activity?.runOnUiThread {
+            if (web != null) Haptik.anAnsicht(web, art)
+            call.resolve()
+        }
+    }
+
     // ---------- BETA: Zahlungen aus Benachrichtigungen ----------
     @PluginMethod
     fun erkennungStatus(call: PluginCall) {

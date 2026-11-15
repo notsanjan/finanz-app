@@ -270,6 +270,7 @@ object Widgets {
         val wert = intent.getStringExtra("wert") ?: ""
         when (intent.getStringExtra("was")) {
             "schritt" -> {
+                Haptik.ohneAnsicht(ctx, "tick")
                 val neu = max(0, WidgetZustand.vorlaeufig(ctx, id) + (wert.toIntOrNull() ?: 0))
                 WidgetZustand.setzeVorlaeufig(ctx, id, neu)
                 if (WidgetZustand.phase(ctx, id) == "gebucht") WidgetZustand.setzePhase(ctx, id, "")
@@ -286,6 +287,7 @@ object Widgets {
                             .put("betrag", betrag).put("ort", JSONObject.NULL).put("quelle", "widget"))
                     }
                     if (ok != null) {
+                        Haptik.ohneAnsicht(ctx, "bestaetigt")
                         WidgetZustand.setzeVorlaeufig(ctx, id, 0)
                         WidgetZustand.setzeLetzte(ctx, id, buchungId)
                         WidgetZustand.setzePhase(ctx, id, "gebucht")
@@ -293,12 +295,14 @@ object Widgets {
                 }
             }
             "chip" -> {
+                Haptik.ohneAnsicht(ctx, "tick")
                 val bId = WidgetZustand.letzte(ctx, id)
                 if (bId != null) Speicher.aendern(ctx) { d -> Logik.buchungFinden(d, bId)?.put("ort", wert) }
                 WidgetZustand.setzePhase(ctx, id, "")
             }
             "ueberspringen" -> WidgetZustand.setzePhase(ctx, id, "")
             "rueckgaengig" -> {
+                Haptik.ohneAnsicht(ctx, "tick")
                 val bId = WidgetZustand.letzte(ctx, id)
                 if (bId != null) Speicher.aendern(ctx) { d -> Logik.buchungEntfernen(d, bId) }
                 WidgetZustand.setzeLetzte(ctx, id, null)
