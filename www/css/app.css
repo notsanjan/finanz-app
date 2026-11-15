@@ -17,7 +17,8 @@
   --plus: #8fd6a0;
   --minus: #ef9a8f;
   --bg: #14181b;
-  --karte: rgba(29, 35, 39, .78);
+  --karte: #1d2327;
+  --flaeche-fenster: #232a2e;
   --karte-voll: #1d2327;
   --rand: var(--rand-leise);
   --text: #eef2f0;
@@ -177,7 +178,7 @@ button { cursor: pointer; }
 .seite-kopf h2 { font-size: var(--t-titel); font-weight: 300; margin: 0; flex: 1; }
 .abstand { flex: 1; }
 .schleier { position: fixed; inset: 0; z-index: 30; background: rgba(0, 0, 0, .55); display: flex; align-items: flex-end; justify-content: center; }
-.sheet { width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; background: var(--karte-voll); border: 1px solid var(--rand); border-bottom: 0; border-radius: var(--r-fenster) var(--r-fenster) 0 0; padding: 10px 16px calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); display: flex; flex-direction: column; gap: 14px; }
+.sheet { width: 100%; max-width: 560px; max-height: 88vh; overflow-y: auto; background: var(--flaeche-fenster); border: 1px solid var(--rand); border-bottom: 0; border-radius: var(--r-fenster) var(--r-fenster) 0 0; padding: 10px 16px calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); display: flex; flex-direction: column; gap: 14px; }
 .sheet .griff { width: 40px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .25); align-self: center; }
 .sheet h2 { font-size: var(--t-zahl-m); font-weight: 400; margin: 0; }
 
@@ -545,3 +546,23 @@ button.ef-chip.da { opacity: .75; }
 @keyframes wertLeuchten { 0% { background: rgba(127, 214, 200, .35); box-shadow: 0 0 0 6px rgba(127, 214, 200, .35); } 100% { background: transparent; box-shadow: 0 0 0 6px transparent; } }
 @media (prefers-reduced-motion: reduce) { .kachel-wert.leuchtet { animation: none; } }
 .auf-knopf { min-height: 44px; }
+
+/* v22: Anordnung (A1 Kopf, A2 Budgets, A3 Aktionsleiste) */
+.umschalter.breit { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); }
+.umschalter.breit button { padding: 0; }
+.seitentitel { font-size: var(--t-titel); font-weight: 300; margin: 8px 0 0; }
+.monatswahl { margin-top: 4px; }
+.monatstitel { flex: 1; text-align: center; font-size: var(--t-titel); font-weight: 300; margin: 0; }
+.monatstitel span { color: var(--gedaempft); font-size: var(--t-titel-karte); }
+.heute-zeile { display: flex; justify-content: center; margin-top: -4px; }
+.budget-leiste { gap: 2px; padding: 12px 16px 8px; }
+.bl-kopf { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.bl-zeile { display: grid; grid-template-columns: 1.3fr 1fr auto; align-items: center; gap: 12px; min-height: 44px; background: none; border: 0; color: var(--text); font: inherit; text-align: left; padding: 0; border-top: 1px solid var(--rand-leise); }
+.bl-zeile:first-of-type { border-top: 0; }
+.bl-name { font-size: var(--t-text); }
+.bl-rest { font-size: var(--t-klein); color: var(--gedaempft); text-align: right; min-width: 92px; }
+.bl-rest.warn { color: var(--fehler); }
+.seite-innen > .knopfreihe:last-child, .sheet > .knopfreihe:last-child { position: sticky; bottom: 0; z-index: 2; padding: 12px 0 calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 12px); margin-bottom: calc(-1 * (var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 12px)); background: linear-gradient(to bottom, transparent, var(--bg) 35%); }
+.bl-zeile .mini { margin-top: 0; }
+
+.sheet > .knopfreihe:last-child { background: linear-gradient(to bottom, transparent, var(--flaeche-fenster) 35%); }

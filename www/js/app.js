@@ -4,11 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v21';
+export const APP_VERSION = 'finanz-v22';
 const NEU_IN_VERSION = [
-  'Vibration nach Bedeutung: deutlich bei Buchen und Speichern, kurzer Tick bei Auswahl, anders bei Fehlern – und jetzt auch im Widget',
-  'Größere Tippflächen, besser sichtbare Eingabefelder, Platzhalter und graue Texte besser lesbar',
-  'Jahr übersichtlicher, Betrag leuchtet nach dem Buchen kurz auf, Fehler am Fenster-Griff behoben'
+  'Budgets direkt unter „Frei“: eine Zeile pro Budget – antippen = Ausgabe in dieser Kategorie eintragen (abschaltbar in den Einstellungen)',
+  'Neuer Kopf: Reiter über die ganze Breite, Zahnrad für Einstellungen, Pfeile direkt am Monat',
+  'Speichern bleibt beim Scrollen unten sichtbar; Konten-Kachel mit einer Gesamtzahl; ruhigere Flächen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -135,7 +135,7 @@ function render() {
 function kopf() {
   const titel = z.ansicht === 'monat' ? monatsName(z.monat) : z.ansicht === 'jahr' ? '12 Monate' : 'Verlauf';
   const k = (id, t) => `<button data-a="ansicht" data-wert="${id}" aria-pressed="${z.ansicht === id}">${t}</button>`;
-  return `<header class="kopf"><h1>${esc(titel)}</h1><nav class="umschalter" aria-label="Ansicht">${k('monat', 'Monat')}${k('jahr', 'Jahr')}${k('verlauf', 'Verlauf')}</nav></header>`;
+  return `<header class="kopf"><nav class="umschalter breit" aria-label="Ansicht">${k('monat', 'Monat')}${k('jahr', 'Jahr')}${k('verlauf', 'Verlauf')}</nav><button class="knopf rund leise" data-a="bereich" data-wert="einstellungen" aria-label="Einstellungen und Sicherung">${KACHEL_ICON.zahnrad}</button></header>${z.ansicht === 'monat' ? '' : `<h1 class="seitentitel">${esc(titel)}</h1>`}`;
 }
 
 function monatTeile(s = z.monat) {
@@ -146,9 +146,9 @@ function monatTeile(s = z.monat) {
   const istHeute = s === heuteYm();
   const nav = `<div class="monatswahl">
     <button class="knopf rund" data-a="monat" data-wert="-1" aria-label="Vorheriger Monat">${ICON.links}</button>
-    <span class="jahr">${istHeute ? R.ymTeile(s).jahr : `${R.ymTeile(s).jahr} · <button class="knopf klein akzent" data-a="heute">zurück zu ${esc(monatsName(heuteYm()))}</button>`}</span>
+    <h1 class="monatstitel">${esc(monatsName(s))} <span>${R.ymTeile(s).jahr}</span></h1>
     <button class="knopf rund" data-a="monat" data-wert="1" aria-label="Nächster Monat">${ICON.rechts}</button>
-  </div>`;
+  </div>${istHeute ? '' : `<div class="heute-zeile"><button class="knopf klein akzent" data-a="heute">zurück zu ${esc(monatsName(heuteYm()))}</button></div>`}`;
 
   const pruefung = R.wunschPruefung(z.daten, heuteYm());
   const geplant = s >= heuteYm() ? R.geplantAusFrei(z.daten, s, pruefung) : 0;
@@ -241,6 +241,7 @@ function monatTeile(s = z.monat) {
 
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
+    <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Frei“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="einfuehrung-erneut">Einführung erneut durchgehen</button>
     <p class="hinweistext">Alle Daten liegen nur auf diesem Handy. Exportiere ab und zu eine Sicherung, z. B. vor dem Löschen der App.${z.daten.einstellungen.letzteSicherung ? ' Zuletzt: ' + esc(z.daten.einstellungen.letzteSicherung) + '.' : ''}</p>
     <div class="zwei"><button class="knopf" data-a="export">Exportieren</button><button class="knopf" data-a="import">Importieren</button></div>
@@ -282,13 +283,23 @@ const KACHEL_KATALOG = {
 
 // Erfolgsmoment (v21): Nach dem Buchen leuchtet der betroffene Betrag kurz auf
 function leuchtet(katId) { const l = z.leuchten; return !!(l && Date.now() < l.bis && (!katId || l.kat === katId)); }
+function budgetLeiste(s) {
+  const ks = budgetKats().filter((k) => Number(k.budget) > 0 || R.ausgegebenIm(z.daten, s, k.id) > 0);
+  if (!ks.length || s !== heuteYm() || z.daten.einstellungen.budgetLeisteAus) return '';
+  return `<section class="karte budget-leiste"><div class="bl-kopf"><span class="label">Budgets im ${esc(monatsName(s))}</span><span class="klein">antippen = eintragen</span></div>${ks.map((k) => {
+    const aus = R.ausgegebenIm(z.daten, s, k.id); const b = Number(k.budget) || 0; const ueber = b > 0 && aus > b;
+    return `<button class="bl-zeile" data-a="eintragen" data-kat="${esc(k.id)}" aria-label="${esc(k.name)}: Ausgabe eintragen"><span class="bl-name">${esc(mitEmoji(k) + k.name)}</span>
+      <span class="mini"><span style="width:${b ? Math.min(100, aus / b * 100).toFixed(1) : 0}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>
+      <span class="bl-rest ${ueber ? 'warn' : ''}">${b ? (ueber ? R.euroRund(aus - b) + ' drüber' : 'noch ' + R.euroRund(b - aus)) : R.euroRund(aus)}</span></button>`;
+  }).join('')}</section>`;
+}
 function monatAnsicht() {
   const t = monatTeile(z.monat);
   const { s, r, pruefung, rk, hatJaehrliche } = t;
   const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
   const kachel = (typ, titel, wert, unter, unterArt = '', aktion = 'bereich') => `<button class="kachel" data-a="${aktion}" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
       <span class="kachel-kopf">${KACHEL_ICON[typ] || ''}<span>${esc(titel)}</span></span>
-      <span class="kachel-wert ${typ === 'ausgaben' && leuchtet() ? 'leuchtet' : ''}">${wert}</span>
+      <span class="kachel-wert ${typ === 'ausgaben' && s === heuteYm() && leuchtet() ? 'leuchtet' : ''}">${wert}</span>
       <span class="kachel-unter ${unterArt}">${unter}</span></button>`;
   const klappKnopf = (k) => `<button class="aufklapp klein-auf" data-a="kachel-auf" data-wert="${esc(k.id)}" aria-expanded="false" aria-label="Aufklappen">${ICON.runter}</button>`;
   const tagText = (zeit) => { const d = zeit.slice(0, 10); return d === heute() ? 'heute ' + zeit.slice(11, 16) : Number(d.slice(8)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1]; };
@@ -313,7 +324,8 @@ function monatAnsicht() {
       const wert = rk || sp.length
         ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag, z.daten), 0))}` : ''].filter(Boolean).join('<br>')
         : '–';
-      return kachel('konten', 'Konten', `<span class="kachel-klein">${wert}</span>`,
+      const summe = (rk ? R.ruecklageStand(z.daten, stichtag) : 0) + sp.reduce((a, x) => a + R.sparStand(x, stichtag, z.daten), 0);
+      return kachel('konten', 'Konten', rk || sp.length ? R.euroRund(summe) : '–',
         luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
     },
     einnahmen: () => {
@@ -374,7 +386,7 @@ function monatAnsicht() {
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
   const gf = !bearbeiten && z.monat === heuteYm() ? gehaltFrageKarte() : '';
-  return t.nav + t.freiKarte + gf + vk + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
+  return t.nav + t.freiKarte + gf + vk + budgetLeiste(s) + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>
     <div class="fab-platz"></div>`;
@@ -1672,6 +1684,7 @@ const AKTION = {
       : { betragText: String(empf || ''), tagText: '1', standText: '0' } });
   },
   'rk-empfohlen': () => { oben().entwurf.betragText = String(R.empfohleneRuecklage(z.daten, heuteYm())); renderEbenen(); },
+  budgetleiste: async () => { const aus = !z.daten.einstellungen.budgetLeisteAus; await aendern((d) => { d.einstellungen.budgetLeisteAus = aus; }, { text: aus ? 'Budgets unter „Frei“ ausgeblendet' : 'Budgets unter „Frei“ eingeblendet', haptik: false }); },
   'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }, { text: 'Hinweis ausgeblendet', haptik: false }); },
   'rk-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
