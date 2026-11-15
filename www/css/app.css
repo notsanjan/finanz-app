@@ -17,6 +17,7 @@
   --akzent: #7fd6c8;
   --akzent2: #c9d27a;
   --haupt: #3a6b5c;
+  --ruecklage: #8d9895;
   --spar: #8fb3d9;
   --hinweis: #dfe6b0;
   --fehler: #f0a99a;
@@ -72,8 +73,8 @@ button { cursor: pointer; }
 .legende { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; font-size: 13px; }
 .legende span, .legende-zeile span { display: flex; align-items: center; gap: 6px; }
 .punkt { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; display: inline-block; }
-.streifen { background: repeating-linear-gradient(45deg, #8d9895 0 4px, rgba(141, 152, 149, .35) 4px 8px); }
-.punkt.streifen { background: repeating-linear-gradient(45deg, #8d9895 0 3px, rgba(141, 152, 149, .35) 3px 6px); }
+/* Rücklagenkonto: einfarbig grau (Wahl Jan, v9) */
+.streifen, .punkt.streifen { background: var(--ruecklage); }
 .punkt.leer { background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .35); }
 .punkt.ausgaben { background: linear-gradient(90deg, #7fd6c8 0 25%, #4f9a8e 25% 50%, #c9d27a 50% 75%, #5d7d99 75%); }
 

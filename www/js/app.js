@@ -4,10 +4,10 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v8';
+export const APP_VERSION = 'finanz-v9';
 const NEU_IN_VERSION = [
-  'Größe ändern wie auf dem Homescreen: im Bearbeiten-Modus (Stift ✎) eine Kachel antippen, dann an den Punkten ziehen. Links/rechts = breit oder schmal, oben/unten = auf- oder zuklappen',
-  'Neuer ＋-Knopf unten rechts: Ausgabe, Einnahme oder Abo sofort eintragen. Auf der Abo-Seite legt er gleich ein Abo an'
+  'Rücklagenkonto im Balken jetzt einfarbig grau statt schraffiert',
+  'Größe ändern wie auf dem Homescreen: im Bearbeiten-Modus (Stift ✎) eine Kachel antippen, dann an den Punkten ziehen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
