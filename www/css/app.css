@@ -5,6 +5,8 @@
 @font-face { font-family: 'Barlow'; font-weight: 600; src: url('../fonts/barlow-600.ttf') format('truetype'); }
 
 :root {
+  --plus: #8fd6a0;
+  --minus: #ef9a8f;
   --bg: #14181b;
   --karte: rgba(29, 35, 39, .78);
   --karte-voll: #1d2327;
@@ -278,8 +280,59 @@ select.eingabe option { background: #1d2327; color: #eef2f0; }
 /* Weitere Einnahmen */
 .einnahme-knopf { justify-content: flex-start; color: var(--akzent); }
 .einnahmen-karte { border-color: rgba(127, 214, 200, .30); }
-.plus { color: var(--akzent); }
+.plus { color: var(--plus); }
 .posten.grau .b.plus { color: var(--grau); }
 .frei-zeile span small { display: block; font-size: 12px; color: var(--gedaempft); margin-top: 2px; }
 .frei-hinweis.neutral { color: var(--gedaempft); }
-.jahr-zeile .extra.rein { color: var(--akzent); }
+.jahr-zeile .extra.rein { color: var(--plus); }
+
+/* Frei-Karte, luftiger (v5) */
+.frei-karte { padding: 18px 18px 16px; gap: 14px; }
+.frei-zahl { font-size: 52px; margin-top: -6px; }
+.frei-karte .balken { height: 36px; border-radius: 10px; }
+.aufstellung { display: flex; flex-direction: column; }
+.auf-zeile { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 38px; font-size: 15px; color: var(--text); }
+.auf-zeile .l { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.auf-zeile .l small { font-size: 13px; color: var(--gedaempft); display: inline-flex; align-items: center; gap: 4px; margin-left: 2px; }
+.auf-zeile .r { white-space: nowrap; color: var(--gedaempft); }
+.auf-zeile.summe { border-top: 1px solid rgba(255, 255, 255, .14); margin-top: 4px; padding-top: 6px; font-weight: 600; }
+.auf-zeile.summe .r { color: var(--text); font-size: 17px; }
+.auf-knopf { width: 100%; border: 0; background: transparent; padding: 0; text-align: left; min-height: 44px; border-radius: 10px; }
+.auf-knopf .r { color: var(--text); }
+.auf-knopf:active { background: rgba(255, 255, 255, .06); }
+.punkt.plus-punkt { background: var(--akzent); border-radius: 50%; }
+.frei-karte .frei-zeile { border-top-color: rgba(255, 255, 255, .14); padding-top: 12px; }
+
+/* Frei-Karte (v5): Zahl nur einmal, rein grün, raus rot */
+.plus-zahl { color: var(--plus); }
+.minus-zahl { color: var(--minus); }
+.auf-zeile .r.plus-zahl { color: var(--plus); }
+.auf-zeile .r.minus-zahl { color: var(--minus); }
+.punkt-platz { width: 12px; height: 12px; flex-shrink: 0; display: inline-block; }
+.auf-trenner { height: 1px; background: rgba(255, 255, 255, .10); margin: 4px 0; }
+.mit-geplantem { display: flex; flex-direction: column; gap: 2px; margin-top: -8px; font-size: 14px; color: var(--gedaempft); }
+.mit-geplantem b { color: var(--text); font-weight: 500; }
+.mit-geplantem small { font-size: 12px; }
+
+/* Übersicht: vier Kacheln */
+.kacheln { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.kachel { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-height: 112px; padding: 14px; border-radius: 20px; border: 1px solid var(--rand); background: var(--karte); color: var(--text); text-align: left; }
+.kachel:active { background: rgba(255, 255, 255, .08); }
+.kachel-kopf { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+.kachel-wert { font-size: 22px; font-weight: 400; line-height: 1.15; }
+.kachel-klein { font-size: 15px; line-height: 1.35; display: block; }
+.kachel-unter { font-size: 12px; color: var(--gedaempft); margin-top: auto; line-height: 1.3; }
+.kachel-unter.warn { color: var(--minus); }
+.kachel-unter.hinweis { color: var(--hinweis); }
+.kachel-unter.gut { color: var(--plus); }
+.kachel-unter.plus { color: var(--plus); }
+.einstellungen-knopf { justify-content: center; }
+
+/* Übersicht kompakter, damit sie ohne Scrollen passt */
+.frei-karte { gap: 12px; padding: 16px 18px 12px; }
+.frei-zahl { font-size: 48px; }
+.mit-geplantem { flex-direction: row; gap: 6px; margin-top: -6px; }
+.auf-zeile { min-height: 32px; }
+.auf-knopf { min-height: 40px; }
+.kachel { min-height: 98px; padding: 12px 14px; gap: 4px; }
+.kachel-wert { font-size: 21px; }
