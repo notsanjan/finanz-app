@@ -572,3 +572,22 @@ button.ef-chip.da { opacity: .75; }
 .eintrag .t b > .minus-zahl { color: var(--minus); }
 .eintrag .t b > .plus-zahl { color: var(--plus); }
 .jahr-zeile .marke .minus-zahl { color: var(--minus); }
+
+/* v24: DRK-Gehaltsrechner */
+.wahl.drei { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.wahl.drei button { font-size: var(--t-klein); padding: 0 6px; }
+.gr-karte { display: flex; flex-direction: column; gap: 12px; }
+.gr-karte .feld, .gr-karte .zwei .feld { margin: 0; }
+.gr-ergebnis { display: flex; flex-direction: column; gap: 2px; }
+.gr-zeile { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 6px 0; font-size: var(--t-klein); color: var(--gedaempft); border-bottom: 1px solid var(--flaeche-1); }
+.gr-zeile b { font-size: var(--t-text); font-weight: 500; color: var(--text); white-space: nowrap; }
+.gr-zeile.summe { color: var(--text); font-weight: 600; border-bottom: 0; border-top: 1px solid var(--rand-mittel); margin-top: 4px; padding-top: 8px; }
+.gr-zeile.summe b { font-size: var(--t-titel-karte); font-weight: 600; }
+.gr-zeile.netto b { font-size: var(--t-zahl-m); }
+.gr-mini { margin: 0 0 4px; font-size: var(--t-label); }
+.gr-jsz { display: flex; flex-direction: column; align-items: stretch; gap: 10px; margin-top: 10px; padding: 12px; border-radius: var(--r-klein); background: var(--flaeche-1); }
+.gr-jsz .t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gr-jsz small { font-size: var(--t-label); color: var(--gedaempft); }
+.gr-quellen summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: var(--t-text); font-weight: 500; }
+.gr-quellen .hinweistext { margin-top: 8px; }
+.gr-start { width: 100%; margin-top: -4px; }
