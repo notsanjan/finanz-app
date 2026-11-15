@@ -4,11 +4,10 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v22';
+export const APP_VERSION = 'finanz-v23';
 const NEU_IN_VERSION = [
-  'Budgets direkt unter „Frei“: eine Zeile pro Budget – antippen = Ausgabe in dieser Kategorie eintragen (abschaltbar in den Einstellungen)',
-  'Neuer Kopf: Reiter über die ganze Breite, Zahnrad für Einstellungen, Pfeile direkt am Monat',
-  'Speichern bleibt beim Scrollen unten sichtbar; Konten-Kachel mit einer Gesamtzahl; ruhigere Flächen'
+  'Alle Ausgaben sind jetzt überall rot mit „−“: Ausgaben-Seite, Verlauf, Jahr, Konten, Abos, Geplant – auch in den Homescreen-Widgets',
+  'Einnahmen überall grün mit „+“. Stände (Kontostand, „noch … übrig“, Frei) bleiben weiß bzw. grau'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -17,6 +16,10 @@ const $ebene = () => document.getElementById('ebene');
 
 // ---------- Hilfen ----------
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// Geld-Farben (v23): alles, was rausgeht, rot mit „−“; was reinkommt, grün mit „+“. Im Satz rot ohne Vorzeichen.
+const rausZ = (betrag, rund = false, vor = '') => `<span class="minus-zahl">${vor}− ${rund ? R.euroRund(betrag) : R.euro(betrag)}</span>`;
+const rausSatz = (betrag, rund = false) => `<span class="minus-zahl">${rund ? R.euroRund(betrag) : R.euro(betrag)}</span>`;
+const reinZ = (betrag, rund = false, vor = '') => `<span class="plus-zahl">${vor}+ ${rund ? R.euroRund(betrag) : R.euro(betrag)}</span>`;
 const heute = () => R.datumText(new Date());
 const heuteYm = () => R.ymAus(heute());
 const monatsName = (s) => R.MONATE_LANG[R.ymTeile(s).monat - 1];
@@ -212,7 +215,7 @@ function monatTeile(s = z.monat) {
     const luecke = R.ruecklageLuecke(z.daten, heute());
     ruecklageKarte = `<button class="karte spar ruecklage" data-a="ruecklage">
       <span class="symbol">${ICON.pfeil}</span>
-      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Aufs Rücklagenkonto · ${R.euro(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
+      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Aufs Rücklagenkonto · ${rausZ(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
         ${luecke ? `<span class="warn-text">Bis ${esc(Number(luecke.datum.slice(8)) + '. ' + R.MONATE_LANG[R.ymTeile(R.ymAus(luecke.datum)).monat - 1])} fehlen ≈ ${R.euroRund(luecke.fehlt)} (${esc(luecke.fixkosten.name)})</span>` : ''}</span>
       <span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.ruecklageStand(z.daten, stichtag))}</span></span>
     </button>`;
@@ -226,7 +229,7 @@ function monatTeile(s = z.monat) {
     const extern = R.kontoArt(sp) === 'extern';
     const extra = R.uebertraegeIm(z.daten, s, sp.id).reduce((a, u) => a + (Number(u.betrag) || 0), 0);
     const rate = Number(sp.betrag) || 0;
-    const titel = rate > 0 ? `Aufs ${esc(sp.name)} · ${R.euro(rate)}` : esc(sp.name);
+    const titel = rate > 0 ? `Aufs ${esc(sp.name)} · ${rausZ(rate)}` : esc(sp.name);
     const unter = (rate > 0 ? `am ${sp.tag || 1}. · ` : 'kein fester Übertrag · ') + (extern ? 'das Geld wird dort ausgegeben' : 'keine Ausgabe, das Geld bleibt deins') + (extra > 0 ? ` · im ${monatsName(s)} + ${R.euroRund(extra)} extra` : '');
     return `<button class="karte spar ${extern ? 'extern' : ''}" data-a="sparkonto" data-id="${esc(sp.id)}">
       <span class="symbol">${ICON.pfeil}</span>
@@ -290,7 +293,7 @@ function budgetLeiste(s) {
     const aus = R.ausgegebenIm(z.daten, s, k.id); const b = Number(k.budget) || 0; const ueber = b > 0 && aus > b;
     return `<button class="bl-zeile" data-a="eintragen" data-kat="${esc(k.id)}" aria-label="${esc(k.name)}: Ausgabe eintragen"><span class="bl-name">${esc(mitEmoji(k) + k.name)}</span>
       <span class="mini"><span style="width:${b ? Math.min(100, aus / b * 100).toFixed(1) : 0}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>
-      <span class="bl-rest ${ueber ? 'warn' : ''}">${b ? (ueber ? R.euroRund(aus - b) + ' drüber' : 'noch ' + R.euroRund(b - aus)) : R.euroRund(aus)}</span></button>`;
+      <span class="bl-rest ${ueber ? 'warn' : ''}">${b ? (ueber ? R.euroRund(aus - b) + ' drüber' : 'noch ' + R.euroRund(b - aus)) : rausZ(aus, true)}</span></button>`;
   }).join('')}</section>`;
 }
 function monatAnsicht() {
@@ -308,7 +311,7 @@ function monatAnsicht() {
       const budgets = (r.gruppen.find((g) => g.art === 'budget') || { posten: [] }).posten;
       const ueber = budgets.filter((p) => p.budget > 0 && p.ausgegeben > p.budget);
       const ausgegeben = budgets.reduce((a, p) => a + p.ausgegeben, 0);
-      const unter = ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${R.euroRund(ausgegeben)} von den Budgets ausgegeben`;
+      const unter = ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${rausSatz(ausgegeben, true)} von den Budgets ausgegeben`;
       if (k.offen) {
         const letzte = R.verlaufMitStand(z.daten).slice(0, 5).map((b) => {
           const kat = R.kategorie(z.daten, b.kategorieId);
@@ -350,7 +353,7 @@ function monatAnsicht() {
       const abos = aboListe(s).filter((x) => x.laeuft);
       const monat = abos.reduce((a, x) => a + x.proMonat, 0);
       const zeilen = abos.slice(0, 8).map((x) => `<button class="mini-zeile" data-a="fixkosten" data-id="${esc(x.f.id)}"><span>${esc(x.f.name)}</span><span class="minus-zahl">− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span></button>`).join('');
-      return breiteKachel('abos', 'Abos', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${abos.length} Abos · ${R.euroRund(monat * 12)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Abos.</div>');
+      return breiteKachel('abos', 'Abos', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${abos.length} Abos · ${rausSatz(monat * 12, true)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Abos.</div>');
     },
     naechste: (k) => {
       const liste = R.naechsteAbbuchungen(z.daten, heute()).slice(0, 6);
@@ -452,7 +455,7 @@ function abosHtml(s) {
   return `<section class="karte ring abo-kopf">
       <div class="label">Abos zusammen</div>
       <div class="grosszahl" style="font-size:var(--t-zahl-xl)"><span class="minus-zahl">− ${R.euroRund(monat)}</span><small style="font-size:var(--t-text);color:var(--gedaempft)"> pro Monat</small></div>
-      <div class="hinweistext">${R.euroRund(monat * 12)} im Jahr · ${laufend.length} laufend${gekuendigt.length ? ` · ${gekuendigt.length} gekündigt` : ''}</div>
+      <div class="hinweistext">${rausSatz(monat * 12, true)} im Jahr · ${laufend.length} laufend${gekuendigt.length ? ` · ${gekuendigt.length} gekündigt` : ''}</div>
     </section>
     <section class="karte liste">${laufend.length ? laufend.map(zeile).join('') : '<div class="leer-zeile" style="border:0">Noch keine Abos. Mit ＋ unten rechts eins anlegen.</div>'}
       ${gekuendigt.length ? `<div class="unterkopf">Gekündigt, läuft noch</div>${gekuendigt.map(zeile).join('')}` : ''}
@@ -493,14 +496,14 @@ function ausgabenHtml(r, s) {
     return R.MONATE_KURZ[m - 1];
   };
   const fixZeile = (p) => p.faellig
-    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small>${geteiltHtml(p.fixkosten)}</span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`
-    : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
-  const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
+    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small>${geteiltHtml(p.fixkosten)}</span><span class="b">${rausZ(p.betrag)}</span>${PFEIL}</button>`
+    : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">${rausZ(p.betrag)}</span>${PFEIL}</button>`;
+  const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}</small></span><span class="b">${rausZ(p.betrag)}</span>${PFEIL}</button>`;
   const budgetZeile = (p) => {
     const pct = p.budget > 0 ? Math.min(100, p.ausgegeben / p.budget * 100) : 0;
     const ueber = p.budget > 0 && p.ausgegeben > p.budget;
-    const unter = p.budget > 0 ? (ueber ? `${R.euro(p.ausgegeben - p.budget)} über dem Budget` : `${R.euro(p.ausgegeben)} ausgegeben · noch ${R.euro(p.budget - p.ausgegeben)}`) : `${R.euro(p.ausgegeben)} ausgegeben · ohne Budget`;
-    return `<button class="posten budget" data-a="budget" data-id="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)} bearbeiten"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
+    const unter = p.budget > 0 ? (ueber ? `${R.euro(p.ausgegeben - p.budget)} über dem Budget` : `${rausSatz(p.ausgegeben)} ausgegeben · noch ${R.euro(p.budget - p.ausgegeben)}`) : `${rausSatz(p.ausgegeben)} ausgegeben · ohne Budget`;
+    return `<button class="posten budget" data-a="budget" data-id="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)} bearbeiten"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${rausZ(p.betrag)}</span>${PFEIL}</button>`;
   };
 
   // Ansicht „pro Monat gerechnet“: jede Fixkoste mit ihrem Monatsanteil, Jahresbetrag darunter
@@ -509,9 +512,9 @@ function ausgabenHtml(r, s) {
     const jahr = p.anteil * 12;
     const monate = R.abbuchungsMonate(f).map((m) => R.MONATE_KURZ[m - 1]).join(', ');
     const info = f.wieOft === 'monatlich' ? esc(p.wann)
-      : f.wieOft === 'jaehrlich' ? `${R.euro(p.betrag)} einmal im Jahr · im ${monate}`
-      : `${R.euro(p.betrag)} ${esc(R.RHYTHMUS_TEXT[f.wieOft])} (${monate}) · ${R.euro(Math.round(jahr))} im Jahr`;
-    return `<button class="posten" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${info}</small>${geteiltHtml(f)}</span><span class="b">${f.wieOft === 'monatlich' ? '' : '≈ '}${R.euro(Math.round(p.anteil * 100) / 100)}</span>${PFEIL}</button>`;
+      : f.wieOft === 'jaehrlich' ? `${rausSatz(p.betrag)} einmal im Jahr · im ${monate}`
+      : `${rausSatz(p.betrag)} ${esc(R.RHYTHMUS_TEXT[f.wieOft])} (${monate}) · ${rausSatz(Math.round(jahr))} im Jahr`;
+    return `<button class="posten" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${info}</small>${geteiltHtml(f)}</span><span class="b">${rausZ(Math.round(p.anteil * 100) / 100, false, f.wieOft === 'monatlich' ? '' : '≈ ')}</span>${PFEIL}</button>`;
   };
 
   const karten = r.gruppen.map((gr) => {
@@ -520,7 +523,7 @@ function ausgabenHtml(r, s) {
       const monat = gr.posten.reduce((a, p) => a + p.anteil, 0);
       const zeichen = k && k.emoji ? `<span class="kat-zeichen" aria-hidden="true">${esc(k.emoji)}</span>` : '<i class="kat-farbe" aria-hidden="true"></i>';
       return `<section class="kat-karte" style="--kat:${gr.farbe}">
-        <button class="kat-kopf" data-a="kategorie" data-id="${esc(k.id)}" aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${R.euroRund(monat * 12)} im Jahr</small></span><span class="kat-summe">≈ ${R.euroRund(monat)}</span></button>
+        <button class="kat-kopf" data-a="kategorie" data-id="${esc(k.id)}" aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${rausSatz(monat * 12, true)} im Jahr</small></span><span class="kat-summe">${rausZ(monat, true, '≈ ')}</span></button>
         ${gr.posten.map(proMonatZeile).join('')}${!gr.posten.length ? '<div class="leer-zeile">Noch nichts eingetragen</div>' : ''}</section>`;
     }
     const faellig = gr.posten.filter((p) => p.zaehlt);
@@ -535,7 +538,7 @@ function ausgabenHtml(r, s) {
     const zeichen = k && k.emoji ? `<span class="kat-zeichen" aria-hidden="true">${esc(k.emoji)}</span>` : '<i class="kat-farbe" aria-hidden="true"></i>';
     const kopfAktion = gr.art === 'budget' ? 'data-a="budgets-farbe"' : `data-a="kategorie" data-id="${esc(k.id)}"`;
     return `<section class="kat-karte" style="--kat:${gr.farbe}">
-      <button class="kat-kopf" ${kopfAktion} aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${unter}</small></span><span class="kat-summe">${R.euro(gr.summe)}</span></button>
+      <button class="kat-kopf" ${kopfAktion} aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${unter}</small></span><span class="kat-summe">${rausZ(gr.summe)}</span></button>
       ${zeilen}${spaeterHtml}${leer}</section>`;
   }).join('');
 
@@ -543,7 +546,7 @@ function ausgabenHtml(r, s) {
     <button data-a="ansicht-pro-monat" data-wert="0" aria-pressed="${!proMonat}">Im ${kurz} abgebucht</button>
     <button data-a="ansicht-pro-monat" data-wert="1" aria-pressed="${proMonat}">Pro Monat gerechnet</button></div>`;
   const fixMonat = r.gruppen.filter((g) => g.art !== 'budget').reduce((a, g) => a + g.posten.reduce((b, p) => b + p.anteil, 0), 0);
-  const summe = proMonat ? `<div class="pro-monat-summe">Fixkosten zusammen <b>≈ ${R.euroRund(fixMonat)}</b> pro Monat · ${R.euroRund(fixMonat * 12)} im Jahr</div>` : '';
+  const summe = proMonat ? `<div class="pro-monat-summe">Fixkosten zusammen <b>${rausZ(fixMonat, true, '≈ ')}</b> pro Monat · ${rausSatz(fixMonat * 12, true)} im Jahr</div>` : '';
   const titel = `<div class="abschnitt-kopf"><span class="label">Ausgaben${proMonat ? '' : ' im ' + esc(monatsName(s))}</span><span class="klein">Antippen zum Bearbeiten</span></div>`;
   return `<div class="ausgaben">${titel}${wahl}${summe}${karten}${neu}</div>`;
 }
@@ -560,14 +563,14 @@ function jahrAnsicht() {
     const wuensche = R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat);
     const rein = weitereEinnahmen().filter((e) => e.wieOft === 'einmalig' && R.einnahmeAktivIm(e, m.monat));
     const marken = [
-      zus > 0 ? `<span class="marke ${rk ? '' : 'warn'}" title="${esc(m.zusaetzlich.map((x) => x.text).join(' · '))}">${rk ? '↺' : '!'} ${R.euroRund(zus)} ${rk ? 'aus Rücklage' : 'extra fällig'}</span>` : '',
+      zus > 0 ? `<span class="marke ${rk ? '' : 'warn'}" title="${esc(m.zusaetzlich.map((x) => x.text).join(' · '))}">${rk ? '↺' : '!'} ${rk ? rausSatz(zus, true) : R.euroRund(zus)} ${rk ? 'aus Rücklage' : 'extra fällig'}</span>` : '',
       wuensche.length ? `<span class="marke geplant">● ${wuensche.length === 1 ? esc(wuensche[0].name) : wuensche.length + ' geplant'}</span>` : '',
       rein.length ? `<span class="marke rein">+ ${R.euroRund(rein.reduce((a, e) => a + (Number(e.betrag) || 0), 0))}</span>` : ''
     ].filter(Boolean).join('');
     const extra = marken ? `<span class="marken">${marken}</span>` : '';
     const jahr = R.ymTeile(m.monat).monat === 1 ? ` ${R.ymTeile(m.monat).jahr}` : '';
     return `<button class="jahr-zeile ${m.zusaetzlich.length ? 'gross' : ''}" data-a="zu-monat" data-wert="${m.monat}" aria-label="${esc(R.MONATE_LANG[R.ymTeile(m.monat).monat - 1] + jahr)}: ${R.euroRund(m.summe)}${m.zusaetzlich.length ? ', zusätzlich ' + esc(m.zusaetzlich.map((x) => x.text).join(', ')) : ''}">
-      <span class="mon">${m.name}</span><span class="mitte"><span class="jahr-balken">${teile}</span>${extra}</span><span class="summe">${R.euroRund(m.summe)}</span></button>`;
+      <span class="mon">${m.name}</span><span class="mitte"><span class="jahr-balken">${teile}</span>${extra}</span><span class="summe">${m.summe > 0 ? rausZ(m.summe, true) : R.euroRund(0)}</span></button>`;
   }).join('');
   const legende = fixKats().map((k) => `<span><i class="punkt" style="background:${k.farbe}"></i>${esc(k.name)}</span>`).join('');
   const leer = !z.daten.fixkosten.length ? '<div class="leerzustand">Noch keine Fixkosten. Trage sie in der Monatsansicht ein.</div>' : '';
@@ -599,7 +602,7 @@ function verlaufAnsicht() {
         ? `<button class="knopf klein akzent" data-a="buchung-weg" data-id="${esc(e.id)}">Rückgängig</button>`
         : `<button class="knopf klein leise" data-a="buchung" data-id="${esc(e.id)}">Ändern</button>`;
       const geteilt = e.gesamt ? `<span class="geteilt">geteilt${e.teiltMit ? ' mit ' + esc(e.teiltMit) : ''} · gesamt ${R.euro(e.gesamt)} · ${e.zurueckErhalten ? '✓ zurückbekommen' : R.euro(Math.round((e.gesamt - e.betrag) * 100) / 100) + ' offen'}</span>` : '';
-      return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${R.euro(e.betrag)}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
+      return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${rausZ(e.betrag)}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
     }).join('')}</section>`;
   }
   if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Tippe unten rechts auf ＋ oder buche über ein Widget auf dem Homescreen.</div><button class="knopf haupt" data-a="eintragen">${ICON.plus} Ausgabe eintragen</button></section>`;
@@ -618,26 +621,26 @@ function verlaufAnsicht() {
       const art = R.kontoArt(sp);
       const standDanach = (d2) => art === 'extern' ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
       const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : 'var(--spar)';
-      if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name} · ${R.euro(sp.betrag)}`, text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
-      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag aufs ${sp.name} · ${R.euro(u.betrag)} extra`, text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
+      if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name}`, wert: rausZ(sp.betrag), text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
+      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
-          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: `${f.name} · ${R.euro(R.eigenerBetrag(f))} aus der Rücklage`, text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(R.ruecklageStand(z.daten, d2))}` });
+          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(R.ruecklageStand(z.daten, d2))}` });
         }
       }
     }
     for (const e of weitereEinnahmen().filter((x) => R.einnahmeAktivIm(x, s))) {
       const w = R.einnahmeIm(e, s);
-      if (w.zaehlt) keine.push({ farbe: 'var(--akzent)', titel: `${e.name} · + ${R.euroRund(w.betrag)}`, text: w.angekommen ? 'angekommen' : 'fest eingeplant' });
+      if (w.zaehlt) keine.push({ farbe: 'var(--akzent)', titel: e.name, wert: reinZ(w.betrag, true), text: w.angekommen ? 'angekommen' : 'fest eingeplant' });
     }
     if (g) {
       const w = R.einnahmeIm(g, s);
-      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)} · ${w.geschaetzt ? '≈ ' : ''}${R.euroRund(w.betrag)}`, text: w.geschaetzt ? 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren' : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
+      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)}`, wert: reinZ(w.betrag, true, w.geschaetzt ? '≈ ' : ''), text: w.geschaetzt ? 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren' : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
     }
   }
   const keineHtml = keine.length ? `<div class="tag-titel">Keine Ausgaben</div><section class="karte verlauf">${keine.map((k) => {
-    const inhalt = `<i class="punkt" style="background:${k.farbe}"></i><span class="t"><b>${esc(k.titel)}</b><span>${esc(k.text)}</span></span>`;
+    const inhalt = `<i class="punkt" style="background:${k.farbe}"></i><span class="t"><b>${esc(k.titel)}${k.wert ? ' · ' + k.wert : ''}</b><span>${esc(k.text)}</span></span>`;
     return k.monat ? `<button class="eintrag zeile ${z.blinkGehalt === k.monat ? 'blinken' : ''}" style="padding-left:0" data-a="gehalt" data-monat="${k.monat}">${inhalt}</button>` : `<div class="eintrag">${inhalt}</div>`;
   }).join('')}</section>` : '';
 
@@ -670,10 +673,10 @@ function geplantHtml(s, pruefung) {
     const k = w.kategorieId ? R.kategorie(z.daten, w.kategorieId) : null;
     const wann = w.monat ? (w.monat < s ? `geplant für ${R.MONATE_KURZ[R.ymTeile(w.monat).monat - 1]}` : '') : 'Monat noch offen';
     const quelle = k ? `aus Budget ${mitEmoji(k)}${k.name}` : 'aus „Frei“';
-    return `<button class="posten" data-a="wunsch" data-id="${esc(w.id)}" aria-label="${esc(w.name)} bearbeiten"><span class="t"><span class="n">${esc((w.emoji ? w.emoji + ' ' : '') + w.name)}</span><small>${esc([wann, quelle].filter(Boolean).join(' · '))}</small>${st.text ? `<small class="status ${st.art}">${esc(st.text)}</small>` : ''}</span><span class="b">${esc(R.preisText(w))}</span>${PFEIL}</button>`;
+    return `<button class="posten" data-a="wunsch" data-id="${esc(w.id)}" aria-label="${esc(w.name)} bearbeiten"><span class="t"><span class="n">${esc((w.emoji ? w.emoji + ' ' : '') + w.name)}</span><small>${esc([wann, quelle].filter(Boolean).join(' · '))}</small>${st.text ? `<small class="status ${st.art}">${esc(st.text)}</small>` : ''}</span><span class="b"><span class="minus-zahl">− ${esc(R.preisText(w))}</span></span>${PFEIL}</button>`;
   }).join('');
   return `<section class="karte geplant-karte">
-    <div class="geplant-kopf"><span class="t"><b>Geplant</b><small>potenzielle Ausgaben, noch nicht fest</small></span>${liste.length ? `<span class="kat-summe">${R.euroRund(liste.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : ''}</div>
+    <div class="geplant-kopf"><span class="t"><b>Geplant</b><small>potenzielle Ausgaben, noch nicht fest</small></span>${liste.length ? `<span class="kat-summe">${rausZ(liste.reduce((a, w) => a + R.preisBis(w), 0), true)}</span>` : ''}</div>
     ${zeilen}
     <button class="knopf akzent" data-a="wunsch-neu" data-monat="${s}">${ICON.plus} Potenzielle Ausgabe planen</button>
   </section>`;
@@ -698,7 +701,7 @@ function rueckzahlungenHtml() {
   const summe = l.reduce((a, b) => a + (b.gesamt - b.betrag), 0);
   return `<section class="karte geplant-karte einnahmen-karte">
     <div class="geplant-kopf"><span class="t"><b>Bekommst du noch zurück</b><small>aus geteilten Ausgaben · zählt nicht als Einnahme</small></span><span class="kat-summe plus-zahl">+ ${R.euro(Math.round(summe * 100) / 100)}</span></div>
-    ${l.map((b) => { const kat = R.kategorie(z.daten, b.kategorieId); return `<div class="posten rueck-zeile"><span class="t"><span class="n">${esc(b.teiltMit || 'Jemand')} · ${R.euro(Math.round((b.gesamt - b.betrag) * 100) / 100)}</span><small>${esc((b.ort || (kat ? kat.name : '')) + ' · ' + Number(b.zeit.slice(8, 10)) + '.' + Number(b.zeit.slice(5, 7)) + '. · gesamt ' + R.euro(b.gesamt))}</small></span><button class="knopf klein akzent" data-a="rueck-erhalten" data-id="${esc(b.id)}">✓ Bekommen</button></div>`; }).join('')}
+    ${l.map((b) => { const kat = R.kategorie(z.daten, b.kategorieId); return `<div class="posten rueck-zeile"><span class="t"><span class="n">${esc(b.teiltMit || 'Jemand')} · ${reinZ(Math.round((b.gesamt - b.betrag) * 100) / 100)}</span><small>${esc((b.ort || (kat ? kat.name : '')) + ' · ' + Number(b.zeit.slice(8, 10)) + '.' + Number(b.zeit.slice(5, 7)) + '. · gesamt ' + R.euro(b.gesamt))}</small></span><button class="knopf klein akzent" data-a="rueck-erhalten" data-id="${esc(b.id)}">✓ Bekommen</button></div>`; }).join('')}
   </section>`;
 }
 function weitereEinnahmenHtml(s) {
@@ -919,7 +922,7 @@ function uebertragListe(kontoId) {
   if (!l.length) return '';
   return `<div class="label">Einmalige Überträge</div><div class="ue-liste">${l.map((u) => {
     const t = R.ymTeile(R.ymAus(u.datum));
-    return `<div class="ue-zeile"><span>${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[t.monat - 1]} ${t.jahr}</span><span class="r">${R.euro(u.betrag)}</span><button class="knopf klein rund leise" style="width:36px" data-a="ue-weg" data-wert="${esc(u.id)}" aria-label="Übertrag löschen">${ICON.x}</button></div>`;
+    return `<div class="ue-zeile"><span>${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[t.monat - 1]} ${t.jahr}</span><span class="r">${rausZ(u.betrag)}</span><button class="knopf klein rund leise" style="width:36px" data-a="ue-weg" data-wert="${esc(u.id)}" aria-label="Übertrag löschen">${ICON.x}</button></div>`;
   }).join('')}</div>`;
 }
 const KONTO_NAMEN = { sparen: ['Tagesgeld', 'Notgroschen', 'Urlaub', 'ETF-Sparplan', 'Bausparvertrag'], extern: ['Gemeinschaftskonto', 'Haushaltskonto'] };
@@ -1035,7 +1038,7 @@ const EBENEN = {
     let zus = '';
     if (!isNaN(betrag) && betrag > 0) {
       const eigen = R.eigenerBetrag(Object.assign({}, f, { betrag, meinAnteil: fkAnteil(f) || 100 }));
-      zus = monatlich ? `Wird jeden Monat am ${f.tag}. abgebucht: ${R.euro(eigen)}.`
+      zus = monatlich ? `Wird jeden Monat am ${f.tag}. abgebucht: ${rausSatz(eigen)}.`
         : `Wird am ${f.tag}. abgebucht: ${aktiv.map((m) => f.wieOft === 'jaehrlich' ? R.MONATE_LANG[m - 1] : R.MONATE_KURZ[m - 1]).join(', ')}. ${R.ruecklage(z.daten) ? 'Bezahlt aus dem Rücklagenkonto' : 'Zählt im Monat der Abbuchung voll'}, auf den Monat gerechnet ≈ ${R.euro(Math.round(R.monatsAnteil(Object.assign({}, f, { betrag, meinAnteil: fkAnteil(f) || 100 })) * 100) / 100)}.`;
     } else zus = 'Trage einen Betrag ein.';
     const mehr = eb.mehr ? `<section class="karte">
@@ -1106,7 +1109,7 @@ const EBENEN = {
         <div class="feld"><label for="bu-emoji">Emoji (optional, erscheint auch im Widget)</label><input id="bu-emoji" class="eingabe emoji-feld" data-feld="emoji" value="${esc(b.emoji || '')}" placeholder="🙂" maxlength="8"></div>
         <div class="emoji-wahl">${EMOJIS.map((x) => `<button class="emoji-knopf" data-a="bu-emoji" data-wert="${x}" aria-pressed="${b.emoji === x}" aria-label="Emoji ${x}">${x}</button>`).join('')}</div>
         <div class="feld"><label for="bu-betrag">Budget pro Monat</label><input id="bu-betrag" class="eingabe" inputmode="decimal" data-feld="budgetText" value="${esc(b.budgetText)}" placeholder="0 € = ohne Budget"></div>
-        ${eb.id ? `<div class="klein">Im ${esc(monatsName(heuteYm()))} schon ausgegeben: ${R.euro(ausgegeben)}</div>` : ''}
+        ${eb.id ? `<div class="klein">Im ${esc(monatsName(heuteYm()))} schon ausgegeben: ${rausSatz(ausgegeben)}</div>` : ''}
       </section>
       <section class="karte">
         <div class="label">Knöpfe im Widget (bis zu 3)</div>

@@ -74,9 +74,9 @@ export function anteilHinweis(p, zahl) {
   return `= ${String(pz).replace('.', ',')} % · ${rest > 0 ? `den Rest (${R.euro(rest)}) zahlt ${(p.teiltMit || '').trim() || 'jemand anderes'}` : 'du zahlst alles'}. Gerechnet wird mit deinen ${R.euro(mein)}.`;
 }
 const RHYTHMUS_TEXT = { monatlich: 'monatlich', vierteljaehrlich: 'vierteljährlich', halbjaehrlich: 'halbjährlich', jaehrlich: 'jährlich', einmalig: 'einmalig' };
-function kurzfassung(p, zahl) {
+function kurzfassung(p, zahl, plus = false) {
   const b = zahl(String(p.betragText || ''));
-  const betrag = b > 0 ? R.euro(b) : '<span class="ef-fehlt">Betrag fehlt</span>';
+  const betrag = b > 0 ? (plus ? `<span class="plus-zahl">+ ${R.euro(b)}</span>` : `<span class="minus-zahl">− ${R.euro(b)}</span>`) : '<span class="ef-fehlt">Betrag fehlt</span>';
   const teile = [betrag, RHYTHMUS_TEXT[p.wieOft] || p.wieOft];
   if (p.tag) teile.push('am ' + p.tag + '.');
   if (p.status) teile.push(p.status === 'geplant' ? 'nur geplant' : 'fest');
@@ -84,8 +84,8 @@ function kurzfassung(p, zahl) {
   if (p.geteilt) { const a = anteilAusEuro(b, p.meinText, zahl); zweite = a ? `du zahlst ${R.euro(zahl(p.meinText))} (${String(Math.round(a * 10) / 10).replace('.', ',')} %)` : 'Anteil fehlt'; }
   return { zeile: teile.join(' · '), zweite };
 }
-function zugeklappt(name, p, pfad, zahl, esc, extra = '') {
-  const k = kurzfassung(p, zahl);
+function zugeklappt(name, p, pfad, zahl, esc, extra = '', plus = false) {
+  const k = kurzfassung(p, zahl, plus);
   return `<section class="karte ef-posten ef-zu"><button class="ef-zu-knopf" data-a="ef-zu" data-pfad="${pfad}" data-wert="0" aria-expanded="false" aria-label="${esc(name || 'Eintrag')} aufklappen und bearbeiten">
     <span class="t"><b>${esc(name || 'Ohne Namen')}</b><small>${k.zeile}</small>${k.zweite ? `<small class="ef-zweite">👥 ${esc(k.zweite)}</small>` : ''}${extra}</span><span class="ef-pfeil">▾</span></button></section>`;
 }
@@ -110,7 +110,7 @@ export function einfuehrungHtml(eb, h) {
   } else if (art === 'einnahmen') {
     const jetzt = R.ymAus(R.datumText(new Date()));
     const monate = Array.from({ length: 13 }, (_, i) => R.ymPlus(jetzt, i));
-    const zeilen = eb.einnahmen.map((e, i) => e.zu ? zugeklappt(e.name, e, `einnahmen.${i}`, h.zahl, esc) : `<section class="karte ef-posten">
+    const zeilen = eb.einnahmen.map((e, i) => e.zu ? zugeklappt(e.name, e, `einnahmen.${i}`, h.zahl, esc, '', true) : `<section class="karte ef-posten">
         <div class="ef-zeile"><input class="eingabe" data-feld="einnahmen.${i}.name" value="${esc(e.name)}" placeholder="Name" aria-label="Name">
           <input class="eingabe ef-betrag" inputmode="decimal" data-feld="einnahmen.${i}.betragText" value="${esc(e.betragText)}" placeholder="Betrag €" aria-label="Betrag">
           <button class="knopf rund leise klein-x" data-a="ef-ein-weg" data-i="${i}" aria-label="Entfernen">${ICON.x}</button></div>
@@ -184,7 +184,7 @@ export function einfuehrungHtml(eb, h) {
     if (eb.ruecklage.ja && !eb.ruecklage.betrag && empf) eb.ruecklage.betrag = String(empf);
     const jahr = jaehrliche.reduce((a, f) => a + R.monatsAnteil(f) * 12, 0);
     inhalt = `<h2 class="ef-titel">📆 Jährliche Kosten</h2>
-      ${jaehrliche.length ? `<p class="hinweistext">Du hast ${jaehrliche.length} Kosten, die nicht jeden Monat abgebucht werden (${esc(jaehrliche.slice(0, 4).map((f) => f.name).join(', '))}${jaehrliche.length > 4 ? ' …' : ''}). Zusammen ≈ ${R.euroRund(jahr)} im Jahr, also ≈ ${R.euroRund(jahr / 12)} pro Monat.</p>`
+      ${jaehrliche.length ? `<p class="hinweistext">Du hast ${jaehrliche.length} Kosten, die nicht jeden Monat abgebucht werden (${esc(jaehrliche.slice(0, 4).map((f) => f.name).join(', '))}${jaehrliche.length > 4 ? ' …' : ''}). Zusammen ≈ <span class="minus-zahl">${R.euroRund(jahr)}</span> im Jahr, also ≈ <span class="minus-zahl">${R.euroRund(jahr / 12)}</span> pro Monat.</p>`
         : '<p class="hinweistext">Du hast keine jährlichen oder vierteljährlichen Kosten eingetragen. Diesen Schritt kannst du überspringen.</p>'}
       <section class="karte">
         <b style="font-size:var(--t-titel-karte)">Hast du ein eigenes Konto für Rücklagen?</b>
@@ -195,7 +195,7 @@ export function einfuehrungHtml(eb, h) {
       ${eb.ruecklage.ja ? `<section class="karte">
         <div class="zwei"><div class="feld"><label for="ef-rb">Dauerauftrag pro Monat</label><input id="ef-rb" class="eingabe" inputmode="decimal" data-feld="ruecklage.betrag" value="${esc(eb.ruecklage.betrag)}"></div>
         <div class="feld"><label for="ef-rt">Am Tag</label>${tagAuswahl('ef-rt', 'ruecklage.tag', Number(eb.ruecklage.tag))}</div></div>
-        ${empf ? `<p class="hinweistext">Empfohlen: ${R.euroRund(empf)} pro Monat.</p>` : ''}
+        ${empf ? `<p class="hinweistext">Empfohlen: <span class="minus-zahl">${R.euroRund(empf)}</span> pro Monat.</p>` : ''}
         <div class="feld"><label for="ef-rs">Was liegt heute schon darauf?</label><input id="ef-rs" class="eingabe" inputmode="decimal" data-feld="ruecklage.stand" value="${esc(eb.ruecklage.stand)}" placeholder="0 €"></div>
       </section>` : ''}`;
   } else if (art === 'sparen') {
@@ -225,7 +225,7 @@ export function einfuehrungHtml(eb, h) {
     const anzahl = probe.fixkosten.length;
     inhalt = `<h2 class="ef-titel">Fertig eingerichtet</h2>
       <section class="karte ring"><div class="label">Frei im ${esc(h.monatsName(h.heuteYm()))}</div><div class="grosszahl ${r.frei < 0 ? 'minus' : ''}">${r.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei))}</div>
-        <p class="hinweistext">${anzahl} Fixkosten, ${probe.kategorien.filter((k) => k.art === 'budget' && k.budget > 0).length} Budgets${r.mitRuecklage ? ', ' + R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto' : ''}${r.sparen ? ', ' + R.euroRund(r.sparen) + ' aufs Sparkonto' : ''}. Alles lässt sich in der Monatsansicht antippen und ändern.</p></section>
+        <p class="hinweistext">${anzahl} Fixkosten, ${probe.kategorien.filter((k) => k.art === 'budget' && k.budget > 0).length} Budgets${r.mitRuecklage ? ', <span class="minus-zahl">' + R.euroRund(r.zuruecklegen) + '</span> aufs Rücklagenkonto' : ''}${r.sparen ? ', <span class="minus-zahl">' + R.euroRund(r.sparen) + '</span> aufs Sparkonto' : ''}. Alles lässt sich in der Monatsansicht antippen und ändern.</p></section>
       <section class="karte"><div class="label">Widgets auf den Homescreen legen</div>
         <ol class="hinweistext" style="margin:0;padding-left:20px;line-height:1.6"><li>Lange auf eine freie Stelle des Homescreens drücken</li><li>„Widgets“ antippen und „Finanzen“ suchen</li><li>„Budget“ auf den Homescreen ziehen und eine Kategorie wählen</li><li>Für jede Kategorie ein eigenes Widget, dazu gern „Fixkosten“</li></ol></section>`;
   }
