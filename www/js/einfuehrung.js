@@ -37,6 +37,9 @@ export function neueEinfuehrung(daten, erstStart) {
       gewaehlt: false, vorhanden: vorhanden(l.id, x.name), betragText: '', monat: x.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, anteilText: '100'
     }))])),
     einnahmen: [],
+    // Vorschläge, die der Nutzer nicht hat („✕“), und Kategorien, die weg sollen
+    ausgeblendet: [...((daten.einstellungen && daten.einstellungen.ausgeblendet) || [])],
+    kategorieWeg: {},
     ruecklage: { ja: rk ? true : null, betrag: rk ? String(rk.betrag) : '', tag: String(rk ? rk.tag || 1 : 1), stand: rk ? String(Math.round(R.ruecklageStand(daten, R.datumText(new Date())))) : '' },
     sparen: { ja: sp ? true : null, betrag: sp ? String(sp.betrag) : '', tag: String(sp ? sp.tag || 1 : 1), stand: sp ? String(R.sparStand(sp, R.datumText(new Date()))) : '' },
     budgets: daten.kategorien.filter((k) => k.art === 'budget').map((k) => ({
@@ -46,6 +49,14 @@ export function neueEinfuehrung(daten, erstStart) {
 }
 
 // ---------- Darstellung ----------
+// Vorschlags-Chip mit kleinem ✕ („habe ich nicht“): blendet den Vorschlag aus
+function vorschlag(knopf, schluessel, name, esc) {
+  return `<span class="chip-paar">${knopf}<button class="chip-x" data-a="ef-ausblenden" data-wert="${esc(schluessel)}" aria-label="${esc(name)}: habe ich nicht, ausblenden">✕</button></span>`;
+}
+function ausgeblendetLink(eb, praefix, esc) {
+  const n = (eb.ausgeblendet || []).filter((k) => k.startsWith(praefix)).length;
+  return n ? `<button class="knopf klein leise ef-einblenden" data-a="ef-einblenden" data-wert="${esc(praefix)}">${n} ausgeblendet · wieder zeigen</button>` : '';
+}
 export function einfuehrungHtml(eb, h) {
   const { esc, ICON } = h;
   const art = SCHRITTE[eb.schritt];
@@ -75,14 +86,29 @@ export function einfuehrungHtml(eb, h) {
       </section>`).join('');
     inhalt = `<h2 class="ef-titel">➕ Weitere Einnahmen</h2>
       <p class="hinweistext">Kommt neben dem Gehalt noch etwas rein? „Fest“ zählt zu „Frei“, „nur geplant“ erst, wenn es da ist. Nichts davon? Einfach „Weiter“.</p>
-      <div class="chips">${EINNAHMEN.map((n) => `<button class="chip ef-chip" data-a="ef-ein-dazu" data-wert="${esc(n)}">${ICON.plus} ${esc(n)}</button>`).join('')}<button class="chip ef-chip eigen" data-a="ef-ein-dazu" data-wert="">${ICON.plus} Eigene</button></div>
+      <div class="chips">${EINNAHMEN.filter((n) => !(eb.ausgeblendet || []).includes('ein:' + n)).map((n) => {
+        const da = eb.einnahmen.some((e) => e.name === n);
+        const knopf = `<button class="chip ef-chip" data-a="ef-ein-dazu" data-wert="${esc(n)}" aria-pressed="${da}">${da ? '✓' : ICON.plus} ${esc(n)}</button>`;
+        return da ? knopf : vorschlag(knopf, 'ein:' + n, n, esc);
+      }).join('')}<button class="chip ef-chip eigen" data-a="ef-ein-dazu" data-wert="">${ICON.plus} Eigene</button></div>
+      <p class="hinweistext ef-tipp">Antippen = hinzufügen, nochmal antippen = weg. ✕ = habe ich nicht, ausblenden.</p>${ausgeblendetLink(eb, 'ein:', esc)}
       ${zeilen}`;
   } else if (art.startsWith('liste:')) {
     const l = LISTEN.find((x) => 'liste:' + x.id === art);
     const posten = eb.listen[l.id];
-    const chips = posten.map((p, i) => p.eigen ? '' : p.vorhanden
-      ? `<span class="chip ef-chip da" aria-disabled="true">✓ ${esc(p.name)} <small>schon da</small></span>`
-      : `<button class="chip ef-chip" data-a="ef-waehlen" data-liste="${l.id}" data-i="${i}" aria-pressed="${p.gewaehlt}">${p.gewaehlt ? '✓ ' : ''}${esc(p.name)}</button>`).join('');
+    const weg = (eb.ausgeblendet || []);
+    const chips = posten.map((p, i) => {
+      if (p.eigen) return '';
+      if (p.vorhanden) return `<span class="chip ef-chip da" aria-disabled="true">✓ ${esc(p.name)} <small>schon da</small></span>`;
+      const key = 'liste:' + l.id + ':' + p.name;
+      if (!p.gewaehlt && weg.includes(key)) return '';
+      const knopf = `<button class="chip ef-chip" data-a="ef-waehlen" data-liste="${l.id}" data-i="${i}" aria-pressed="${p.gewaehlt}">${p.gewaehlt ? '✓ ' : ''}${esc(p.name)}</button>`;
+      return p.gewaehlt ? knopf : vorschlag(knopf, key, p.name, esc);
+    }).join('');
+    const katHatKosten = (h.z.daten.fixkosten || []).some((f) => f.kategorieId === l.id);
+    const wegKarte = eb.kategorieWeg && eb.kategorieWeg[l.id] ? `<h2 class="ef-titel">${esc(l.emoji)} ${esc(l.titel)}</h2>
+        <section class="karte ef-weg-karte"><b>Kategorie „${esc(l.titel)}“ wird entfernt.</b><p class="hinweistext">Sie erscheint nicht in der Übersicht. Später kannst du sie jederzeit wieder anlegen.</p>
+        <button class="knopf" data-a="ef-kat-weg" data-liste="${l.id}" data-wert="0">Rückgängig, ich brauche sie doch</button></section>` : '';
     const gewaehlt = posten.map((p, i) => ({ p, i })).filter((x) => x.p.gewaehlt);
     const karten = gewaehlt.map(({ p, i }) => {
       const pf = `listen.${l.id}.${i}`;
@@ -98,10 +124,12 @@ export function einfuehrungHtml(eb, h) {
         ${p.anteil ? `<div class="feld"><label for="ef-a-${l.id}-${i}">Wie viel davon zahlst du? (%)</label><input id="ef-a-${l.id}-${i}" class="eingabe" inputmode="numeric" data-feld="${pf}.anteilText" value="${esc(p.anteilText)}"></div>` : ''}
       </section>`;
     }).join('');
-    inhalt = `<h2 class="ef-titel">${esc(l.emoji)} ${esc(l.titel)}</h2>
+    inhalt = wegKarte || `<h2 class="ef-titel">${esc(l.emoji)} ${esc(l.titel)}</h2>
       <p class="hinweistext">${esc(l.frage)} Antippen zum Auswählen. Nichts davon? Einfach „Weiter“.</p>
       <div class="chips">${chips}<button class="chip ef-chip eigen" data-a="ef-eigen" data-liste="${l.id}">${ICON.plus} Eigene hinzufügen</button></div>
-      ${karten}`;
+      <p class="hinweistext ef-tipp">✕ = habe ich nicht, ausblenden.</p>${ausgeblendetLink(eb, 'liste:' + l.id + ':', esc)}
+      ${karten}
+      ${katHatKosten || gewaehlt.length ? '' : `<button class="knopf leise ef-kat-weg" data-a="ef-kat-weg" data-liste="${l.id}" data-wert="1">🚫 Brauche ich nicht – Kategorie „${esc(l.titel)}“ entfernen</button>`}`;
   } else if (art === 'ruecklage') {
     const probe = h.kopie(h.z.daten);
     anwenden(probe, Object.assign({}, eb, { ruecklage: { ja: false } }), h.zahl);
@@ -134,14 +162,14 @@ export function einfuehrungHtml(eb, h) {
         <div class="feld"><label for="ef-ss">Was liegt heute schon auf dem Sparkonto?</label><input id="ef-ss" class="eingabe" inputmode="decimal" data-feld="sparen.stand" value="${esc(eb.sparen.stand)}" placeholder="0 €"></div>
       </section>` : ''}`;
   } else if (art === 'budgets') {
-    const zeilen = eb.budgets.map((b, i) => `<div class="ef-budget ${b.an ? '' : 'aus'}">
-        <button class="schalter" role="switch" aria-checked="${b.an}" data-a="ef-budget-an" data-i="${i}" aria-label="${esc(b.name || 'Budget')} verwenden" style="width:auto"><span class="spur"></span></button>
+    const zeilen = eb.budgets.map((b, i) => !b.an ? `<div class="ef-budget aus"><span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + (b.name || 'Budget'))}</span><small class="ef-weg-text">wird entfernt</small><button class="knopf klein leise" data-a="ef-budget-an" data-i="${i}">Rückgängig</button></div>` : `<div class="ef-budget">
         ${b.neu ? `<input class="eingabe emoji-feld klein-emoji" data-feld="budgets.${i}.emoji" value="${esc(b.emoji)}" placeholder="🙂" aria-label="Emoji" maxlength="8"><input class="eingabe" data-feld="budgets.${i}.name" value="${esc(b.name)}" placeholder="Name" aria-label="Name">`
           : `<span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + b.name)}</span>`}
-        <input class="eingabe ef-betrag" inputmode="decimal" data-feld="budgets.${i}.text" value="${esc(b.text)}" aria-label="Budget ${esc(b.name)} pro Monat" ${b.an ? '' : 'disabled'}>
+        <input class="eingabe ef-betrag" inputmode="decimal" data-feld="budgets.${i}.text" value="${esc(b.text)}" aria-label="Budget ${esc(b.name)} pro Monat">
+        <button class="knopf rund leise klein-x" data-a="ef-budget-an" data-i="${i}" aria-label="${esc(b.name || 'Budget')}: brauche ich nicht, entfernen">✕</button>
       </div>`).join('');
     inhalt = `<h2 class="ef-titel">🛒 Budgets für den Alltag</h2>
-      <p class="hinweistext">Wie viel willst du pro Monat ungefähr ausgeben? Gebucht wird später mit den Widgets auf dem Homescreen. 0 € = ohne festes Budget.</p>
+      <p class="hinweistext">Wie viel willst du pro Monat ungefähr ausgeben? Gebucht wird später mit den Widgets auf dem Homescreen. 0 € = ohne festes Budget. ✕ = Kategorie brauche ich nicht.</p>
       <section class="karte">${zeilen}</section>
       <button class="knopf akzent" data-a="ef-budget-neu">${ICON.plus} Eigenes Budget</button>`;
   } else {
@@ -226,6 +254,11 @@ export function anwenden(d, eb, zahlFn) {
         meinAnteil: p.anteil ? zahl(p.anteilText) || 100 : 100, endetAm: null, kuendigungsfrist: null });
     }
   }
+  // Kategorien, die der Nutzer nicht braucht (nur wenn keine Fixkosten darin stehen)
+  for (const [id, weg] of Object.entries(eb.kategorieWeg || {})) {
+    if (weg && !d.fixkosten.some((f) => f.kategorieId === id)) d.kategorien = d.kategorien.filter((k) => k.id !== id);
+  }
+  if (eb.ausgeblendet) d.einstellungen.ausgeblendet = [...new Set(eb.ausgeblendet)];
   for (const e of eb.einnahmen || []) {
     if (!String(e.name).trim() || !(zahl(e.betragText) > 0)) continue;
     d.einnahmen.push({ id: D.neueId('ein'), name: String(e.name).trim(), wieOft: e.wieOft, betrag: zahl(e.betragText), sicher: true, status: e.status, kommtAn: 'sofort',
