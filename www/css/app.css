@@ -274,3 +274,12 @@ select.eingabe option { background: #1d2327; color: #eef2f0; }
 .posten small.status.hinweis { color: var(--hinweis); }
 .posten small.status.warn { color: var(--fehler); }
 .jahr-zeile .extra.geplant { color: var(--spar); }
+
+/* Weitere Einnahmen */
+.einnahme-knopf { justify-content: flex-start; color: var(--akzent); }
+.einnahmen-karte { border-color: rgba(127, 214, 200, .30); }
+.plus { color: var(--akzent); }
+.posten.grau .b.plus { color: var(--grau); }
+.frei-zeile span small { display: block; font-size: 12px; color: var(--gedaempft); margin-top: 2px; }
+.frei-hinweis.neutral { color: var(--gedaempft); }
+.jahr-zeile .extra.rein { color: var(--akzent); }
