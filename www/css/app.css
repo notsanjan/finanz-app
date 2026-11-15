@@ -388,6 +388,16 @@ body.kachel-zieht { overflow: hidden; }
 .steuer-knopf.weg svg { stroke: var(--minus); }
 .wackeln { animation: wackeln .28s ease-in-out infinite alternate; }
 .wackeln:nth-child(2n) { animation-delay: .14s; }
+/* Größe ändern wie auf dem Android-Homescreen: Rahmen mit Punkten */
+.kachel-platz.gewaehlt::after { content: ''; position: absolute; inset: -5px; border: 2px solid var(--akzent); border-radius: 22px; pointer-events: none; }
+.griff { position: absolute; width: 44px; height: 44px; z-index: 3; touch-action: none; display: flex; align-items: center; justify-content: center; }
+.griff::after { content: ''; width: 16px; height: 16px; border-radius: 50%; background: var(--akzent); border: 3px solid var(--bg); box-shadow: 0 1px 6px rgba(0, 0, 0, .5); }
+.griff[data-seite="l"] { left: -27px; top: 50%; transform: translateY(-50%); }
+.griff[data-seite="r"] { right: -27px; top: 50%; transform: translateY(-50%); }
+.griff[data-seite="o"] { top: -27px; left: 50%; transform: translateX(-50%); }
+.griff[data-seite="u"] { bottom: -27px; left: 50%; transform: translateX(-50%); }
+.groesse-rahmen { position: fixed; z-index: 30; border: 2px dashed var(--akzent); border-radius: 20px; background: rgba(127, 214, 200, .06); pointer-events: none; }
+.groesse-rahmen.schnapp { border-style: solid; background: rgba(127, 214, 200, .16); }
 @keyframes wackeln { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
 .fab { position: fixed; right: 18px; bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); z-index: 15; width: 60px; height: 60px; border-radius: 30px; border: 0; background: var(--haupt); box-shadow: 0 8px 22px rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; }
 .fab:active { transform: scale(.95); }

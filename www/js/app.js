@@ -4,11 +4,10 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v7';
+export const APP_VERSION = 'finanz-v8';
 const NEU_IN_VERSION = [
-  'Neuer ＋-Knopf unten rechts: Ausgabe, Einnahme oder Abo sofort eintragen',
-  'Auf den Unterseiten weiß der ＋-Knopf, wo du bist: auf der Abo-Seite legt er gleich ein Abo an',
-  'Übersicht bearbeiten über den Stift ✎: Kacheln wackeln, ✕ entfernt, ⇔ macht sie breit oder schmal, verschieben wie gewohnt'
+  'Größe ändern wie auf dem Homescreen: im Bearbeiten-Modus (Stift ✎) eine Kachel antippen, dann an den Punkten ziehen. Links/rechts = breit oder schmal, oben/unten = auf- oder zuklappen',
+  'Neuer ＋-Knopf unten rechts: Ausgabe, Einnahme oder Abo sofort eintragen. Auf der Abo-Seite legt er gleich ein Abo an'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -206,6 +205,7 @@ function kachelArt(id) {
   if (id.startsWith('budget:')) { const k = R.kategorie(z.daten, id.slice(7)); return k ? { titel: (k.emoji ? k.emoji + ' ' : '') + k.name, beschreibung: 'Budget mit Balken' } : null; }
   return KACHEL_KATALOG[id] || null;
 }
+const AUFKLAPPBAR = new Set(['ausgaben', 'geplant', 'abos', 'naechste']);
 const KACHEL_KATALOG = {
   ausgaben: { titel: 'Ausgaben', beschreibung: 'Summe des Monats, aufklappbar: zuletzt gebucht' },
   konten: { titel: 'Konten', beschreibung: 'Rücklagenkonto und Sparkonto' },
@@ -296,15 +296,17 @@ function monatAnsicht() {
   const kacheln = kachelListe().map((k) => {
     const html = k.id.startsWith('budget:') ? budgetKachel(k) : bauer[k.id](k);
     const breit = k.breit || k.offen || (KACHEL_KATALOG[k.id] && KACHEL_KATALOG[k.id].breit && k.breit !== false);
-    const steuer = bearbeiten ? `<span class="kachel-steuer"><button class="steuer-knopf" data-a="kachel-groesse" data-wert="${esc(k.id)}" aria-label="Breite ändern">${breit ? '⇤⇥' : '⇔'}</button><button class="steuer-knopf weg" data-a="kachel-x" data-wert="${esc(k.id)}" aria-label="Kachel entfernen">${ICON.x}</button></span>` : '';
-    return `<div class="kachel-platz ${breit ? 'breit' : ''} ${bearbeiten ? 'wackeln' : ''}" data-kachel="${esc(k.id)}">${html}${steuer}</div>`;
+    const gewaehlt = bearbeiten && z.gewaehlt === k.id;
+    const steuer = bearbeiten ? `<span class="kachel-steuer"><button class="steuer-knopf weg" data-a="kachel-x" data-wert="${esc(k.id)}" aria-label="Kachel entfernen">${ICON.x}</button></span>` : '';
+    const griffe = gewaehlt ? `<span class="griff" data-seite="l" aria-hidden="true"></span><span class="griff" data-seite="r" aria-hidden="true"></span>${AUFKLAPPBAR.has(k.id) ? '<span class="griff" data-seite="o" aria-hidden="true"></span><span class="griff" data-seite="u" aria-hidden="true"></span>' : ''}` : '';
+    return `<div class="kachel-platz ${breit ? 'breit' : ''} ${bearbeiten && !gewaehlt ? 'wackeln' : ''} ${gewaehlt ? 'gewaehlt' : ''}" data-kachel="${esc(k.id)}">${html}${steuer}${griffe}</div>`;
   }).join('');
   const leiste = `<div class="kachel-leiste"><span class="label">Übersicht</span>${bearbeiten
     ? '<button class="knopf klein haupt" data-a="bearbeiten-aus">Fertig</button>'
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   return t.nav + t.freiKarte + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
-    ${bearbeiten ? '<p class="kachel-tipp">Ziehen zum Verschieben · ✕ entfernt · ⇔ ändert die Breite</p>' : ''}
+    ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>
     <div class="fab-platz"></div>`;
 }
@@ -899,10 +901,9 @@ const AKTION = {
   'abo-neu': () => { AKTION['fixkosten-neu']({ dataset: { kat: R.kategorie(z.daten, 'abos') ? 'abos' : '' } }); const e = oben().entwurf; e.abo = true; oben().mehr = true; renderEbenen(); },
   'kachel-auf': async (el) => { const l = kachelListe().map((k) => Object.assign({}, k)); const k = l.find((x) => x.id === el.dataset.wert); if (k) k.offen = !k.offen; await aendern((d) => { d.einstellungen.kacheln = l; }); },
   'kachel-katalog': () => oeffne({ art: 'katalog' }),
-  'bearbeiten-an': () => { z.bearbeiten = true; haptik('leicht'); render(); },
-  'bearbeiten-aus': () => { z.bearbeiten = false; render(); },
+  'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('leicht'); render(); },
+  'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; render(); },
   'kachel-x': async (el) => { haptik('mittel'); await kachelEntfernen(el.dataset.wert); },
-  'kachel-groesse': async (el) => { const id = el.dataset.wert; await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: !(k.breit || k.offen), offen: false }) : k)); }); },
   eintragen: (el) => {
     const b = budgetKats();
     oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: (b[0] || {}).id || '', ort: '', datum: heute(), name: '' } });
@@ -1294,11 +1295,66 @@ function haptik(art) {
     if (navigator.vibrate) navigator.vibrate(art === 'stark' ? 30 : art === 'wechsel' ? 8 : 15);
   } catch (e) { /* ohne Vibration weiter */ }
 }
+async function kachelGroesse(id, aenderung) {
+  const l = kachelListe().map((k) => Object.assign({}, k));
+  const k = l.find((x) => x.id === id);
+  if (!k) return;
+  Object.assign(k, aenderung);
+  if (!AUFKLAPPBAR.has(id)) k.offen = false;
+  await aendern((d) => { d.einstellungen.kacheln = l; });
+}
 function bindeKachelZiehen() {
   let zug = null; // { platz, id, startX, startY, timer, aktiv, bewegt, klon, dx, dy }
+  let gzug = null; // Größe ändern an den Punkten: { platz, id, seite, r, c, rahmen, breit, offen, zielBreit, zielOffen }
   let klickSperre = false;
   const punkt = (e) => (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  const griffStart = (griff) => {
+    const platz = griff.closest('.kachel-platz');
+    const r = platz.getBoundingClientRect();
+    const c = document.getElementById('kacheln').getBoundingClientRect();
+    const k = kachelListe().find((x) => x.id === platz.dataset.kachel) || {};
+    const rahmen = document.createElement('div');
+    rahmen.className = 'groesse-rahmen';
+    Object.assign(rahmen.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+    document.body.appendChild(rahmen);
+    const breit = platz.classList.contains('breit');
+    gzug = { platz, id: platz.dataset.kachel, seite: griff.dataset.seite, r, c, rahmen, breit, offen: !!k.offen, zielBreit: breit, zielOffen: !!k.offen };
+    document.body.classList.add('kachel-zieht');
+    haptik('leicht');
+  };
+  const griffBewegen = (p) => {
+    const g = gzug, r = g.r, c = g.c;
+    let left = r.left, top = r.top, w = r.width, h = r.height;
+    if (g.seite === 'r') w = Math.min(Math.max(p.clientX - r.left, 80), c.right - r.left);
+    if (g.seite === 'l') { left = Math.max(Math.min(p.clientX, r.right - 80), c.left); w = r.right - left; }
+    if (g.seite === 'u') h = Math.max(p.clientY - r.top, 60);
+    if (g.seite === 'o') { top = Math.min(p.clientY, r.bottom - 60); h = r.bottom - top; }
+    Object.assign(g.rahmen.style, { left: left + 'px', top: top + 'px', width: w + 'px', height: h + 'px' });
+    let zielBreit = g.zielBreit, zielOffen = g.zielOffen;
+    if (g.seite === 'l' || g.seite === 'r') zielBreit = w > c.width * 0.74;
+    else zielOffen = g.offen ? h > r.height - 50 : h > r.height + 50;
+    if (zielBreit !== g.zielBreit || zielOffen !== g.zielOffen) haptik('wechsel');
+    g.zielBreit = zielBreit; g.zielOffen = zielOffen;
+    g.rahmen.classList.toggle('schnapp', zielBreit !== g.breit || zielOffen !== g.offen);
+  };
+  const griffEnde = async () => {
+    const g = gzug; gzug = null;
+    g.rahmen.remove();
+    document.body.classList.remove('kachel-zieht');
+    klickSperre = true; setTimeout(() => { klickSperre = false; }, 400);
+    if (g.seite === 'l' || g.seite === 'r') {
+      if (g.zielBreit === g.breit) return;
+      haptik('mittel');
+      await kachelGroesse(g.id, g.zielBreit ? { breit: true } : { breit: false, offen: false });
+    } else {
+      if (g.zielOffen === g.offen) return;
+      haptik('mittel');
+      await kachelGroesse(g.id, { offen: g.zielOffen });
+    }
+  };
   const start = (e) => {
+    const griff = e.target.closest('.griff');
+    if (griff && z.bearbeiten && !z.ebenen.length) { griffStart(griff); return; }
     const platz = e.target.closest('.kachel-platz');
     if (!platz || z.ebenen.length || e.target.closest('[data-a="kachel-auf"]') || e.target.closest('.kachel-steuer')) return;
     const p = punkt(e);
@@ -1324,6 +1380,7 @@ function bindeKachelZiehen() {
     ziel.classList.add('sichtbar');
   };
   const bewegen = (e) => {
+    if (gzug) { if (e.cancelable) e.preventDefault(); griffBewegen(punkt(e)); return; }
     if (!zug) return;
     const p = punkt(e);
     if (!zug.aktiv) {
@@ -1349,10 +1406,14 @@ function bindeKachelZiehen() {
     }
   };
   const ende = async (e) => {
+    if (gzug) { await griffEnde(); return; }
     if (!zug) return;
     clearTimeout(zug.timer);
     const z2 = zug; zug = null;
-    if (!z2.aktiv) return;
+    if (!z2.aktiv) {
+      if (z.bearbeiten && !(e.target.closest && e.target.closest('.kachel-steuer'))) { z.gewaehlt = z.gewaehlt === z2.id ? null : z2.id; haptik('leicht'); render(); }
+      return;
+    }
     klickSperre = true; setTimeout(() => { klickSperre = false; }, 400);
     const ziel = document.getElementById('entfernen-ziel');
     const entfernen = ziel && ziel.classList.contains('aktiv');
@@ -1361,7 +1422,7 @@ function bindeKachelZiehen() {
     z2.platz.classList.remove('kachel-luecke');
     document.body.classList.remove('kachel-zieht');
     if (entfernen) { haptik('stark'); await kachelEntfernen(z2.id); return; }
-    if (!z2.bewegt) { haptik('leicht'); if (!z.bearbeiten) { z.bearbeiten = true; render(); } return; }
+    if (!z2.bewegt) { haptik('leicht'); z.bearbeiten = true; z.gewaehlt = z2.id; render(); return; }
     haptik('leicht');
     const reihe = [...document.querySelectorAll('#kacheln .kachel-platz')].map((x) => x.dataset.kachel);
     const alt = kachelListe();
@@ -1436,6 +1497,7 @@ function bindeEreignisse() {
   window.__zurueck = () => {
     if (z.ebenen.length && oben().art === 'einfuehrung' && oben().schritt > 0) { AKTION['ef-zurueck'](); return true; }
     if (z.ebenen.length && oben().art !== 'start') { schliessen(); return true; }
+    if (z.bearbeiten && z.gewaehlt) { z.gewaehlt = null; render(); return true; }
     if (z.bearbeiten) { z.bearbeiten = false; render(); return true; }
     if (z.ansicht !== 'monat' || z.monat !== heuteYm()) { z.ansicht = 'monat'; z.monat = heuteYm(); render(); return true; }
     return false;
