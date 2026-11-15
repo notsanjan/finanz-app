@@ -336,3 +336,45 @@ select.eingabe option { background: #1d2327; color: #eef2f0; }
 .auf-knopf { min-height: 40px; }
 .kachel { min-height: 98px; padding: 12px 14px; gap: 4px; }
 .kachel-wert { font-size: 21px; }
+
+/* Kacheln: frei anordnen (v6) */
+.kacheln { grid-auto-flow: row dense; }
+.kachel-platz { display: flex; min-width: 0; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.kachel-platz > .kachel { flex: 1; min-width: 0; }
+.kachel-platz.breit { grid-column: span 2; }
+.kachel-luecke { opacity: .25; }
+.kachel-klon { position: fixed; z-index: 60; pointer-events: none; transform: scale(1.04); box-shadow: 0 14px 34px rgba(0, 0, 0, .55); border-radius: 20px; transition: transform .12s; }
+body.kachel-zieht { overflow: hidden; }
+#entfernen-ziel { position: fixed; left: 0; right: 0; top: 0; height: 84px; z-index: 55; display: none; align-items: center; justify-content: center; gap: 8px; background: linear-gradient(rgba(20, 24, 27, .96), rgba(20, 24, 27, .7)); color: var(--gedaempft); font-size: 16px; padding-top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px))); }
+#entfernen-ziel.sichtbar { display: flex; }
+#entfernen-ziel.aktiv { color: var(--minus); background: linear-gradient(rgba(90, 30, 28, .96), rgba(90, 30, 28, .7)); }
+#entfernen-ziel.aktiv svg { stroke: var(--minus); }
+.kachel-neu { min-height: 52px; flex-direction: row; align-items: center; justify-content: center; gap: 8px; border-style: dashed; color: var(--akzent); background: transparent; grid-column: span 2; font-size: 15px; }
+.kachel-tipp { font-size: 12px; color: var(--gedaempft); text-align: center; margin: -4px 0 0; }
+.kachel-mini { width: 100%; max-width: none; margin-top: 2px; }
+/* breite, aufklappbare Kachel */
+.breit-kachel { position: relative; display: flex; flex-direction: column; padding: 0; min-height: 0; gap: 0; }
+.breit-kopf { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 56px 12px 14px; border: 0; background: transparent; color: var(--text); text-align: left; width: 100%; }
+.breit-wert { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.breit-wert .kachel-wert small { font-size: 13px; color: var(--gedaempft); }
+.aufklapp { position: absolute; right: 6px; top: 6px; width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .05); display: flex; align-items: center; justify-content: center; }
+.mini-liste { display: flex; flex-direction: column; padding: 0 14px 10px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.mini-zeile { display: flex; justify-content: space-between; gap: 10px; min-height: 40px; align-items: center; border: 0; border-bottom: 1px solid rgba(255, 255, 255, .06); background: transparent; color: var(--text); font-size: 14px; text-align: left; padding: 0; }
+.mini-zeile:last-child { border-bottom: 0; }
+.mini-zeile span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-leer { font-size: 14px; color: var(--gedaempft); padding: 10px 0; }
+.katalog-eintrag { justify-content: space-between; height: auto; min-height: 56px; padding: 8px 16px; text-align: left; }
+.katalog-eintrag span { display: flex; flex-direction: column; gap: 2px; }
+.katalog-eintrag small { font-size: 13px; color: var(--gedaempft); }
+.posten .b small.pro { display: block; font-size: 11px; color: var(--gedaempft); text-align: right; }
+.posten .b { display: flex; flex-direction: column; align-items: flex-end; }
+.kachel-platz { position: relative; }
+.aufklapp.klein-auf { width: 36px; height: 36px; right: 6px; top: 6px; }
+.kachel-platz > .kachel .kachel-kopf { padding-right: 34px; }
+.mini-titel { font-size: 12px; color: var(--gedaempft); letter-spacing: .04em; text-transform: uppercase; padding: 10px 0 2px; }
+.mini-zeile span:first-child { display: flex; flex-direction: column; min-width: 0; }
+.mini-zeile small.status { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-zeile small.status.gut { color: var(--plus); }
+.mini-zeile small.status.warn { color: var(--minus); }
+.mini-zeile small.status.hinweis { color: var(--hinweis); }
+.breit-kachel { align-items: stretch; }

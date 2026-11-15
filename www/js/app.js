@@ -4,11 +4,12 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v5';
+export const APP_VERSION = 'finanz-v6';
 const NEU_IN_VERSION = [
-  'Monat auf einen Blick: Frei-Karte und vier Kacheln (Ausgaben, Konten, Einnahmen, Geplant). Antippen öffnet die Details',
-  'Frei-Karte neu: Einnahmen grün, Abzüge rot, die Zahl „Frei“ nur noch einmal',
-  'Einstellungen und Sicherung unter dem Zahnrad-Knopf'
+  'Übersicht selbst gestalten: Kacheln lang drücken und verschieben, nach oben auf „Entfernen“ ziehen, über „+ Kachel“ neue hinzufügen',
+  'Neue Kacheln: Abos, Nächste Abbuchungen, einzelne Budgets. Ausgaben, Geplante Ausgaben und Abos lassen sich aufklappen',
+  'Abo-Übersicht: alle Abos pro Monat und Jahr, nächste Abbuchung, gekündigte, Kündigungsfrist',
+  '„Geplante Ausgaben“ heißt jetzt so und steht in Rot'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -195,44 +196,161 @@ const KACHEL_ICON = {
   zahnrad: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
 };
 
+// Kacheln der Übersicht: frei anordnen (lang drücken und ziehen), hinzufügen, entfernen, breit/aufklappbar
+const STANDARD_KACHELN = [{ id: 'ausgaben' }, { id: 'konten' }, { id: 'einnahmen' }, { id: 'geplant' }, { id: 'abos', breit: true }];
+function kachelListe() {
+  const l = z.daten.einstellungen.kacheln;
+  return (Array.isArray(l) ? l : STANDARD_KACHELN).filter((k) => kachelArt(k.id));
+}
+function kachelArt(id) {
+  if (id.startsWith('budget:')) { const k = R.kategorie(z.daten, id.slice(7)); return k ? { titel: (k.emoji ? k.emoji + ' ' : '') + k.name, beschreibung: 'Budget mit Balken' } : null; }
+  return KACHEL_KATALOG[id] || null;
+}
+const KACHEL_KATALOG = {
+  ausgaben: { titel: 'Ausgaben', beschreibung: 'Summe des Monats, aufklappbar: zuletzt gebucht' },
+  konten: { titel: 'Konten', beschreibung: 'Rücklagenkonto und Sparkonto' },
+  einnahmen: { titel: 'Einnahmen', beschreibung: 'Gehalt und weitere Einnahmen' },
+  geplant: { titel: 'Geplante Ausgaben', beschreibung: 'Potenzielle Ausgaben mit Warnung, aufklappbar' },
+  abos: { titel: 'Abos', beschreibung: 'Alle Abos, pro Monat und Jahr, aufklappbar', breit: true },
+  naechste: { titel: 'Nächste Abbuchungen', beschreibung: 'Die nächsten Fixkosten, aufklappbar', breit: true }
+};
+
 function monatAnsicht() {
   const t = monatTeile(z.monat);
   const { s, r, pruefung, rk, hatJaehrliche } = t;
-  const kachel = (typ, titel, wert, unter, unterArt = '') => `<button class="kachel" data-a="bereich" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
-      <span class="kachel-kopf">${KACHEL_ICON[typ]}<span>${esc(titel)}</span></span>
+  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
+  const kachel = (typ, titel, wert, unter, unterArt = '', aktion = 'bereich') => `<button class="kachel" data-a="${aktion}" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
+      <span class="kachel-kopf">${KACHEL_ICON[typ] || ''}<span>${esc(titel)}</span></span>
       <span class="kachel-wert">${wert}</span>
       <span class="kachel-unter ${unterArt}">${unter}</span></button>`;
-  // Ausgaben
-  const budgets = (r.gruppen.find((g) => g.art === 'budget') || { posten: [] }).posten;
-  const ueber = budgets.filter((p) => p.budget > 0 && p.ausgegeben > p.budget);
-  const ausgegeben = budgets.reduce((a, p) => a + p.ausgegeben, 0);
-  const kA = kachel('ausgaben', 'Ausgaben', `<span class="minus-zahl">− ${R.euroRund(r.ausgaben)}</span>`,
-    ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${R.euroRund(ausgegeben)} von den Budgets ausgegeben`, ueber.length ? 'warn' : '');
-  // Konten
-  const sp = R.sparratenNormal(z.daten);
-  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
-  const luecke = rk ? R.ruecklageLuecke(z.daten, heute()) : null;
-  const kontoWert = rk || sp.length
-    ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag), 0))}` : ''].filter(Boolean).join('<br>')
-    : '–';
-  const kK = kachel('konten', 'Konten', `<span class="kachel-klein">${kontoWert}</span>`,
-    luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
-  // Einnahmen
-  const rein = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
-  const fest = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? w.betrag : 0); }, 0);
-  const geplantRein = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? 0 : w.betrag); }, 0);
-  const kE = kachel('einnahmen', 'Einnahmen', `<span class="plus-zahl">+ ${R.euroRund((r.gehaltWert ? r.gehaltWert.betrag : 0) + fest)}</span>`,
-    geplantRein ? `+ ${R.euroRund(geplantRein)} geplant` : rein.length ? `davon weitere + ${R.euroRund(fest)}` : 'Gehalt und weitere', geplantRein ? 'plus' : '');
-  // Geplant
-  const ws = s >= heuteYm() ? R.offeneWuensche(z.daten).filter((w) => w.monat === s || (s === heuteYm() && (!w.monat || w.monat < s))) : [];
-  const probleme = ws.filter((w) => pruefung[w.id] && pruefung[w.id].fehlt > 0);
-  const kG = kachel('geplant', 'Geplant', ws.length ? `<span>${R.euroRund(ws.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : '<span>–</span>',
-    probleme.length ? `${probleme.length} reicht nicht` : ws.length ? `${ws.length} ${ws.length === 1 ? 'Sache' : 'Sachen'} · passt` : 'nichts geplant', probleme.length ? 'warn' : ws.length ? 'gut' : '');
-  return t.nav + t.freiKarte + `<div class="kacheln">${kA}${kK}${kE}${kG}</div>
+  const klappKnopf = (k) => `<button class="aufklapp klein-auf" data-a="kachel-auf" data-wert="${esc(k.id)}" aria-expanded="false" aria-label="Aufklappen">${ICON.runter}</button>`;
+  const tagText = (zeit) => { const d = zeit.slice(0, 10); return d === heute() ? 'heute ' + zeit.slice(11, 16) : Number(d.slice(8)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1]; };
+  const bauer = {
+    ausgaben: (k) => {
+      const budgets = (r.gruppen.find((g) => g.art === 'budget') || { posten: [] }).posten;
+      const ueber = budgets.filter((p) => p.budget > 0 && p.ausgegeben > p.budget);
+      const ausgegeben = budgets.reduce((a, p) => a + p.ausgegeben, 0);
+      const unter = ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${R.euroRund(ausgegeben)} von den Budgets ausgegeben`;
+      if (k.offen) {
+        const letzte = R.verlaufMitStand(z.daten).slice(0, 5).map((b) => {
+          const kat = R.kategorie(z.daten, b.kategorieId);
+          return `<button class="mini-zeile" data-a="buchung" data-id="${esc(b.id)}"><span>${esc(tagText(b.zeit))} · ${esc((kat && kat.emoji ? kat.emoji + ' ' : '') + (b.ort || (kat ? kat.name : '')))}</span><span class="minus-zahl">− ${R.euro(b.betrag)}</span></button>`;
+        }).join('');
+        return breiteKachel('ausgaben', 'Ausgaben', `<span class="minus-zahl">− ${R.euroRund(r.ausgaben)}</span>`, unter, k, '<div class="mini-titel">Zuletzt gebucht</div>' + (letzte || '<div class="mini-leer">Noch keine Buchungen.</div>'));
+      }
+      return kachel('ausgaben', 'Ausgaben', `<span class="minus-zahl">− ${R.euroRund(r.ausgaben)}</span>`, unter, ueber.length ? 'warn' : '') + klappKnopf(k);
+    },
+    konten: () => {
+      const sp = R.sparratenNormal(z.daten);
+      const luecke = rk ? R.ruecklageLuecke(z.daten, heute()) : null;
+      const wert = rk || sp.length
+        ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag), 0))}` : ''].filter(Boolean).join('<br>')
+        : '–';
+      return kachel('konten', 'Konten', `<span class="kachel-klein">${wert}</span>`,
+        luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
+    },
+    einnahmen: () => {
+      const rein = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
+      const fest = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? w.betrag : 0); }, 0);
+      const geplantRein = rein.reduce((a, e) => { const w = R.einnahmeIm(e, s); return a + (w.zaehlt ? 0 : w.betrag); }, 0);
+      return kachel('einnahmen', 'Einnahmen', `<span class="plus-zahl">+ ${R.euroRund((r.gehaltWert ? r.gehaltWert.betrag : 0) + fest)}</span>`,
+        geplantRein ? `+ ${R.euroRund(geplantRein)} geplant` : rein.length ? `davon weitere + ${R.euroRund(fest)}` : 'Gehalt und weitere', geplantRein ? 'plus' : '');
+    },
+    geplant: (k) => {
+      const ws = s >= heuteYm() ? R.offeneWuensche(z.daten).filter((w) => w.monat === s || (s === heuteYm() && (!w.monat || w.monat < s))) : [];
+      const probleme = ws.filter((w) => pruefung[w.id] && pruefung[w.id].fehlt > 0);
+      const wert = ws.length ? `<span class="minus-zahl">− ${R.euroRund(ws.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : '<span>–</span>';
+      const unter = probleme.length ? `${probleme.length} reicht nicht` : ws.length ? `${ws.length} ${ws.length === 1 ? 'Sache' : 'Sachen'} · Geld reicht` : 'nichts geplant';
+      if (k.offen) {
+        const zeilen = ws.map((w) => { const st = wunschStatus(w, pruefung[w.id], s); return `<button class="mini-zeile" data-a="wunsch" data-id="${esc(w.id)}"><span>${esc(w.name)}<small class="status ${st.art}">${esc(st.text)}</small></span><span class="minus-zahl">− ${esc(R.preisText(w))}</span></button>`; }).join('');
+        return breiteKachel('geplant', 'Geplante Ausgaben', wert, unter, k, zeilen || '<div class="mini-leer">Nichts geplant.</div>');
+      }
+      return kachel('geplant', 'Geplante Ausgaben', wert, unter, probleme.length ? 'warn' : ws.length ? 'gut' : '') + klappKnopf(k);
+    },
+    abos: (k) => {
+      const abos = aboListe(s).filter((x) => x.laeuft);
+      const monat = abos.reduce((a, x) => a + x.proMonat, 0);
+      const zeilen = abos.slice(0, 8).map((x) => `<button class="mini-zeile" data-a="fixkosten" data-id="${esc(x.f.id)}"><span>${esc(x.f.name)}</span><span class="minus-zahl">− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span></button>`).join('');
+      return breiteKachel('abos', 'Abos', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${abos.length} Abos · ${R.euroRund(monat * 12)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Abos.</div>');
+    },
+    naechste: (k) => {
+      const liste = R.naechsteAbbuchungen(z.daten, heute()).slice(0, 6);
+      const zeilen = liste.map((x) => `<button class="mini-zeile" data-a="fixkosten" data-id="${esc(x.fixkosten.id)}"><span>${esc(Number(x.datum.slice(8)) + '. ' + R.MONATE_KURZ[R.ymTeile(R.ymAus(x.datum)).monat - 1])} · ${esc(x.fixkosten.name)}</span><span class="minus-zahl">− ${R.euro(x.betrag)}</span></button>`).join('');
+      const erste = liste[0];
+      return breiteKachel('naechste', 'Nächste Abbuchungen', erste ? `<span class="kachel-klein">${esc(erste.fixkosten.name)} · ${esc(Number(erste.datum.slice(8)) + '. ' + R.MONATE_KURZ[R.ymTeile(R.ymAus(erste.datum)).monat - 1])}</span>` : '–', erste ? `<span class="minus-zahl">− ${R.euro(erste.betrag)}</span>` : 'keine Fixkosten', k, zeilen || '<div class="mini-leer">Keine.</div>', 'ausgaben');
+    }
+  };
+  const budgetKachel = (k) => {
+    const kat = R.kategorie(z.daten, k.id.slice(7));
+    const aus = R.ausgegebenIm(z.daten, s, kat.id);
+    const b = Number(kat.budget) || 0;
+    const pct = b > 0 ? Math.min(100, aus / b * 100) : 0;
+    const ueber = b > 0 && aus > b;
+    return `<button class="kachel" data-a="budget" data-id="${esc(kat.id)}" aria-label="${esc(kat.name)} bearbeiten">
+      <span class="kachel-kopf"><span>${esc((kat.emoji ? kat.emoji + ' ' : '') + kat.name)}</span></span>
+      <span class="kachel-wert"><span class="minus-zahl">− ${R.euroRund(aus)}</span></span>
+      ${b > 0 ? `<span class="mini kachel-mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}
+      <span class="kachel-unter ${ueber ? 'warn' : ''}">${b > 0 ? (ueber ? `${R.euroRund(aus - b)} über Budget` : `noch ${R.euroRund(b - aus)} von ${R.euroRund(b)}`) : 'ohne Budget'}</span></button>`;
+  };
+  const kacheln = kachelListe().map((k) => {
+    const html = k.id.startsWith('budget:') ? budgetKachel(k) : bauer[k.id](k);
+    const breit = k.breit || k.offen || (KACHEL_KATALOG[k.id] && KACHEL_KATALOG[k.id].breit && k.breit !== false);
+    return `<div class="kachel-platz ${breit ? 'breit' : ''}" data-kachel="${esc(k.id)}">${html}</div>`;
+  }).join('');
+  return t.nav + t.freiKarte + `<div class="kacheln" id="kacheln">${kacheln}
+      <button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel</span></button></div>
+    <p class="kachel-tipp">Kacheln lang drücken zum Verschieben, nach oben auf „Entfernen“ ziehen zum Löschen.</p>
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>`;
 }
 
-const BEREICH_TITEL = { ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplant', einstellungen: 'Einstellungen' };
+function breiteKachel(typ, titel, wert, unter, k, zeilen, ziel) {
+  const offen = !!k.offen;
+  return `<div class="kachel breit-kachel ${offen ? 'offen' : ''}">
+      <button class="breit-kopf" data-a="bereich" data-wert="${ziel || typ}" aria-label="${esc(titel)} öffnen">
+        <span class="kachel-kopf">${KACHEL_ICON[typ] || ''}<span>${esc(titel)}</span></span>
+        <span class="breit-wert"><span class="kachel-wert">${wert}</span><span class="kachel-unter">${unter}</span></span>
+      </button>
+      <button class="aufklapp" data-a="kachel-auf" data-wert="${esc(k.id)}" aria-expanded="${offen}" aria-label="${offen ? 'Zuklappen' : 'Aufklappen'}">${offen ? ICON.hoch : ICON.runter}</button>
+      ${offen ? `<div class="mini-liste">${zeilen}</div>` : ''}
+    </div>`;
+}
+
+// ---------- Abos ----------
+function aboListe(s) {
+  return z.daten.fixkosten.filter((f) => f.abo).map((f) => {
+    const laeuft = R.laeuftIm(f, s);
+    const kat = R.kategorie(z.daten, f.kategorieId);
+    return { f, kat, laeuft, proMonat: R.monatsAnteil(f), endet: f.endetAm || null };
+  }).sort((a, b) => b.proMonat - a.proMonat);
+}
+function abosHtml(s) {
+  const alle = aboListe(s);
+  const laufend = alle.filter((x) => x.laeuft && !x.endet);
+  const gekuendigt = alle.filter((x) => x.laeuft && x.endet);
+  const vorbei = alle.filter((x) => !x.laeuft);
+  const monat = alle.filter((x) => x.laeuft).reduce((a, x) => a + x.proMonat, 0);
+  const frist = { '2w': '2 Wochen', '1m': '1 Monat', '3m': '3 Monate' };
+  const zeile = (x) => {
+    const f = x.f;
+    const naechste = R.naechsteAbbuchungen({ fixkosten: [f] }, heute())[0];
+    const info = [R.rhythmusBeschreibung(f).replace(/ · .*/, ''), naechste ? 'nächste am ' + Number(naechste.datum.slice(8)) + '. ' + R.MONATE_KURZ[R.ymTeile(R.ymAus(naechste.datum)).monat - 1] : '',
+      x.endet ? 'endet ' + new Date(x.endet + 'T12:00:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' }) : '', f.kuendigungsfrist && frist[f.kuendigungsfrist] ? 'Kündigungsfrist ' + frist[f.kuendigungsfrist] : ''].filter(Boolean).join(' · ');
+    return `<button class="posten ${x.laeuft ? '' : 'grau'}" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc((x.kat && x.kat.emoji ? x.kat.emoji + ' ' : '') + f.name)}</span><small>${esc(info)}</small></span><span class="b"><span class="minus-zahl">− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span><small class="pro">${f.wieOft === 'monatlich' ? 'pro Monat' : '≈ pro Monat'}</small></span>${PFEIL}</button>`;
+  };
+  return `<section class="karte ring abo-kopf">
+      <div class="label">Abos zusammen</div>
+      <div class="grosszahl" style="font-size:40px"><span class="minus-zahl">− ${R.euroRund(monat)}</span><small style="font-size:16px;color:var(--gedaempft)"> pro Monat</small></div>
+      <div class="hinweistext">${R.euroRund(monat * 12)} im Jahr · ${laufend.length} laufend${gekuendigt.length ? ` · ${gekuendigt.length} gekündigt` : ''}</div>
+    </section>
+    <section class="karte liste">${laufend.length ? laufend.map(zeile).join('') : '<div class="leer-zeile" style="border:0">Noch keine Abos. Bei Fixkosten unter „Mehr“ den Schalter „Ist ein Abo“ setzen oder hier eins anlegen.</div>'}
+      ${gekuendigt.length ? `<div class="unterkopf">Gekündigt, läuft noch</div>${gekuendigt.map(zeile).join('')}` : ''}
+      ${vorbei.length ? `<div class="unterkopf">Beendet</div>${vorbei.map(zeile).join('')}` : ''}
+    </section>
+    <button class="knopf akzent" data-a="abo-neu">${ICON.plus} Abo hinzufügen</button>
+    <p class="hinweistext">Gekündigt? Abo antippen → „Mehr“ → „Endet am“ eintragen. Ab dann zählt es nicht mehr.</p>`;
+}
+
+const BEREICH_TITEL = { ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplante Ausgaben', abos: 'Abos', einstellungen: 'Einstellungen' };
 function bereichHtml(eb) {
   const t = monatTeile(z.monat);
   const kopf = `<p class="hinweistext">${esc(monatsName(z.monat))} ${R.ymTeile(z.monat).jahr}</p>`;
@@ -240,6 +358,7 @@ function bereichHtml(eb) {
   if (eb.typ === 'ausgaben') inhalt = t.liste;
   else if (eb.typ === 'konten') inhalt = t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>';
   else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
+  else if (eb.typ === 'abos') inhalt = abosHtml(z.monat);
   else if (eb.typ === 'geplant') inhalt = t.s >= heuteYm() ? t.geplantKarte : '<div class="leerzustand">Für vergangene Monate lässt sich nichts mehr planen.</div>';
   else inhalt = t.sicherung;
   if (eb.typ === 'konten') {
@@ -506,6 +625,19 @@ const EBENEN = {
     <button class="knopf leise" data-a="import">Sicherung importieren</button>`, 'Willkommen'),
 
   bereich: (eb) => bereichHtml(eb),
+  katalog: () => {
+    const da = new Set(kachelListe().map((k) => k.id));
+    const ids = Object.keys(KACHEL_KATALOG).concat(budgetKats().map((k) => 'budget:' + k.id)).filter((id) => !da.has(id));
+    return sheet(`<h2>Kachel hinzufügen</h2>${ids.length ? ids.map((id) => { const a = kachelArt(id); return `<button class="knopf voll katalog-eintrag" data-a="kachel-dazu" data-wert="${esc(id)}"><span><b>${esc(a.titel)}</b><small>${esc(a.beschreibung)}</small></span>${ICON.plus}</button>`; }).join('') : '<p class="hinweistext">Alle Kacheln sind schon auf der Übersicht.</p>'}`, 'Kachel hinzufügen');
+  },
+  kachelmenue: (eb) => {
+    const k = kachelListe().find((x) => x.id === eb.id); const a = kachelArt(eb.id);
+    return sheet(`<h2>${esc(a ? a.titel : '')}</h2>
+      <div class="label">Größe</div>
+      <div class="wahl zwei-sp">${wahlKnopf('kachel-breit', '0', 'halbe Breite', !(k && k.breit))}${wahlKnopf('kachel-breit', '1', 'ganze Breite', !!(k && k.breit))}</div>
+      <p class="hinweistext">Zum Verschieben die Kachel lang drücken und ziehen.</p>
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Fertig</button><button class="knopf breit" data-a="kachel-weg">Von der Übersicht entfernen</button></div>`, 'Kachel');
+  },
   einfuehrung: (eb) => E.einfuehrungHtml(eb, { esc, ICON, z, kopie, heuteYm, monatsName, zahl }),
 
   neu: () => sheet(`<h2>Neu in ${APP_VERSION}</h2><ul class="hinweistext" style="padding-left:18px;margin:0">${NEU_IN_VERSION.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><button class="knopf haupt" data-a="schliessen">Verstanden</button>`, 'Was ist neu'),
@@ -527,7 +659,8 @@ const EBENEN = {
     const mehr = eb.mehr ? `<section class="karte">
         <button class="schalter" role="switch" aria-checked="${!!f.abo}" data-a="fk-abo"><span class="t">Ist ein Abo<br><span class="klein">Abos stehen gesammelt und lassen sich kündigen</span></span><span class="spur"></span></button>
         <div class="feld"><label for="fk-anteil">Wie viel davon zahlst du? (%)</label><input id="fk-anteil" class="eingabe" inputmode="numeric" data-feld="meinAnteil" value="${esc(f.meinAnteil == null ? 100 : f.meinAnteil)}"></div>
-        <div class="feld"><label for="fk-ende">Endet am (optional)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
+        <div class="feld"><label for="fk-ende">Endet am (z. B. gekündigt zum)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
+        <div class="feld"><label for="fk-frist">Kündigungsfrist</label><select id="fk-frist" class="eingabe" data-feld="kuendigungsfrist">${[['', 'keine / weiß nicht'], ['2w', '2 Wochen'], ['1m', '1 Monat'], ['3m', '3 Monate']].map(([w, t]) => `<option value="${w}" ${(f.kuendigungsfrist || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       </section>` : '';
     return seite(eb.id ? 'Fixkosten bearbeiten' : 'Neue Fixkosten', `
       <section class="karte">
@@ -545,7 +678,7 @@ const EBENEN = {
         ${monatlich ? '' : `<div class="label">${f.wieOft === 'jaehrlich' ? 'In welchem Monat?' : 'Ab welchem Monat? (die anderen folgen)'}</div><div class="wahl sechs">${monate}</div>`}
       </section>
       <section class="zusammenfassung" aria-live="polite" data-zusammenfassung>${esc(zus)}</section>
-      <button class="mehr-knopf" data-a="mehr" aria-expanded="${!!eb.mehr}">${eb.mehr ? ICON.hoch + ' Weniger' : ICON.runter + ' Mehr: Abo, Anteil, Ende'}</button>
+      <button class="mehr-knopf" data-a="mehr" aria-expanded="${!!eb.mehr}">${eb.mehr ? ICON.hoch + ' Weniger' : ICON.runter + ' Mehr: Abo, Anteil, Ende, Kündigung'}</button>
       ${mehr}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="abstand"></div>
@@ -736,6 +869,12 @@ const AKTION = {
   heute: () => { z.monat = heuteYm(); render(); },
   'zu-monat': (el) => { z.monat = el.dataset.wert; z.ansicht = 'monat'; window.scrollTo(0, 0); render(); },
   bereich: (el) => oeffne({ art: 'bereich', typ: el.dataset.wert }),
+  'abo-neu': () => { AKTION['fixkosten-neu']({ dataset: { kat: R.kategorie(z.daten, 'abos') ? 'abos' : '' } }); const e = oben().entwurf; e.abo = true; oben().mehr = true; renderEbenen(); },
+  'kachel-auf': async (el) => { const l = kachelListe().map((k) => Object.assign({}, k)); const k = l.find((x) => x.id === el.dataset.wert); if (k) k.offen = !k.offen; await aendern((d) => { d.einstellungen.kacheln = l; }); },
+  'kachel-katalog': () => oeffne({ art: 'katalog' }),
+  'kachel-dazu': async (el) => { const id = el.dataset.wert; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().concat([{ id, breit: !!(KACHEL_KATALOG[id] && KACHEL_KATALOG[id].breit) }]); }, { text: 'Kachel hinzugefügt' }); },
+  'kachel-breit': async (el) => { const id = oben().id; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().map((k) => (k.id === id ? Object.assign({}, k, { breit: el.dataset.wert === '1' }) : k)); }); },
+  'kachel-weg': async () => { const id = oben().id; z.ebenen.pop(); await kachelEntfernen(id); },
   'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }); },
   'verlauf-alle': () => { z.verlaufAlle = true; render(); },
   schliessen,
@@ -793,7 +932,7 @@ const AKTION = {
     if (!f) return;
     const entwurf = Object.assign(kopie(f), { betragText: R.euro(f.betrag, false) });
     if (!entwurf.monat) entwurf.monat = R.ymTeile(heuteYm()).monat;
-    oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm) });
+    oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist) });
   },
   'fixkosten-neu': (el) => oeffne({ art: 'fixkosten', id: null, entwurf: { name: '', betragText: '', wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, kategorieId: el.dataset.kat || (fixKats()[0] || {}).id, abo: false, meinAnteil: 100, endetAm: null, kuendigungsfrist: null } }),
   'fk-rhythmus': (el) => { oben().entwurf.wieOft = el.dataset.wert; renderEbenen(); },
@@ -1080,6 +1219,107 @@ const AKTION = {
   import: () => document.getElementById('import-datei').click()
 };
 
+async function kachelEntfernen(id) {
+  const vorher = kachelListe().map((k) => Object.assign({}, k));
+  const a = kachelArt(id);
+  await aendern((d) => { d.einstellungen.kacheln = vorher.filter((k) => k.id !== id); }, { text: `${a ? a.titel : 'Kachel'} entfernt`, rueckgaengig: (d) => { d.einstellungen.kacheln = vorher; } });
+}
+
+// ---------- Kacheln ziehen wie auf dem Android-Homescreen ----------
+function haptik(art) {
+  try {
+    const h = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics;
+    if (h && window.Capacitor.isNativePlatform()) {
+      if (art === 'wechsel') h.selectionChanged(); else h.impact({ style: art === 'stark' ? 'HEAVY' : art === 'leicht' ? 'LIGHT' : 'MEDIUM' });
+      return;
+    }
+    if (navigator.vibrate) navigator.vibrate(art === 'stark' ? 30 : art === 'wechsel' ? 8 : 15);
+  } catch (e) { /* ohne Vibration weiter */ }
+}
+function bindeKachelZiehen() {
+  let zug = null; // { platz, id, startX, startY, timer, aktiv, bewegt, klon, dx, dy }
+  let klickSperre = false;
+  const punkt = (e) => (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  const start = (e) => {
+    const platz = e.target.closest('.kachel-platz');
+    if (!platz || z.ebenen.length || e.target.closest('[data-a="kachel-auf"]')) return;
+    const p = punkt(e);
+    zug = { platz, id: platz.dataset.kachel, startX: p.clientX, startY: p.clientY, aktiv: false, bewegt: false };
+    zug.timer = setTimeout(() => aufheben(p), 420);
+  };
+  const aufheben = () => {
+    if (!zug) return;
+    zug.aktiv = true;
+    haptik('mittel');
+    const r = zug.platz.getBoundingClientRect();
+    zug.dx = zug.startX - r.left; zug.dy = zug.startY - r.top;
+    const klon = zug.platz.cloneNode(true);
+    klon.classList.add('kachel-klon');
+    klon.style.width = r.width + 'px'; klon.style.height = r.height + 'px';
+    klon.style.left = r.left + 'px'; klon.style.top = r.top + 'px';
+    document.body.appendChild(klon);
+    zug.klon = klon;
+    zug.platz.classList.add('kachel-luecke');
+    document.body.classList.add('kachel-zieht');
+    let ziel = document.getElementById('entfernen-ziel');
+    if (!ziel) { ziel = document.createElement('div'); ziel.id = 'entfernen-ziel'; ziel.innerHTML = ICON.x + '<span>Entfernen</span>'; document.body.appendChild(ziel); }
+    ziel.classList.add('sichtbar');
+  };
+  const bewegen = (e) => {
+    if (!zug) return;
+    const p = punkt(e);
+    if (!zug.aktiv) {
+      if (Math.abs(p.clientX - zug.startX) > 8 || Math.abs(p.clientY - zug.startY) > 8) { clearTimeout(zug.timer); zug = null; }
+      return;
+    }
+    if (e.cancelable) e.preventDefault();
+    zug.bewegt = true;
+    zug.klon.style.left = (p.clientX - zug.dx) + 'px';
+    zug.klon.style.top = (p.clientY - zug.dy) + 'px';
+    const ziel = document.getElementById('entfernen-ziel');
+    const ueberZiel = p.clientY < 90;
+    if (ziel) { if (ueberZiel && !ziel.classList.contains('aktiv')) haptik('wechsel'); ziel.classList.toggle('aktiv', ueberZiel); }
+    zug.klon.style.visibility = 'hidden';
+    const unter = document.elementFromPoint(p.clientX, p.clientY);
+    zug.klon.style.visibility = '';
+    const anderer = unter && unter.closest('.kachel-platz');
+    if (anderer && anderer !== zug.platz && anderer.parentNode === zug.platz.parentNode) {
+      const geschwister = [...zug.platz.parentNode.querySelectorAll('.kachel-platz')];
+      const iA = geschwister.indexOf(zug.platz), iB = geschwister.indexOf(anderer);
+      zug.platz.parentNode.insertBefore(zug.platz, iA < iB ? anderer.nextSibling : anderer);
+      haptik('wechsel');
+    }
+  };
+  const ende = async (e) => {
+    if (!zug) return;
+    clearTimeout(zug.timer);
+    const z2 = zug; zug = null;
+    if (!z2.aktiv) return;
+    klickSperre = true; setTimeout(() => { klickSperre = false; }, 400);
+    const ziel = document.getElementById('entfernen-ziel');
+    const entfernen = ziel && ziel.classList.contains('aktiv');
+    if (ziel) ziel.classList.remove('sichtbar', 'aktiv');
+    if (z2.klon) z2.klon.remove();
+    z2.platz.classList.remove('kachel-luecke');
+    document.body.classList.remove('kachel-zieht');
+    if (entfernen) { haptik('stark'); await kachelEntfernen(z2.id); return; }
+    if (!z2.bewegt) { haptik('leicht'); oeffne({ art: 'kachelmenue', id: z2.id }); return; }
+    haptik('leicht');
+    const reihe = [...document.querySelectorAll('#kacheln .kachel-platz')].map((x) => x.dataset.kachel);
+    const alt = kachelListe();
+    await aendern((d) => { d.einstellungen.kacheln = reihe.map((id) => alt.find((k) => k.id === id)).filter(Boolean); });
+  };
+  document.addEventListener('touchstart', start, { passive: true });
+  document.addEventListener('touchmove', bewegen, { passive: false });
+  document.addEventListener('touchend', ende);
+  document.addEventListener('touchcancel', ende);
+  document.addEventListener('mousedown', (e) => { if (e.button === 0) start(e); });
+  document.addEventListener('mousemove', bewegen);
+  document.addEventListener('mouseup', ende);
+  document.addEventListener('contextmenu', (e) => { if (e.target.closest('.kachel-platz')) e.preventDefault(); });
+  document.addEventListener('click', (e) => { if (klickSperre && e.target.closest('.kachel-platz')) { e.stopPropagation(); e.preventDefault(); } }, true);
+}
+
 function setzePfad(obj, pfad, wert) {
   const teile = pfad.split('.');
   let o = obj;
@@ -1096,6 +1336,7 @@ function gehaltEbene(s) {
 
 // ---------- Ereignisse ----------
 function bindeEreignisse() {
+  bindeKachelZiehen();
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-a]');
     if (!el) return;
