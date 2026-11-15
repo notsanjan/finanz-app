@@ -2,6 +2,7 @@
 // Plus/Minus gibt es bewusst nur im Widget auf dem Homescreen.
 import * as R from './rechnen.js';
 import * as D from './daten.js';
+import * as E from './einfuehrung.js';
 
 export const APP_VERSION = 'finanz-v2';
 const NEU_IN_VERSION = [
@@ -40,7 +41,9 @@ const ICON = {
   hoch: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7fd6c8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>',
   x: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>'
 };
-const FARBEN = ['#7fd6c8', '#4f9a8e', '#c9d27a', '#5d7d99', '#d9a77f', '#a8c4b8', '#e0c07a', '#9fb7a0'];
+// matte Farben für Kategorien (kein Lila, keine Neonfarben)
+const FARBEN = ['#7fd6c8', '#4f9a8e', '#c9d27a', '#5d7d99', '#8fb3d9', '#d9a77f', '#e0c07a', '#e39a8a', '#9fb7a0', '#b9a68f', '#a3b1ad', '#6f8f7a'];
+const EMOJIS = ['🏠', '💡', '📱', '📺', '🛡️', '🚗', '⛽', '🛒', '🍕', '🎉', '🎁', '💪', '🐶', '🎓', '💊', '✈️', '👕', '🧾'];
 
 // ---------- Start ----------
 export async function start() {
@@ -135,22 +138,11 @@ function monatAnsicht() {
     </button>`;
   }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:15px;font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
 
-  const gruppen = r.gruppen.map((gr) => {
-    const zeilen = gr.posten.map((p) => {
-      if (gr.art === 'budget') {
-        return `<button class="zeile" data-a="budget" data-id="${esc(p.kategorie.id)}"><span class="t"><span>${esc(p.kategorie.name)}</span><small>${p.budget ? 'Budget · ' : 'ohne Budget · '}${R.euro(p.ausgegeben)} schon ausgegeben</small></span><span class="b">${R.euro(p.betrag)}</span></button>`;
-      }
-      return `<button class="zeile ${p.faellig ? '' : 'grau'}" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}"><span class="t"><span>${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small></span><span class="b">${p.faellig ? R.euro(p.betrag) : '≈ ' + R.euro(Math.round(p.anteil)) + ' anteilig'}</span></button>`;
-    }).join('');
-    const summe = R.euro(gr.summe) + (gr.anteilSumme ? ' · anteilig ≈ ' + R.euroRund(gr.anteilSumme) : '');
-    return `<div class="gruppe"><div class="gruppe-kopf"><i class="punkt" style="background:${gr.farbe}"></i><span class="name">${esc(gr.name)}</span><span class="summe">${summe}</span></div>${zeilen}</div>`;
-  }).join('');
-
-  const liste = `<section class="karte liste"><div class="liste-kopf"><span class="label" style="flex:1">Ausgaben</span><span class="klein" style="font-size:12px">grau = nicht in diesem Monat</span></div>${gruppen}
-    <div class="gruppe" style="padding:10px 0"><div class="zwei"><button class="knopf akzent" data-a="fixkosten-neu">${ICON.plus} Fixkosten</button><button class="knopf akzent" data-a="budget-neu">${ICON.plus} Budget</button></div></div></section>`;
+  const liste = ausgabenHtml(r, s);
 
   const sicherung = `<section class="karte">
-    <div class="label">Sicherung</div>
+    <div class="label">Einstellungen und Sicherung</div>
+    <button class="knopf" data-a="einfuehrung-erneut">Einführung erneut durchgehen</button>
     <p class="hinweistext">Alle Daten liegen nur auf diesem Handy. Exportiere ab und zu eine Sicherung, z. B. vor dem Löschen der App.${z.daten.einstellungen.letzteSicherung ? ' Zuletzt: ' + esc(z.daten.einstellungen.letzteSicherung) + '.' : ''}</p>
     <div class="zwei"><button class="knopf" data-a="export">Exportieren</button><button class="knopf" data-a="import">Importieren</button></div>
     ${z.daten.beispiel ? '<button class="knopf leise" data-a="beispiel-weg">Beispieldaten entfernen</button>' : ''}
@@ -158,6 +150,73 @@ function monatAnsicht() {
   </section>`;
 
   return nav + freiKarte + sparKarten + liste + sicherung;
+}
+
+// ---------- Ausgabenliste ----------
+const PFEIL = '<svg class="pfeil" aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+const STIFT_KLEIN = '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
+const mitEmoji = (k) => (k && k.emoji ? k.emoji + ' ' : '');
+
+function ausgabenHtml(r, s) {
+  const kurz = R.MONATE_KURZ[R.ymTeile(s).monat - 1];
+  const proMonat = !!z.daten.einstellungen.ansichtProMonat;
+  const neu = `<div class="zwei"><button class="knopf akzent" data-a="fixkosten-neu">${ICON.plus} Fixkosten</button><button class="knopf akzent" data-a="budget-neu">${ICON.plus} Budget</button></div>
+    <button class="knopf leise" data-a="kategorie-neu">${ICON.plus} Neue Kategorie für Fixkosten</button>`;
+  const naechsteFaelligkeit = (f) => {
+    const m = R.abbuchungsMonate(f).find((x) => x > R.ymTeile(s).monat) || R.abbuchungsMonate(f)[0];
+    return R.MONATE_KURZ[m - 1];
+  };
+  const fixZeile = (p) => p.faellig
+    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`
+    : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${R.euro(p.betrag)} im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">≈ ${R.euro(Math.round(p.anteil))}</span>${PFEIL}</button>`;
+  const budgetZeile = (p) => {
+    const pct = p.budget > 0 ? Math.min(100, p.ausgegeben / p.budget * 100) : 0;
+    const ueber = p.budget > 0 && p.ausgegeben > p.budget;
+    const unter = p.budget > 0 ? (ueber ? `${R.euro(p.ausgegeben - p.budget)} über dem Budget` : `${R.euro(p.ausgegeben)} ausgegeben · noch ${R.euro(p.budget - p.ausgegeben)}`) : `${R.euro(p.ausgegeben)} ausgegeben · ohne Budget`;
+    return `<button class="posten budget" data-a="budget" data-id="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)} bearbeiten"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
+  };
+
+  // Ansicht „pro Monat gerechnet“: jede Fixkoste mit ihrem Monatsanteil, Jahresbetrag darunter
+  const proMonatZeile = (p) => {
+    const f = p.fixkosten;
+    const jahr = p.anteil * 12;
+    const monate = R.abbuchungsMonate(f).map((m) => R.MONATE_KURZ[m - 1]).join(', ');
+    const info = f.wieOft === 'monatlich' ? esc(p.wann)
+      : f.wieOft === 'jaehrlich' ? `${R.euro(p.betrag)} einmal im Jahr · im ${monate}`
+      : `${R.euro(p.betrag)} ${esc(R.RHYTHMUS_TEXT[f.wieOft])} (${monate}) · ${R.euro(Math.round(jahr))} im Jahr`;
+    return `<button class="posten" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${info}</small></span><span class="b">${f.wieOft === 'monatlich' ? '' : '≈ '}${R.euro(Math.round(p.anteil * 100) / 100)}</span>${PFEIL}</button>`;
+  };
+
+  const karten = r.gruppen.map((gr) => {
+    if (proMonat && gr.art !== 'budget') {
+      const k = gr.kategorie;
+      const monat = gr.posten.reduce((a, p) => a + p.anteil, 0);
+      const zeichen = k && k.emoji ? `<span class="kat-zeichen" aria-hidden="true">${esc(k.emoji)}</span>` : '<i class="kat-farbe" aria-hidden="true"></i>';
+      return `<section class="kat-karte" style="--kat:${gr.farbe}">
+        <button class="kat-kopf" data-a="kategorie" data-id="${esc(k.id)}" aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${R.euroRund(monat * 12)} im Jahr</small></span><span class="kat-summe">≈ ${R.euroRund(monat)}</span></button>
+        ${gr.posten.map(proMonatZeile).join('')}${!gr.posten.length ? '<div class="leer-zeile">Noch nichts eingetragen</div>' : ''}</section>`;
+    }
+    const faellig = gr.posten.filter((p) => p.faellig);
+    const spaeter = gr.posten.filter((p) => !p.faellig);
+    const zeilen = gr.art === 'budget' ? gr.posten.map(budgetZeile).join('') : faellig.map(fixZeile).join('');
+    const spaeterHtml = spaeter.length ? `<div class="unterkopf">Nicht im ${kurz} · ≈ ${R.euroRund(gr.anteilSumme)} pro Monat zurücklegen</div>${spaeter.map(fixZeile).join('')}` : '';
+    const leer = !gr.posten.length ? '<div class="leer-zeile">Noch nichts eingetragen</div>' : '';
+    const unter = gr.art === 'budget' ? 'Einkäufe aus den Widgets' : (faellig.length ? `${faellig.length} Abbuchung${faellig.length > 1 ? 'en' : ''} im ${kurz}` : `keine Abbuchung im ${kurz}`);
+    const k = gr.kategorie;
+    const zeichen = k && k.emoji ? `<span class="kat-zeichen" aria-hidden="true">${esc(k.emoji)}</span>` : '<i class="kat-farbe" aria-hidden="true"></i>';
+    const kopfAktion = gr.art === 'budget' ? 'data-a="budgets-farbe"' : `data-a="kategorie" data-id="${esc(k.id)}"`;
+    return `<section class="kat-karte" style="--kat:${gr.farbe}">
+      <button class="kat-kopf" ${kopfAktion} aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${unter}</small></span><span class="kat-summe">${R.euro(gr.summe)}</span></button>
+      ${zeilen}${spaeterHtml}${leer}</section>`;
+  }).join('');
+
+  const wahl = `<div class="ansicht-wahl" role="group" aria-label="Darstellung der Fixkosten">
+    <button data-a="ansicht-pro-monat" data-wert="0" aria-pressed="${!proMonat}">Im ${kurz} abgebucht</button>
+    <button data-a="ansicht-pro-monat" data-wert="1" aria-pressed="${proMonat}">Pro Monat gerechnet</button></div>`;
+  const fixMonat = r.gruppen.filter((g) => g.art !== 'budget').reduce((a, g) => a + g.posten.reduce((b, p) => b + p.anteil, 0), 0);
+  const summe = proMonat ? `<div class="pro-monat-summe">Fixkosten zusammen <b>≈ ${R.euroRund(fixMonat)}</b> pro Monat · ${R.euroRund(fixMonat * 12)} im Jahr</div>` : '';
+  const titel = `<div class="abschnitt-kopf"><span class="label">Ausgaben${proMonat ? '' : ' im ' + esc(monatsName(s))}</span><span class="klein">Antippen zum Bearbeiten</span></div>`;
+  return `<div class="ausgaben">${titel}${wahl}${summe}${karten}${neu}</div>`;
 }
 
 function jahrAnsicht() {
@@ -240,7 +299,9 @@ function renderEbenen() {
 
 function ebeneHtml(eb, i) {
   const f = EBENEN[eb.art];
-  return f ? f(eb, i) : '';
+  if (!f) return '';
+  // spätere Ebenen liegen immer über früheren
+  return f(eb, i).replace(/class="(seite|schleier)"/, (m) => `${m} style="z-index:${20 + i * 2}"`);
 }
 
 function sheet(inhalt, titel) {
@@ -255,9 +316,12 @@ const wahlKnopf = (aktion, wert, text, an, extra = '') => `<button data-a="${akt
 const EBENEN = {
   start: () => sheet(`<h2>Willkommen</h2>
     <p class="hinweistext">Die App läuft komplett ohne Internet. Deine Daten bleiben auf diesem Handy.</p>
-    <button class="knopf haupt" data-a="start-beispiel">Mit Beispiel ausprobieren</button>
-    <button class="knopf" data-a="start-leer">Leer anfangen</button>
+    <button class="knopf haupt" data-a="start-einrichten">Gemeinsam einrichten (ca. 5 Min.)</button>
+    <button class="knopf" data-a="start-beispiel">Mit Beispiel ausprobieren</button>
+    <button class="knopf leise" data-a="start-leer">Leer anfangen</button>
     <button class="knopf leise" data-a="import">Sicherung importieren</button>`, 'Willkommen'),
+
+  einfuehrung: (eb) => E.einfuehrungHtml(eb, { esc, ICON, z, kopie, heuteYm, monatsName, zahl }),
 
   neu: () => sheet(`<h2>Neu in ${APP_VERSION}</h2><ul class="hinweistext" style="padding-left:18px;margin:0">${NEU_IN_VERSION.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><button class="knopf haupt" data-a="schliessen">Verstanden</button>`, 'Was ist neu'),
 
@@ -305,7 +369,7 @@ const EBENEN = {
 
   'kategorie-wahl': (eb, i) => {
     const unter = z.ebenen[i - 1];
-    const liste = fixKats().map((k) => `<button class="knopf voll" style="justify-content:flex-start" data-a="kategorie-gewaehlt" data-wert="${esc(k.id)}" aria-pressed="${unter && unter.entwurf.kategorieId === k.id}"><i class="punkt" style="background:${k.farbe}"></i>${esc(k.name)}</button>`).join('');
+    const liste = fixKats().map((k) => `<button class="knopf voll" style="justify-content:flex-start" data-a="kategorie-gewaehlt" data-wert="${esc(k.id)}" aria-pressed="${unter && unter.entwurf.kategorieId === k.id}"><i class="punkt" style="background:${k.farbe}"></i>${esc(mitEmoji(k) + k.name)}</button>`).join('');
     return sheet(`<h2>Kategorie</h2>${liste}<button class="knopf akzent" data-a="kategorie-neu">${ICON.plus} Neue Kategorie</button>`, 'Kategorie wählen');
   },
 
@@ -315,11 +379,18 @@ const EBENEN = {
     return sheet(`<h2>An welchem Tag?</h2><div class="wahl sieben">${tage}</div><p class="hinweistext">Gibt es den Tag in einem Monat nicht (z. B. 31.), zählt der letzte Tag des Monats.</p>`, 'Tag wählen');
   },
 
-  'kategorie-neu': (eb) => sheet(`<h2>Neue Kategorie</h2>
-    <div class="feld"><label for="kn-name">Name</label><input id="kn-name" class="eingabe" data-feld="name" value="${esc(eb.entwurf.name)}" placeholder="z. B. Mobilität"></div>
-    <div class="label">Farbe</div><div class="chips">${FARBEN.map((c) => `<button class="chip" data-a="kn-farbe" data-wert="${c}" aria-pressed="${eb.entwurf.farbe === c}" aria-label="Farbe ${c}" style="${eb.entwurf.farbe === c ? 'border:2px solid #fff' : ''}"><i class="punkt" style="background:${c};width:18px;height:18px"></i></button>`).join('')}</div>
-    ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
-    <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="kn-speichern">Anlegen</button></div>`, 'Neue Kategorie'),
+  kategorie: (eb) => {
+    const e = eb.entwurf;
+    const inhalt = eb.nurFarbe ? '' : `<div class="feld"><label for="kn-name">Name</label><input id="kn-name" class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="z. B. Mobilität"></div>`;
+    const emoji = eb.nurFarbe ? '' : `<div class="feld"><label for="kn-emoji">Emoji (optional)</label><div class="zwei" style="grid-template-columns:90px 1fr"><input id="kn-emoji" class="eingabe emoji-feld" data-feld="emoji" value="${esc(e.emoji || '')}" placeholder="🙂" maxlength="8"><span class="hinweistext" style="align-self:center">Eigenes Emoji über die Tastatur oder unten antippen</span></div>
+      <div class="emoji-wahl">${EMOJIS.map((x) => `<button class="emoji-knopf" data-a="kn-emoji" data-wert="${x}" aria-pressed="${e.emoji === x}" aria-label="Emoji ${x}">${x}</button>`).join('')}<button class="emoji-knopf" data-a="kn-emoji" data-wert="" aria-label="Kein Emoji">${ICON.x}</button></div></div>`;
+    const farben = `<div class="label">Farbe der Karte</div><div class="farb-wahl">${FARBEN.map((c) => `<button class="farb-knopf" data-a="kn-farbe" data-wert="${c}" aria-pressed="${e.farbe === c}" aria-label="Farbe ${c}" style="--f:${c}"></button>`).join('')}</div>
+      <div class="vorschau" style="--kat:${e.farbe}">${e.emoji ? `<span class="kat-zeichen">${esc(e.emoji)}</span>` : '<i class="kat-farbe"></i>'}<b>${esc(e.name || 'Vorschau')}</b></div>`;
+    const loeschen = eb.id && !eb.nurFarbe ? '<button class="knopf leise" data-a="kn-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>';
+    return sheet(`<h2>${eb.nurFarbe ? 'Budgets' : eb.id ? 'Kategorie bearbeiten' : 'Neue Kategorie'}</h2>${inhalt}${emoji}${farben}
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe">${loeschen}<button class="knopf haupt breit" data-a="kn-speichern">${eb.id || eb.nurFarbe ? 'Speichern' : 'Anlegen'}</button></div>`, 'Kategorie');
+  },
 
   budget: (eb) => {
     const b = eb.entwurf;
@@ -330,6 +401,8 @@ const EBENEN = {
     return seite(eb.id ? 'Budget bearbeiten' : 'Neues Budget', `
       <section class="karte">
         <div class="feld"><label for="bu-name">Name</label><input id="bu-name" class="eingabe" data-feld="name" value="${esc(b.name)}" placeholder="z. B. Drogerie"></div>
+        <div class="feld"><label for="bu-emoji">Emoji (optional, erscheint auch im Widget)</label><input id="bu-emoji" class="eingabe emoji-feld" data-feld="emoji" value="${esc(b.emoji || '')}" placeholder="🙂" maxlength="8"></div>
+        <div class="emoji-wahl">${EMOJIS.map((x) => `<button class="emoji-knopf" data-a="bu-emoji" data-wert="${x}" aria-pressed="${b.emoji === x}" aria-label="Emoji ${x}">${x}</button>`).join('')}</div>
         <div class="feld"><label for="bu-betrag">Budget pro Monat</label><input id="bu-betrag" class="eingabe" inputmode="decimal" data-feld="budgetText" value="${esc(b.budgetText)}" placeholder="0 € = ohne Budget"></div>
         ${eb.id ? `<div class="klein">Im ${esc(monatsName(heuteYm()))} schon ausgegeben: ${R.euro(ausgegeben)}</div>` : ''}
       </section>
@@ -423,6 +496,7 @@ const AKTION = {
   monat: (el) => { z.monat = R.ymPlus(z.monat, Number(el.dataset.wert)); render(); },
   heute: () => { z.monat = heuteYm(); render(); },
   'zu-monat': (el) => { z.monat = el.dataset.wert; z.ansicht = 'monat'; window.scrollTo(0, 0); render(); },
+  'ansicht-pro-monat': async (el) => { await aendern((d) => { d.einstellungen.ansichtProMonat = el.dataset.wert === '1'; }); },
   'verlauf-alle': () => { z.verlaufAlle = true; render(); },
   schliessen,
   'schliessen-schleier': (el, ev) => { if (ev.target === el) schliessen(); },
@@ -431,6 +505,38 @@ const AKTION = {
   'toast-rueck': async () => { const r = z.toast && z.toast.rueckgaengig; z.toast = null; if (r) await aendern(r); else renderEbenen(); },
 
   // Start
+  'start-einrichten': () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; oeffne(E.neueEinfuehrung(z.daten, true)); },
+  'einfuehrung-erneut': () => oeffne(E.neueEinfuehrung(z.daten, false)),
+  'ef-wert': (el) => {
+    let w = el.dataset.wert; if (w === 'ja') w = true; else if (w === 'nein') w = false;
+    setzePfad(oben(), el.dataset.pfad, w); oben().fehler = null; renderEbenen();
+  },
+  'ef-waehlen': (el) => {
+    const liste = oben().listen[el.dataset.liste]; const i = Number(el.dataset.i); const p = liste[i];
+    if (p.eigen) liste.splice(i, 1); else p.gewaehlt = !p.gewaehlt;
+    oben().fehler = null; renderEbenen();
+  },
+  'ef-eigen': (el) => {
+    oben().listen[el.dataset.liste].push({ name: '', eigen: true, gewaehlt: true, wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, betragText: '', anteilText: '100' });
+    renderEbenen();
+    const felder = document.querySelectorAll('.ef-posten input[data-feld$=".name"]'); if (felder.length) felder[felder.length - 1].focus();
+  },
+  'ef-budget-an': (el) => { const b = oben().budgets[Number(el.dataset.i)]; b.an = !b.an; renderEbenen(); },
+  'ef-budget-neu': () => { oben().budgets.push({ id: null, name: '', emoji: '', an: true, text: '', neu: true }); renderEbenen(); },
+  'ef-weiter': async () => {
+    const eb = oben();
+    const fehler = E.pruefeSchritt(eb, zahl);
+    if (fehler) { eb.fehler = fehler; renderEbenen(); return; }
+    eb.fehler = null;
+    if (E.SCHRITTE[eb.schritt] === 'fertig') {
+      z.ebenen = []; z.ansicht = 'monat'; z.monat = heuteYm();
+      await aendern((d) => E.anwenden(d, eb, zahl), { text: 'Eingerichtet. Alles lässt sich antippen und ändern.' });
+      return;
+    }
+    eb.schritt += 1; renderEbenen(); oben0();
+  },
+  'ef-zurueck': () => { const eb = oben(); if (eb.schritt > 0) { eb.schritt -= 1; eb.fehler = null; renderEbenen(); oben0(); } else schliessen(); },
+  'ef-ueberspringen': () => { const eb = oben(); eb.schritt = E.SCHRITTE.length - 1; eb.fehler = null; renderEbenen(); oben0(); },
   'start-beispiel': async () => { z.daten = D.beispielDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}); },
   'start-leer': async () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; z.ebenen = []; await aendern(() => {}); oeffne(gehaltEbene(heuteYm())); },
   'beispiel-weg': () => oeffne({ art: 'frage', titel: 'Beispieldaten entfernen?', text: 'Alle Beispiel-Fixkosten, das Beispiel-Sparkonto und alle Buchungen werden gelöscht. Kategorien und Budgets bleiben.', ja: 'Entfernen', bei: async () => {
@@ -456,16 +562,31 @@ const AKTION = {
   'fk-abo': () => { oben().entwurf.abo = !oben().entwurf.abo; renderEbenen(); },
   'fk-kategorie': () => oeffne({ art: 'kategorie-wahl' }),
   'kategorie-gewaehlt': (el) => { z.ebenen.pop(); oben().entwurf.kategorieId = el.dataset.wert; renderEbenen(); },
-  'kategorie-neu': () => oeffne({ art: 'kategorie-neu', entwurf: { name: '', farbe: FARBEN[fixKats().length % FARBEN.length] } }),
+  'kategorie-neu': () => oeffne({ art: 'kategorie', id: null, entwurf: { name: '', emoji: '', farbe: FARBEN[fixKats().length % FARBEN.length] } }),
+  kategorie: (el) => { const k = R.kategorie(z.daten, el.dataset.id); if (k) oeffne({ art: 'kategorie', id: k.id, entwurf: { name: k.name, emoji: k.emoji || '', farbe: k.farbe } }); },
+  'budgets-farbe': () => oeffne({ art: 'kategorie', id: null, nurFarbe: true, entwurf: { name: 'Budgets', farbe: z.daten.einstellungen.budgetFarbe || '#5d7d99' } }),
+  'kn-emoji': (el) => { oben().entwurf.emoji = el.dataset.wert; renderEbenen(); },
+  'kn-loeschen': async () => {
+    const eb = oben(); const k = R.kategorie(z.daten, eb.id);
+    const n = z.daten.fixkosten.filter((f) => f.kategorieId === eb.id).length;
+    if (n) { eb.fehler = `In „${k.name}“ stehen noch ${n} Fixkosten. Verschiebe oder lösche sie zuerst.`; renderEbenen(); return; }
+    const i = z.daten.kategorien.indexOf(k);
+    z.ebenen.pop();
+    await aendern((d) => { d.kategorien = d.kategorien.filter((x) => x.id !== eb.id); }, { text: `Kategorie „${k.name}“ gelöscht`, rueckgaengig: (d) => d.kategorien.splice(i, 0, k) });
+  },
   'kn-farbe': (el) => { oben().entwurf.farbe = el.dataset.wert; renderEbenen(); },
   'kn-speichern': async () => {
-    const eb = oben(); const name = (eb.entwurf.name || '').trim();
+    const eb = oben(); const e = eb.entwurf;
+    if (eb.nurFarbe) { z.ebenen.pop(); await aendern((d) => { d.einstellungen.budgetFarbe = e.farbe; }, { text: 'Farbe gespeichert' }); return; }
+    const name = (e.name || '').trim();
     if (!name) { eb.fehler = 'Bitte einen Namen eintragen.'; renderEbenen(); return; }
-    const id = D.neueId('kat');
+    const emoji = (e.emoji || '').trim();
     z.ebenen.pop();
+    if (eb.id) { await aendern((d) => { Object.assign(R.kategorie(d, eb.id), { name, emoji, farbe: e.farbe }); }, { text: `${name} gespeichert` }); return; }
+    const id = D.neueId('kat');
     // kommt aus der Kategorie-Wahl einer Fixkosten-Seite? Dann dort gleich auswählen
     if (oben() && oben().art === 'kategorie-wahl') { z.ebenen.pop(); oben().entwurf.kategorieId = id; }
-    await aendern((d) => d.kategorien.splice(d.kategorien.filter((k) => k.art === 'fix').length, 0, { id, name, art: 'fix', farbe: eb.entwurf.farbe }), { text: `Kategorie „${name}“ angelegt` });
+    await aendern((d) => d.kategorien.splice(d.kategorien.filter((k) => k.art === 'fix').length, 0, { id, name, emoji, art: 'fix', farbe: e.farbe }), { text: `Kategorie „${name}“ angelegt` });
   },
   'fk-speichern': async () => {
     const eb = oben(); const f = eb.entwurf;
@@ -487,7 +608,7 @@ const AKTION = {
   // Budgets
   budget: (el) => {
     const k = R.kategorie(z.daten, el.dataset.id); if (!k) return;
-    oeffne({ art: 'budget', id: k.id, entwurf: { name: k.name, budgetText: R.euro(k.budget || 0, false), schritte: [...(k.schritte || [5, 10])], frage: k.frage || 'Wo?', chips: [...(k.chips || [])] } });
+    oeffne({ art: 'budget', id: k.id, entwurf: { name: k.name, emoji: k.emoji || '', budgetText: R.euro(k.budget || 0, false), schritte: [...(k.schritte || [5, 10])], frage: k.frage || 'Wo?', chips: [...(k.chips || [])] } });
   },
   'budget-neu': () => oeffne({ art: 'budget', id: null, entwurf: { name: '', budgetText: '', schritte: [-5, 5, 10], frage: 'Wo?', chips: [] } }),
   'bu-schritt': (el) => {
@@ -497,6 +618,7 @@ const AKTION = {
     e.schritte.sort((a, b) => a - b);
     renderEbenen();
   },
+  'bu-emoji': (el) => { oben().entwurf.emoji = el.dataset.wert; renderEbenen(); },
   'bu-frage': (el) => { oben().entwurf.frage = el.dataset.wert; renderEbenen(); },
   'bu-chip-weg': (el) => { oben().entwurf.chips.splice(Number(el.dataset.wert), 1); renderEbenen(); },
   'bu-chip-dazu': () => { const e = oben().entwurf; const t = (e.neuerChip || '').trim(); if (t && !e.chips.includes(t)) e.chips.push(t); e.neuerChip = ''; renderEbenen(); },
@@ -507,7 +629,7 @@ const AKTION = {
     if (isNaN(budget) || budget < 0) { eb.fehler = 'Bitte ein Budget ab 0 € eintragen.'; renderEbenen(); return; }
     if (!e.schritte.some((w) => w > 0)) { eb.fehler = 'Mindestens ein Plus-Knopf wird gebraucht.'; renderEbenen(); return; }
     const t = (e.neuerChip || '').trim(); if (t && !e.chips.includes(t)) e.chips.push(t);
-    const werte = { name: e.name.trim(), budget, schritte: e.schritte, frage: e.frage, chips: e.chips };
+    const werte = { name: e.name.trim(), emoji: (e.emoji || '').trim(), budget, schritte: e.schritte, frage: e.frage, chips: e.chips };
     z.ebenen.pop();
     await aendern((d) => {
       const k = d.kategorien.find((x) => x.id === eb.id);
@@ -601,6 +723,14 @@ const AKTION = {
   import: () => document.getElementById('import-datei').click()
 };
 
+function setzePfad(obj, pfad, wert) {
+  const teile = pfad.split('.');
+  let o = obj;
+  for (let i = 0; i < teile.length - 1; i++) o = o[teile[i]];
+  o[teile[teile.length - 1]] = wert;
+}
+function oben0() { const s = document.querySelector('.seite:last-of-type'); if (s) s.scrollTop = 0; }
+
 function gehaltEbene(s) {
   const g = gehalt();
   const ist = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
@@ -622,8 +752,9 @@ function bindeEreignisse() {
     const el = ev.target.closest('[data-feld]');
     const eb = oben();
     if (!el || !eb) return;
-    const ziel = eb.entwurf || eb;
-    ziel[el.dataset.feld] = el.type === 'date' ? (el.value || null) : el.value;
+    const wert = el.type === 'date' ? (el.value || null) : el.dataset.zahl ? Number(el.value) : el.value;
+    if (el.dataset.feld.includes('.')) setzePfad(eb, el.dataset.feld, wert);
+    else (eb.entwurf || eb)[el.dataset.feld] = wert;
     if (el.dataset.neuZeichnen) aktualisiereZusammenfassung();
   });
   document.addEventListener('keydown', (ev) => {
@@ -647,6 +778,7 @@ function bindeEreignisse() {
   };
   // Zurück-Taste von Android (aus MainActivity aufgerufen): schließt zuerst die oberste Ebene
   window.__zurueck = () => {
+    if (z.ebenen.length && oben().art === 'einfuehrung' && oben().schritt > 0) { AKTION['ef-zurueck'](); return true; }
     if (z.ebenen.length && oben().art !== 'start') { schliessen(); return true; }
     if (z.ansicht !== 'monat' || z.monat !== heuteYm()) { z.ansicht = 'monat'; z.monat = heuteYm(); render(); return true; }
     return false;
