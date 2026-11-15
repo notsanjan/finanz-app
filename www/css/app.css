@@ -169,7 +169,7 @@ button { cursor: pointer; }
 .sheet h2 { font-size: 22px; font-weight: 400; margin: 0; }
 
 /* Hinweis unten */
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); z-index: 40; width: calc(100% - 32px); max-width: 520px; background: #2a3237; border: 1px solid var(--rand); border-radius: 18px; padding: 6px 6px 6px 16px; display: flex; align-items: center; gap: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); font-size: 15px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); z-index: 40; width: calc(100% - 110px); margin-left: -39px; max-width: 520px; background: #2a3237; border: 1px solid var(--rand); border-radius: 18px; padding: 6px 6px 6px 16px; display: flex; align-items: center; gap: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .4); font-size: 15px; }
 .toast .t { flex: 1; }
 .leerzustand { text-align: center; padding: 22px 8px; color: var(--gedaempft); font-size: 15px; line-height: 1.4; }
 
@@ -378,3 +378,24 @@ body.kachel-zieht { overflow: hidden; }
 .mini-zeile small.status.warn { color: var(--minus); }
 .mini-zeile small.status.hinweis { color: var(--hinweis); }
 .breit-kachel { align-items: stretch; }
+
+/* v7: Bearbeiten-Modus und Schnell-Eintragen */
+.kachel-leiste { display: flex; align-items: center; justify-content: space-between; min-height: 36px; margin: 2px 4px -4px; }
+.im-bearbeiten .kachel-platz > .kachel, .im-bearbeiten .kachel-platz > .aufklapp { pointer-events: none; }
+.im-bearbeiten .aufklapp { display: none; }
+.kachel-steuer { position: absolute; top: -8px; right: -6px; display: flex; gap: 4px; z-index: 2; }
+.steuer-knopf { width: 32px; height: 32px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, .2); background: #2a3237; color: var(--text); font-size: 13px; display: inline-flex; align-items: center; justify-content: center; padding: 0; box-shadow: 0 2px 8px rgba(0, 0, 0, .4); }
+.steuer-knopf.weg svg { stroke: var(--minus); }
+.wackeln { animation: wackeln .28s ease-in-out infinite alternate; }
+.wackeln:nth-child(2n) { animation-delay: .14s; }
+@keyframes wackeln { from { transform: rotate(-.6deg); } to { transform: rotate(.6deg); } }
+.fab { position: fixed; right: 18px; bottom: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); z-index: 15; width: 60px; height: 60px; border-radius: 30px; border: 0; background: var(--haupt); box-shadow: 0 8px 22px rgba(0, 0, 0, .45); display: flex; align-items: center; justify-content: center; }
+.fab:active { transform: scale(.95); }
+.fab-platz { height: 64px; }
+.betrag-gross { display: flex; align-items: center; gap: 8px; font-size: 34px; font-weight: 300; }
+.betrag-gross .eingabe { height: 64px; font-size: 34px; font-weight: 300; text-align: center; flex: 1; }
+.betrag-gross.minus span { color: var(--minus); }
+.betrag-gross.plus span { color: var(--plus); }
+.chip[aria-pressed="true"] { border: 1.5px solid var(--akzent); background: rgba(127, 214, 200, .18); font-weight: 600; }
+.ansicht-wahl.drei { grid-template-columns: repeat(3, 1fr); }
+.seite .fab { position: fixed; }
