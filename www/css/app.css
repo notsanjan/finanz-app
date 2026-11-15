@@ -172,3 +172,83 @@ button { cursor: pointer; }
 .leerzustand { text-align: center; padding: 22px 8px; color: var(--gedaempft); font-size: 15px; line-height: 1.4; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* ---------- Ausgabenliste (überarbeitet) ---------- */
+.ausgaben { display: flex; flex-direction: column; gap: 12px; }
+.abschnitt-kopf { display: flex; align-items: baseline; gap: 8px; padding: 6px 4px 0; }
+.abschnitt-kopf .label { flex: 1; }
+.abschnitt-kopf .klein { font-size: 12px; }
+.posten { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 56px; padding: 8px 6px 8px 0; border: 0; background: transparent; color: var(--text); text-align: left; font-size: 16px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.posten .t { flex: 1; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.posten .n { font-weight: 500; }
+.posten small { font-size: 13px; color: var(--gedaempft); }
+.posten small.warn { color: var(--fehler); }
+.posten .b { white-space: nowrap; font-size: 16px; text-align: right; }
+.posten .pfeil { flex-shrink: 0; opacity: .8; margin-right: -2px; }
+.posten:active { background: rgba(255, 255, 255, .06); }
+.posten.grau .n, .posten.grau .b { color: var(--grau); }
+.mini { display: block; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, .10); overflow: hidden; margin-top: 3px; max-width: 220px; }
+.mini span { display: block; height: 100%; background: var(--akzent); border-radius: 3px; }
+.unterkopf { font-size: 12px; color: var(--gedaempft); letter-spacing: .04em; padding: 12px 0 6px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.unterkopf + .posten { border-top: 0; }
+.leer-zeile { font-size: 14px; color: var(--gedaempft); padding: 10px 0 4px; border-top: 1px solid rgba(255, 255, 255, .08); }
+
+/* Eine Karte pro Kategorie, matt in der Kategoriefarbe hinterlegt */
+.kat-karte { --kat: #7fd6c8; background: color-mix(in srgb, var(--kat) 15%, #1a1f22); border: 1px solid color-mix(in srgb, var(--kat) 38%, transparent); border-radius: 22px; padding: 2px 14px 6px 16px; display: flex; flex-direction: column; }
+.kat-kopf { display: flex; align-items: center; gap: 12px; min-height: 62px; padding: 8px 0; width: 100%; border: 0; background: transparent; color: var(--text); text-align: left; }
+.kat-kopf:active { opacity: .8; }
+.kat-farbe { width: 14px; height: 32px; border-radius: 7px; background: var(--kat); flex-shrink: 0; display: inline-block; }
+.kat-zeichen { width: 40px; height: 40px; border-radius: 12px; background: color-mix(in srgb, var(--kat) 40%, #1a1f22); display: inline-flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+.kat-titel { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.kat-titel b { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.kat-titel small { font-size: 13px; color: var(--gedaempft); }
+.kat-summe { font-size: 20px; font-weight: 500; white-space: nowrap; }
+.kat-karte .posten { border-top-color: rgba(255, 255, 255, .10); }
+.kat-karte .unterkopf { border-top-color: rgba(255, 255, 255, .10); }
+.kat-karte .posten:active { background: rgba(255, 255, 255, .07); }
+.kat-kopf + .posten { border-top: 1px solid rgba(255, 255, 255, .14); }
+
+/* Auswahl von Emoji und Farbe */
+.emoji-feld { font-size: 22px; text-align: center; }
+.emoji-wahl { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.emoji-knopf { height: 44px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .05); font-size: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+.emoji-knopf[aria-pressed="true"] { border: 1.5px solid var(--akzent); background: rgba(127, 214, 200, .18); }
+.farb-wahl { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.farb-knopf { height: 44px; border-radius: 14px; border: 2px solid transparent; background: color-mix(in srgb, var(--f) 55%, #1a1f22); }
+.farb-knopf[aria-pressed="true"] { border-color: #fff; }
+.vorschau { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 18px; background: color-mix(in srgb, var(--kat) 15%, #1a1f22); border: 1px solid color-mix(in srgb, var(--kat) 38%, transparent); font-size: 17px; }
+
+/* Einführung */
+.ef-kopf { display: flex; align-items: center; justify-content: space-between; min-height: 36px; }
+.ef-fortschritt { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, .10); overflow: hidden; }
+.ef-fortschritt span { display: block; height: 100%; background: var(--akzent); border-radius: 3px; transition: width .25s; }
+.ef-titel { font-size: 26px; font-weight: 300; margin: 6px 0 0; }
+.ef-chip { height: 40px; padding: 0 14px; font-size: 15px; }
+.ef-chip[aria-pressed="true"] { border: 1.5px solid var(--akzent); background: rgba(127, 214, 200, .18); font-weight: 600; }
+.ef-chip.da { opacity: .6; }
+.ef-chip.da small { font-size: 12px; color: var(--gedaempft); }
+.ef-chip.eigen { color: var(--akzent); }
+.ef-posten { gap: 10px; }
+.ef-zeile { display: flex; align-items: center; gap: 8px; }
+.ef-zeile > .eingabe:first-child { flex: 1; }
+.ef-name { flex: 1; font-size: 17px; font-weight: 600; min-width: 0; }
+.ef-betrag { width: 110px; flex: none; text-align: right; }
+.ef-rhythmus { gap: 6px; }
+.ef-rhythmus button { height: 40px; font-size: 14px; border-radius: 20px; }
+.klein-x { width: 36px; height: 36px; flex: none; }
+select.eingabe { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, #b7c1be 50%), linear-gradient(135deg, #b7c1be 50%, transparent 50%); background-position: calc(100% - 18px) 19px, calc(100% - 13px) 19px; background-size: 5px 5px; background-repeat: no-repeat; }
+select.eingabe option { background: #1d2327; color: #eef2f0; }
+.ef-budget { display: flex; align-items: center; gap: 10px; min-height: 52px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.ef-budget:first-child { border-top: 0; }
+.ef-budget .ef-name { font-size: 16px; font-weight: 500; }
+.ef-budget > .eingabe:not(.ef-betrag):not(.klein-emoji) { flex: 1; }
+.ef-budget.aus .ef-name, .ef-budget.aus .ef-betrag { opacity: .45; }
+.klein-emoji { width: 56px; flex: none; padding: 0; }
+.gross-eingabe { height: 56px; font-size: 24px; }
+
+/* Umschalter Ausgaben: abgebucht / pro Monat gerechnet */
+.ansicht-wahl { display: grid; grid-template-columns: 1fr 1fr; background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .10); border-radius: 22px; padding: 3px; }
+.ansicht-wahl button { height: 40px; border: 0; border-radius: 19px; background: transparent; color: var(--gedaempft); font-size: 14px; }
+.ansicht-wahl button[aria-pressed="true"] { background: rgba(255, 255, 255, .16); color: #fff; font-weight: 600; }
+.pro-monat-summe { padding: 2px 4px; font-size: 14px; color: var(--gedaempft); line-height: 1.4; }
+.pro-monat-summe b { font-size: 17px; color: var(--text); font-weight: 500; }

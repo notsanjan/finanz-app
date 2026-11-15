@@ -20,13 +20,13 @@ export function neueId(vorsilbe = 'id') {
 // Kategorien, die es immer gibt (Farben aus dem Mockup)
 export function grundKategorien() {
   return [
-    { id: 'wohnen', name: 'Wohnen', art: 'fix', farbe: '#7fd6c8' },
-    { id: 'abos', name: 'Handy und Abos', art: 'fix', farbe: '#4f9a8e' },
-    { id: 'versicherungen', name: 'Versicherungen', art: 'fix', farbe: '#c9d27a' },
-    { id: 'lebensmittel', name: 'Lebensmittel', art: 'budget', budget: 300, symbol: 'wagen', schritte: [-5, 5, 10], frage: 'Wo?', chips: ['Edeka', 'Bäcker', 'dm', 'Wochenmarkt'] },
-    { id: 'tanken', name: 'Tanken', art: 'budget', budget: 150, symbol: 'tanken', schritte: [10, 50], frage: 'Wo?', chips: ['Aral', 'Shell', 'Jet'] },
-    { id: 'freizeit', name: 'Freizeit', art: 'budget', budget: 120, symbol: 'freizeit', schritte: [5, 10, 20], frage: 'Wofür?', chips: ['Kino', 'Essen gehen', 'Sport'] },
-    { id: 'sonstiges', name: 'Sonstiges', art: 'budget', budget: 0, symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: ['Geschenke', 'Haushalt', 'Kleidung', 'Apotheke'] }
+    { id: 'wohnen', name: 'Wohnen', art: 'fix', farbe: '#7fd6c8', emoji: '🏠' },
+    { id: 'abos', name: 'Handy und Abos', art: 'fix', farbe: '#4f9a8e', emoji: '📱' },
+    { id: 'versicherungen', name: 'Versicherungen', art: 'fix', farbe: '#c9d27a', emoji: '🛡️' },
+    { id: 'lebensmittel', name: 'Lebensmittel', art: 'budget', budget: 300, emoji: '🛒', symbol: 'wagen', schritte: [-5, 5, 10], frage: 'Wo?', chips: ['Edeka', 'Bäcker', 'dm', 'Wochenmarkt'] },
+    { id: 'tanken', name: 'Tanken', art: 'budget', budget: 150, emoji: '⛽', symbol: 'tanken', schritte: [10, 50], frage: 'Wo?', chips: ['Aral', 'Shell', 'Jet'] },
+    { id: 'freizeit', name: 'Freizeit', art: 'budget', budget: 120, emoji: '🎉', symbol: 'freizeit', schritte: [5, 10, 20], frage: 'Wofür?', chips: ['Kino', 'Essen gehen', 'Sport'] },
+    { id: 'sonstiges', name: 'Sonstiges', art: 'budget', budget: 0, emoji: '🧾', symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: ['Geschenke', 'Haushalt', 'Kleidung', 'Apotheke'] }
   ];
 }
 

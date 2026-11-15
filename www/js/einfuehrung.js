@@ -1,0 +1,199 @@
+// Einführung: fragt Gehalt, Wohnen, Versicherungen, Abos, Auto, weitere Fixkosten, Sparen und Budgets ab
+// und richtet die App damit ein. Alles ist optional und lässt sich später ändern.
+import * as R from './rechnen.js';
+import * as D from './daten.js';
+
+const M = 'monatlich', V = 'vierteljaehrlich', H = 'halbjaehrlich', J = 'jaehrlich';
+const v = (name, wieOft = M, tag = 1, monat = null, extra = {}) => Object.assign({ name, wieOft, tag, monat }, extra);
+
+// Listen der Einführung. Kategorie-IDs wie in daten.js (wohnen, abos, versicherungen); auto/weitere entstehen bei Bedarf.
+export const LISTEN = [
+  { id: 'wohnen', titel: 'Wohnen', emoji: '🏠', farbe: '#7fd6c8', frage: 'Was zahlst du fürs Wohnen?',
+    vorschlaege: [v('Miete', M, 1, null, { anteil: true }), v('Nebenkosten'), v('Strom', M, 15), v('Gas / Heizung', M, 15), v('Internet', M, 3), v('Rundfunkbeitrag', V, 15, 2)] },
+  { id: 'versicherungen', titel: 'Versicherungen', emoji: '🛡️', farbe: '#c9d27a', frage: 'Welche Versicherungen hast du?',
+    vorschlaege: [v('Haftpflicht', J), v('Hausrat', J), v('Kfz-Versicherung', J), v('Berufsunfähigkeit'), v('Rechtsschutz', J), v('Unfallversicherung', J), v('Zahnzusatz'), v('Krankenzusatz'), v('Auslandsreise', J), v('Risikoleben', J), v('Tierhalter', J), v('Wohngebäude', J)] },
+  { id: 'abos', titel: 'Handy und Abos', emoji: '📱', farbe: '#4f9a8e', frage: 'Welche Verträge und Abos laufen bei dir?',
+    vorschlaege: [v('Handyvertrag', M, 28), v('Netflix', M, 1, null, { abo: true }), v('Spotify', M, 1, null, { abo: true }), v('Disney+', M, 1, null, { abo: true }), v('Amazon Prime', J, 1, null, { abo: true }), v('YouTube Premium', M, 1, null, { abo: true }), v('Cloud-Speicher', M, 1, null, { abo: true }), v('Fitnessstudio', M, 1, null, { abo: true }), v('Deutschlandticket', M, 1, null, { abo: true }), v('Zeitung / Magazin', M, 1, null, { abo: true })] },
+  { id: 'auto', titel: 'Auto und Mobilität', emoji: '🚗', farbe: '#8fb3d9', frage: 'Hast du ein Auto oder andere feste Kosten fürs Unterwegssein?',
+    vorschlaege: [v('Kfz-Steuer', J), v('Kredit / Leasing'), v('Schutzbrief / ADAC', J), v('Parkplatz / Garage')] },
+  { id: 'weitere', titel: 'Weitere Fixkosten', emoji: '🧾', farbe: '#b9a68f', frage: 'Gibt es sonst noch etwas, das regelmäßig abgebucht wird?',
+    vorschlaege: [v('Kredit'), v('Gewerkschaft / Berufsverband'), v('Verein', J), v('Spenden'), v('Kita / Schule'), v('Haustier')] }
+];
+
+const BUDGET_VORSCHLAEGE = { lebensmittel: 300, tanken: 150, freizeit: 120, sonstiges: 0 };
+const SCHRITTE = ['gehalt', ...LISTEN.map((l) => 'liste:' + l.id), 'sparen', 'budgets', 'fertig'];
+const RHYTHMEN = [[M, 'monatlich'], [V, 'vierteljährlich'], [H, 'halbjährlich'], [J, 'jährlich']];
+
+export function neueEinfuehrung(daten, erstStart) {
+  const vorhanden = (katId, name) => (daten.fixkosten || []).some((f) => f.kategorieId === katId && f.name.toLowerCase() === name.toLowerCase());
+  const g = daten.einnahmen.find((e) => e.wieOft === 'monatlich');
+  const sp = daten.sparraten[0];
+  return {
+    art: 'einfuehrung', erstStart, schritt: 0,
+    gehalt: { text: g && g.betrag ? String(g.betrag).replace('.', ',') : '', kommtAn: g && g.kommtAn === 'Tag' ? 'Tag' : 'Monatsende', tag: String((g && g.ankunftTag) || 1) },
+    listen: Object.fromEntries(LISTEN.map((l) => [l.id, l.vorschlaege.map((x) => Object.assign({}, x, {
+      gewaehlt: false, vorhanden: vorhanden(l.id, x.name), betragText: '', monat: x.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, anteilText: '100'
+    }))])),
+    sparen: { ja: sp ? true : null, betrag: sp ? String(sp.betrag) : '', tag: String(sp ? sp.tag || 1 : 1), stand: sp ? String(R.sparStand(sp, R.datumText(new Date()))) : '' },
+    budgets: daten.kategorien.filter((k) => k.art === 'budget').map((k) => ({
+      id: k.id, name: k.name, emoji: k.emoji || '', an: true, text: String(k.budget || (erstStart ? BUDGET_VORSCHLAEGE[k.id] || 0 : 0))
+    }))
+  };
+}
+
+// ---------- Darstellung ----------
+export function einfuehrungHtml(eb, h) {
+  const { esc, ICON } = h;
+  const art = SCHRITTE[eb.schritt];
+  const gesamt = SCHRITTE.length - 1;
+  const fortschritt = Math.min(eb.schritt, gesamt) / gesamt * 100;
+  let inhalt = '';
+
+  if (art === 'gehalt') {
+    inhalt = `<h2 class="ef-titel">Was kommt jeden Monat rein?</h2>
+      <p class="hinweistext">Dein Gehalt netto, so wie es auf dem Konto ankommt. Ein ungefährer Wert reicht, du kannst ihn jeden Monat korrigieren.</p>
+      <section class="karte">
+        <div class="feld"><label for="ef-gehalt">Gehalt netto pro Monat</label><input id="ef-gehalt" class="eingabe gross-eingabe" inputmode="decimal" data-feld="gehalt.text" value="${esc(eb.gehalt.text)}" placeholder="z. B. 2.400 €"></div>
+        <div class="label">Wann kommt es an?</div>
+        <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="gehalt.kommtAn" data-wert="Monatsende" aria-pressed="${eb.gehalt.kommtAn === 'Monatsende'}">am Monatsende</button><button data-a="ef-wert" data-pfad="gehalt.kommtAn" data-wert="Tag" aria-pressed="${eb.gehalt.kommtAn === 'Tag'}">an einem Tag</button></div>
+        ${eb.gehalt.kommtAn === 'Tag' ? `<div class="feld"><label for="ef-gtag">Am Tag</label>${tagAuswahl('ef-gtag', 'gehalt.tag', Number(eb.gehalt.tag))}</div>` : ''}
+      </section>`;
+  } else if (art.startsWith('liste:')) {
+    const l = LISTEN.find((x) => 'liste:' + x.id === art);
+    const posten = eb.listen[l.id];
+    const chips = posten.map((p, i) => p.eigen ? '' : p.vorhanden
+      ? `<span class="chip ef-chip da" aria-disabled="true">✓ ${esc(p.name)} <small>schon da</small></span>`
+      : `<button class="chip ef-chip" data-a="ef-waehlen" data-liste="${l.id}" data-i="${i}" aria-pressed="${p.gewaehlt}">${p.gewaehlt ? '✓ ' : ''}${esc(p.name)}</button>`).join('');
+    const gewaehlt = posten.map((p, i) => ({ p, i })).filter((x) => x.p.gewaehlt);
+    const karten = gewaehlt.map(({ p, i }) => {
+      const pf = `listen.${l.id}.${i}`;
+      const monat = p.wieOft === M ? '' : `<div class="feld"><label for="ef-m-${l.id}-${i}">${p.wieOft === J ? 'Im Monat' : 'Ab Monat'}</label><select id="ef-m-${l.id}-${i}" class="eingabe" data-feld="${pf}.monat" data-zahl="1">${R.MONATE_LANG.map((n, k) => `<option value="${k + 1}" ${Number(p.monat) === k + 1 ? 'selected' : ''}>${n}</option>`).join('')}</select></div>`;
+      return `<section class="karte ef-posten">
+        <div class="ef-zeile">
+          ${p.eigen ? `<input class="eingabe" data-feld="${pf}.name" value="${esc(p.name)}" placeholder="Name" aria-label="Name">` : `<b class="ef-name">${esc(p.name)}</b>`}
+          <input class="eingabe ef-betrag" inputmode="decimal" data-feld="${pf}.betragText" value="${esc(p.betragText)}" placeholder="Betrag €" aria-label="Betrag für ${esc(p.name || 'eigenen Posten')}">
+          <button class="knopf rund leise klein-x" data-a="ef-waehlen" data-liste="${l.id}" data-i="${i}" aria-label="${esc(p.name || 'Posten')} entfernen">${ICON.x}</button>
+        </div>
+        <div class="wahl zwei-sp ef-rhythmus">${RHYTHMEN.map(([w, t]) => `<button data-a="ef-wert" data-pfad="${pf}.wieOft" data-wert="${w}" aria-pressed="${p.wieOft === w}">${t}</button>`).join('')}</div>
+        <div class="zwei"><div class="feld"><label for="ef-t-${l.id}-${i}">Am Tag</label>${tagAuswahl(`ef-t-${l.id}-${i}`, pf + '.tag', Number(p.tag))}</div>${monat}</div>
+        ${p.anteil ? `<div class="feld"><label for="ef-a-${l.id}-${i}">Wie viel davon zahlst du? (%)</label><input id="ef-a-${l.id}-${i}" class="eingabe" inputmode="numeric" data-feld="${pf}.anteilText" value="${esc(p.anteilText)}"></div>` : ''}
+      </section>`;
+    }).join('');
+    inhalt = `<h2 class="ef-titel">${esc(l.emoji)} ${esc(l.titel)}</h2>
+      <p class="hinweistext">${esc(l.frage)} Antippen zum Auswählen. Nichts davon? Einfach „Weiter“.</p>
+      <div class="chips">${chips}<button class="chip ef-chip eigen" data-a="ef-eigen" data-liste="${l.id}">${ICON.plus} Eigene hinzufügen</button></div>
+      ${karten}`;
+  } else if (art === 'sparen') {
+    inhalt = `<h2 class="ef-titel">💰 Sparen</h2>
+      <p class="hinweistext">Sparst du jeden Monat einen festen Betrag? Das ist keine Ausgabe: Das Geld bleibt deins, es wird nur von „Frei“ abgezogen.</p>
+      <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="sparen.ja" data-wert="ja" aria-pressed="${eb.sparen.ja === true}">Ja</button><button data-a="ef-wert" data-pfad="sparen.ja" data-wert="nein" aria-pressed="${eb.sparen.ja === false}">Nein</button></div>
+      ${eb.sparen.ja ? `<section class="karte">
+        <div class="zwei"><div class="feld"><label for="ef-sb">Rate pro Monat</label><input id="ef-sb" class="eingabe" inputmode="decimal" data-feld="sparen.betrag" value="${esc(eb.sparen.betrag)}" placeholder="z. B. 200 €"></div>
+        <div class="feld"><label for="ef-st">Am Tag</label>${tagAuswahl('ef-st', 'sparen.tag', Number(eb.sparen.tag))}</div></div>
+        <div class="feld"><label for="ef-ss">Was liegt heute schon auf dem Sparkonto?</label><input id="ef-ss" class="eingabe" inputmode="decimal" data-feld="sparen.stand" value="${esc(eb.sparen.stand)}" placeholder="0 €"></div>
+      </section>` : ''}`;
+  } else if (art === 'budgets') {
+    const zeilen = eb.budgets.map((b, i) => `<div class="ef-budget ${b.an ? '' : 'aus'}">
+        <button class="schalter" role="switch" aria-checked="${b.an}" data-a="ef-budget-an" data-i="${i}" aria-label="${esc(b.name || 'Budget')} verwenden" style="width:auto"><span class="spur"></span></button>
+        ${b.neu ? `<input class="eingabe emoji-feld klein-emoji" data-feld="budgets.${i}.emoji" value="${esc(b.emoji)}" placeholder="🙂" aria-label="Emoji" maxlength="8"><input class="eingabe" data-feld="budgets.${i}.name" value="${esc(b.name)}" placeholder="Name" aria-label="Name">`
+          : `<span class="ef-name">${esc((b.emoji ? b.emoji + ' ' : '') + b.name)}</span>`}
+        <input class="eingabe ef-betrag" inputmode="decimal" data-feld="budgets.${i}.text" value="${esc(b.text)}" aria-label="Budget ${esc(b.name)} pro Monat" ${b.an ? '' : 'disabled'}>
+      </div>`).join('');
+    inhalt = `<h2 class="ef-titel">🛒 Budgets für den Alltag</h2>
+      <p class="hinweistext">Wie viel willst du pro Monat ungefähr ausgeben? Gebucht wird später mit den Widgets auf dem Homescreen. 0 € = ohne festes Budget.</p>
+      <section class="karte">${zeilen}</section>
+      <button class="knopf akzent" data-a="ef-budget-neu">${ICON.plus} Eigenes Budget</button>`;
+  } else {
+    const probe = h.kopie(h.z.daten);
+    anwenden(probe, eb, h.zahl);
+    const r = R.monatsRechnung(probe, h.heuteYm());
+    const anzahl = probe.fixkosten.length;
+    inhalt = `<h2 class="ef-titel">Fertig eingerichtet</h2>
+      <section class="karte ring"><div class="label">Frei im ${esc(h.monatsName(h.heuteYm()))}</div><div class="grosszahl ${r.frei < 0 ? 'minus' : ''}">${r.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei))}</div>
+        <p class="hinweistext">${anzahl} Fixkosten, ${probe.kategorien.filter((k) => k.art === 'budget' && k.budget > 0).length} Budgets${r.sparen ? ', ' + R.euroRund(r.sparen) + ' aufs Sparkonto' : ''}. Alles lässt sich in der Monatsansicht antippen und ändern.</p></section>
+      <section class="karte"><div class="label">Widgets auf den Homescreen legen</div>
+        <ol class="hinweistext" style="margin:0;padding-left:20px;line-height:1.6"><li>Lange auf eine freie Stelle des Homescreens drücken</li><li>„Widgets“ antippen und „Finanzen“ suchen</li><li>„Budget“ auf den Homescreen ziehen und eine Kategorie wählen</li><li>Für jede Kategorie ein eigenes Widget, dazu gern „Fixkosten“</li></ol></section>`;
+  }
+
+  const zurueckText = eb.schritt === 0 ? (eb.erstStart ? 'Zurück' : 'Abbrechen') : 'Zurück';
+  const weiterText = art === 'fertig' ? 'Fertig' : 'Weiter';
+  return `<div class="seite" role="dialog" aria-modal="true" aria-label="Einführung"><div class="seite-innen">
+    <div class="ef-kopf"><span class="klein">${art === 'fertig' ? 'Geschafft' : `Schritt ${eb.schritt + 1} von ${gesamt}`}</span>${art === 'fertig' ? '' : '<button class="knopf klein leise" data-a="ef-ueberspringen">Alles überspringen</button>'}</div>
+    <div class="ef-fortschritt" role="progressbar" aria-valuenow="${Math.round(fortschritt)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${fortschritt}%"></span></div>
+    ${inhalt}
+    ${eb.fehler ? `<p class="fehlertext" role="alert">${esc(eb.fehler)}</p>` : ''}
+    <div class="abstand"></div>
+    <div class="knopfreihe"><button class="knopf leise" data-a="ef-zurueck">${zurueckText}</button><button class="knopf haupt breit" data-a="ef-weiter">${weiterText}</button></div>
+  </div></div>`;
+}
+
+function tagAuswahl(id, pfad, wert) {
+  return `<select id="${id}" class="eingabe" data-feld="${pfad}" data-zahl="1">${Array.from({ length: 31 }, (_, k) => `<option value="${k + 1}" ${wert === k + 1 ? 'selected' : ''}>${k + 1}.</option>`).join('')}</select>`;
+}
+
+// ---------- Prüfen und Übernehmen ----------
+export function pruefeSchritt(eb, zahl) {
+  const art = SCHRITTE[eb.schritt];
+  if (art === 'gehalt' && eb.gehalt.text.trim() && (isNaN(zahl(eb.gehalt.text)) || zahl(eb.gehalt.text) < 0)) return 'Das Gehalt ist keine Zahl.';
+  if (art.startsWith('liste:')) {
+    const posten = eb.listen[art.slice(6)].filter((p) => p.gewaehlt);
+    const ohneName = posten.filter((p) => !String(p.name || '').trim());
+    if (ohneName.length) return 'Bitte gib dem eigenen Posten einen Namen oder entferne ihn mit ✕.';
+    const ohne = posten.filter((p) => isNaN(zahl(p.betragText)) || zahl(p.betragText) <= 0);
+    if (ohne.length) return `Bei ${ohne.map((p) => p.name).join(', ')} fehlt noch der Betrag. Eintragen oder mit ✕ entfernen.`;
+    const anteil = posten.filter((p) => p.anteil && (isNaN(zahl(p.anteilText)) || zahl(p.anteilText) <= 0 || zahl(p.anteilText) > 100));
+    if (anteil.length) return 'Der Anteil muss zwischen 1 und 100 % liegen.';
+  }
+  if (art === 'sparen' && eb.sparen.ja) {
+    if (isNaN(zahl(eb.sparen.betrag)) || zahl(eb.sparen.betrag) <= 0) return 'Bitte die Sparrate eintragen oder „Nein“ wählen.';
+    if (eb.sparen.stand.trim() && isNaN(zahl(eb.sparen.stand))) return 'Der Stand ist keine Zahl.';
+  }
+  if (art === 'budgets') {
+    const falsch = eb.budgets.filter((b) => b.an && (isNaN(zahl(b.text || '0')) || zahl(b.text || '0') < 0));
+    if (falsch.length) return 'Ein Budget ist keine Zahl.';
+    if (eb.budgets.some((b) => b.an && b.neu && !b.name.trim())) return 'Bitte dem eigenen Budget einen Namen geben.';
+  }
+  return null;
+}
+
+export function anwenden(d, eb, zahlFn) {
+  const zahl = zahlFn || ((t) => Number(String(t).replace(/[€\s.]/g, '').replace(',', '.')));
+  const g = d.einnahmen.find((e) => e.wieOft === 'monatlich');
+  if (g && eb.gehalt.text.trim() && !isNaN(zahl(eb.gehalt.text))) {
+    g.betrag = zahl(eb.gehalt.text);
+    g.kommtAn = eb.gehalt.kommtAn;
+    if (eb.gehalt.kommtAn === 'Tag') g.ankunftTag = Number(eb.gehalt.tag) || 1;
+  }
+  for (const l of LISTEN) {
+    const neu = eb.listen[l.id].filter((p) => p.gewaehlt && !p.vorhanden && zahl(p.betragText) > 0);
+    if (!neu.length) continue;
+    if (!d.kategorien.some((k) => k.id === l.id)) {
+      d.kategorien.splice(d.kategorien.filter((k) => k.art === 'fix').length, 0, { id: l.id, name: l.titel, art: 'fix', farbe: l.farbe, emoji: l.emoji });
+    }
+    for (const p of neu) {
+      d.fixkosten.push({ id: D.neueId('fk'), name: String(p.name).trim(), betrag: zahl(p.betragText), wieOft: p.wieOft, tag: Number(p.tag) || 1,
+        monat: p.wieOft === 'monatlich' ? null : Number(p.monat) || 1, kategorieId: l.id, abo: !!p.abo,
+        meinAnteil: p.anteil ? zahl(p.anteilText) || 100 : 100, endetAm: null, kuendigungsfrist: null });
+    }
+  }
+  if (eb.sparen.ja && zahl(eb.sparen.betrag) > 0) {
+    const werte = { betrag: zahl(eb.sparen.betrag), tag: Number(eb.sparen.tag) || 1, stand: zahl(eb.sparen.stand || '0') || 0, standDatum: R.datumText(new Date()) };
+    if (d.sparraten[0]) Object.assign(d.sparraten[0], werte);
+    else d.sparraten.push(Object.assign({ id: 'sparkonto', name: 'Sparkonto', ziel: null }, werte));
+  }
+  for (const b of eb.budgets) {
+    const k = d.kategorien.find((x) => x.id === b.id);
+    if (!b.an) {
+      if (k && !d.buchungen.some((x) => x.kategorieId === k.id)) d.kategorien = d.kategorien.filter((x) => x !== k);
+      else if (k) k.budget = 0;
+      continue;
+    }
+    const betrag = zahl(b.text || '0') || 0;
+    if (k) Object.assign(k, { budget: betrag });
+    else if (b.name.trim()) d.kategorien.push({ id: D.neueId('kat'), name: b.name.trim(), emoji: (b.emoji || '').trim(), art: 'budget', budget: betrag, symbol: 'sonstiges', schritte: [5, 10, 20], frage: 'Wofür?', chips: [] });
+  }
+  delete d.beispiel;
+  return d;
+}
+
+export { SCHRITTE };

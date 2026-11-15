@@ -61,7 +61,7 @@ class BudgetWidgetEinrichtung : Activity() {
         for (k in kats) {
             val id = k.optString("id")
             val b = Button(this).apply {
-                text = k.optString("name") + if (k.optDouble("budget", 0.0) > 0) "  ·  Budget " + Logik.euro(k.optDouble("budget")) else ""
+                text = (k.optString("emoji", "").takeIf { it.isNotBlank() && it != "null" }?.let { "$it  " } ?: "") + k.optString("name") + if (k.optDouble("budget", 0.0) > 0) "  ·  Budget " + Logik.euro(k.optDouble("budget")) else ""
                 isAllCaps = false
                 textSize = 17f
                 typeface = schrift(R.font.barlow_medium)

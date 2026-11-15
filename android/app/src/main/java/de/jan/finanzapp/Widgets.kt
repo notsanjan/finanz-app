@@ -133,7 +133,16 @@ object Widgets {
         val letzte = if (letzteId != null) Logik.buchungFinden(daten, letzteId) else null
         if (letzte == null && phase == "gebucht") phase = ""
 
-        v.setImageViewResource(R.id.symbol, symbol(kat.optString("symbol")))
+        val emoji = kat.optString("emoji", "").takeIf { it.isNotBlank() && it != "null" }
+        if (emoji != null) {
+            v.setViewVisibility(R.id.symbol, View.GONE)
+            v.setViewVisibility(R.id.symbolEmoji, View.VISIBLE)
+            v.setTextViewText(R.id.symbolEmoji, emoji)
+        } else {
+            v.setViewVisibility(R.id.symbol, View.VISIBLE)
+            v.setViewVisibility(R.id.symbolEmoji, View.GONE)
+            v.setImageViewResource(R.id.symbol, symbol(kat.optString("symbol")))
+        }
         v.setTextViewText(R.id.name, kat.optString("name"))
         v.setTextViewText(R.id.budget, if (budget > 0) "Budget " + Logik.euro(budget) else "ohne Budget")
         v.setTextViewText(R.id.label, "AUSGEGEBEN IM " + Logik.MONATE_LANG[Logik.monatsNummer(ym) - 1].uppercase())
