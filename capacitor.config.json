@@ -2,5 +2,8 @@
   "appId": "de.jan.finanzapp",
   "appName": "Finanzen",
   "webDir": "www",
-  "android": { "allowMixedContent": false }
+  "android": { "allowMixedContent": false },
+  "plugins": {
+    "SystemBars": { "style": "DARK", "insetsHandling": "css" }
+  }
 }
