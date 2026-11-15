@@ -4,12 +4,11 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v13';
+export const APP_VERSION = 'finanz-v14';
 const NEU_IN_VERSION = [
-  'Schneller erfassen: Im Widget auf den Betrag (✎) tippen öffnet sofort „Ausgabe eintragen“ – Kategorie gewählt, Tastatur offen. Für genaue Beträge wie 67,43 € beim Tanken',
-  'App-Symbol lange drücken: „Ausgabe eintragen“ und deine 3 meistgenutzten Kategorien. Lassen sich auch als eigene Symbole auf den Homescreen ziehen',
-  '＋ merkt sich die zuletzt benutzte Kategorie',
-  'Monatsende: Die App fragt, was mit dem Rest vom Vormonat passiert ist'
+  'BETA – Zahlungen automatisch erkennen: Die App liest Benachrichtigungen von PayPal, Google Wallet oder deiner Banking-App mit und schlägt Buchungen vor. Einschalten unter Einstellungen. Bucht nie selbst',
+  'Geteilte Kosten: Bei Fixkosten unter „Mehr“ deinen Anteil eintragen, dazu wer dir den Rest überweist und an welchem Tag. Die Liste zeigt Gesamtbetrag und deinen Anteil',
+  'Optional: von welchem Konto abgebucht wird'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -60,7 +59,7 @@ export async function start() {
   D.beiAuftrag(() => pruefeAuftrag());
   D.beiRueckkehr(async () => {
     const neu = await D.laden();
-    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); pruefeMonatsende(); }
+    if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); await ladeVorschlaege(); if (z.erkennung) { z.erkennung = await D.erkennungStatus(); renderEbenen(); } pruefeMonatsende(); }
   });
   window.__finanz = z; // für Tests
 }
@@ -68,6 +67,14 @@ export async function start() {
 // Widget-Betrag oder Kurzbefehl am App-Symbol: direkt „Ausgabe eintragen“ öffnen
 async function pruefeAuftrag() {
   const a = await D.auftragHolen();
+  await ladeVorschlaege();
+  if (a && a.art === 'vorschlaege' && z.daten && z.vorschlaege.length) {
+    z.ebenen = z.ebenen.filter((e) => e.art === 'start' || e.art === 'einfuehrung');
+    if (z.ebenen.length) return;
+    z.ansicht = 'monat'; z.monat = heuteYm(); z.monatsendeGefragt = true; render();
+    AKTION.vorschlaege();
+    return;
+  }
   if (!a || a.art !== 'ausgabe' || !z.daten) return;
   z.ebenen = z.ebenen.filter((e) => e.art === 'start' || e.art === 'einfuehrung');
   if (z.ebenen.length) return;
@@ -76,6 +83,12 @@ async function pruefeAuftrag() {
   render();
   AKTION.eintragen({ dataset: { wert: 'ausgabe', kat: a.kategorie || '' } });
   setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) { f.focus(); D.tastaturZeigen(); } }, 250);
+}
+// BETA: erkannte Zahlungen laden (Liste liegt im Android-Teil)
+async function ladeVorschlaege() {
+  const alt = (z.vorschlaege || []).length;
+  z.vorschlaege = await D.vorschlaegeHolen();
+  if (z.vorschlaege.length !== alt) render();
 }
 // Neuer Monat: einmal pro App-Start nach dem Rest des Vormonats fragen (nur wenn nichts anderes offen ist)
 function pruefeMonatsende() {
@@ -348,7 +361,8 @@ function monatAnsicht() {
     ? '<button class="knopf klein haupt" data-a="bearbeiten-aus">Fertig</button>'
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
-  return t.nav + t.freiKarte + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
+  const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
+  return t.nav + t.freiKarte + vk + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>
     <div class="fab-platz"></div>`;
@@ -433,7 +447,7 @@ function bereichHtml(eb) {
   else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
   else if (eb.typ === 'abos') inhalt = abosHtml(z.monat);
   else if (eb.typ === 'geplant') inhalt = t.s >= heuteYm() ? t.geplantKarte : '<div class="leerzustand">Für vergangene Monate lässt sich nichts mehr planen.</div>';
-  else inhalt = t.sicherung;
+  else inhalt = erkennungKarte() + t.sicherung;
   if (eb.typ === 'konten') {
     inhalt += `${t.rk || t.konten.includes('hinweis-karte') ? '' : '<button class="knopf akzent" data-a="ruecklage">' + ICON.plus + ' Rücklagenkonto einrichten</button>'}<button class="knopf akzent" data-a="sparkonto">${ICON.plus} Konto anlegen</button>`;
   }
@@ -455,7 +469,7 @@ function ausgabenHtml(r, s) {
     return R.MONATE_KURZ[m - 1];
   };
   const fixZeile = (p) => p.faellig
-    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`
+    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small>${geteiltHtml(p.fixkosten)}</span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`
     : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
   const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
   const budgetZeile = (p) => {
@@ -473,7 +487,7 @@ function ausgabenHtml(r, s) {
     const info = f.wieOft === 'monatlich' ? esc(p.wann)
       : f.wieOft === 'jaehrlich' ? `${R.euro(p.betrag)} einmal im Jahr · im ${monate}`
       : `${R.euro(p.betrag)} ${esc(R.RHYTHMUS_TEXT[f.wieOft])} (${monate}) · ${R.euro(Math.round(jahr))} im Jahr`;
-    return `<button class="posten" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${info}</small></span><span class="b">${f.wieOft === 'monatlich' ? '' : '≈ '}${R.euro(Math.round(p.anteil * 100) / 100)}</span>${PFEIL}</button>`;
+    return `<button class="posten" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${info}</small>${geteiltHtml(f)}</span><span class="b">${f.wieOft === 'monatlich' ? '' : '≈ '}${R.euro(Math.round(p.anteil * 100) / 100)}</span>${PFEIL}</button>`;
   };
 
   const karten = r.gruppen.map((gr) => {
@@ -744,6 +758,55 @@ async function uebertragSpeichern(eb, betrag) {
   await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id }); },
     { text: `${R.euro(betrag)} aufs ${name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); } });
 }
+// ---------- Geteilte Kosten ----------
+// Zeile unter einer Fixkoste: Gesamtbetrag, wer den Rest zurückzahlt, von welchem Konto abgebucht wird
+function geteiltText(f) {
+  const anteil = f.meinAnteil == null ? 100 : Number(f.meinAnteil);
+  const teile = [];
+  if (anteil < 100) {
+    const rest = (Number(f.betrag) || 0) - R.eigenerBetrag(f);
+    teile.push(`gesamt ${R.euro(f.betrag)} · dein Anteil ${String(anteil).replace('.', ',')} %`);
+    if (f.teiltMit) teile.push(`↩ ${f.teiltMit} überweist dir ${R.euro(Math.round(rest * 100) / 100)}${f.erstattungTag ? ' am ' + f.erstattungTag + '.' : ''}`);
+  }
+  if (f.konto) teile.push(`Abbuchung: ${f.konto}`);
+  return teile;
+}
+function geteiltFelder(f) {
+  const anteil = zahl(String(f.meinAnteil == null ? 100 : f.meinAnteil));
+  const betrag = zahl(f.betragText || String(f.betrag || ''));
+  if (isNaN(anteil) || anteil >= 100) return '<p class="hinweistext">Teilst du das mit jemandem? Trag deinen Anteil ein, z. B. 50 %. Gerechnet wird dann nur mit deinem Teil.</p>';
+  const rest = !isNaN(betrag) && betrag > 0 ? betrag - betrag * anteil / 100 : null;
+  return `<p class="hinweistext">${!isNaN(betrag) && betrag > 0 ? `Gesamt ${R.euro(betrag)} · du zahlst ${R.euro(Math.round(betrag * anteil) / 100)} · zurück bekommst du ${R.euro(Math.round(rest * 100) / 100)}.` : ''} Belastet wird nur dein Anteil.</p>
+    <div class="zwei">
+      <div class="feld"><label for="fk-teilt">Wer zahlt dir den Rest?</label><input id="fk-teilt" class="eingabe" data-feld="teiltMit" value="${esc(f.teiltMit || '')}" placeholder="z. B. Anna"></div>
+      <div class="feld"><label for="fk-etag">Überweist am Tag</label><input id="fk-etag" class="eingabe" inputmode="numeric" data-feld="erstattungTag" value="${esc(f.erstattungTag || '')}" placeholder="z. B. 5"></div>
+    </div>`;
+}
+const geteiltHtml = (f) => geteiltText(f).map((t) => `<span class="geteilt">${esc(t)}</span>`).join('');
+
+// ---------- BETA: Zahlungen erkennen ----------
+function erkennungKarte() {
+  const e = z.erkennung;
+  if (!e) { D.erkennungStatus().then((x) => { z.erkennung = x; renderEbenen(); }); return '<section class="karte"><div class="label">Zahlungen erkennen <span class="beta">BETA</span></div><p class="hinweistext">Lädt …</p></section>'; }
+  const kopf = '<div class="label">Zahlungen automatisch erkennen <span class="beta">BETA</span></div>';
+  const info = '<p class="hinweistext">Die App liest Benachrichtigungen von PayPal, Google Wallet oder deiner Banking-App mit und schlägt daraus Buchungen vor. Sie bucht nie selbst – du bestätigst jede Zahlung. Alles bleibt auf diesem Handy. <b>Beta:</b> Die Erkennung wird noch erprobt, nicht jede Zahlung wird gefunden.</p>';
+  if (!e.verfuegbar) return `<section class="karte">${kopf}${info}<p class="hinweistext">Nur in der Android-App verfügbar.</p></section>`;
+  const apps = (e.apps || []).map((a) => `<button class="chip" data-a="er-app" data-wert="${esc(a.paket)}" data-an="${a.an ? 1 : 0}" aria-pressed="${!!a.an}">${a.an ? '✓ ' : ''}${esc(a.name)}</button>`).join('');
+  return `<section class="karte">${kopf}${info}
+    <div class="wahl zwei-sp">${wahlKnopf('er-an', '1', 'Ein', !!e.an)}${wahlKnopf('er-an', '0', 'Aus', !e.an)}</div>
+    ${e.an ? `<div class="er-status">${e.erlaubt ? '<span class="plus-zahl">✓</span> Zugriff auf Benachrichtigungen erlaubt' : '<span class="minus-zahl">!</span> Zugriff auf Benachrichtigungen fehlt noch'}</div>
+      ${e.erlaubt ? '' : '<button class="knopf haupt" data-a="er-erlauben">In den Einstellungen erlauben</button><p class="hinweistext">Dort „Finanz-App“ einschalten und zurückkommen.</p>'}
+      ${e.meldungen === false ? '<p class="hinweistext">Ohne Erlaubnis für Mitteilungen erscheinen erkannte Zahlungen nur hier in der App.</p>' : ''}
+      <div class="label">Diese Apps mitlesen</div>
+      <div class="chips">${apps || '<span class="klein">Noch keine Zahlungs-App gefunden. Sobald eine App einen Betrag meldet, erscheint sie hier.</span>'}</div>
+      <p class="hinweistext">Andere Apps, die Beträge melden, erscheinen hier automatisch und sind aus, bis du sie einschaltest.</p>` : ''}
+  </section>`;
+}
+function aehnlicheBuchung(v) {
+  const t = Date.parse(v.zeit);
+  return z.daten.buchungen.find((b) => Math.abs((Number(b.betrag) || 0) - v.betrag) < 0.005 && Math.abs(Date.parse(b.zeit) - t) < 36 * 3600 * 1000);
+}
+const haendlerSchluessel = (h) => (h || '').toLowerCase().replace(/[^a-z0-9äöüß]+/g, ' ').trim();
 // Einmalige Überträge eines Kontos (im Konto-Fenster, mit Löschen)
 function uebertragListe(kontoId) {
   if (!kontoId) return '';
@@ -782,6 +845,26 @@ const EBENEN = {
       <div class="feld"><label for="et-datum">Datum</label><input id="et-datum" class="eingabe" type="date" data-feld="datum" value="${esc(e.datum)}"></div>
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="et-speichern">${aus ? 'Ausgabe buchen' : 'Einnahme eintragen'}</button></div>`, 'Eintragen');
+  },
+  vorschlaege: (eb) => {
+    const liste = z.vorschlaege || [];
+    const v = liste[0];
+    if (!v) return sheet('<h2>Erkannte Zahlungen <span class="beta">BETA</span></h2><p class="hinweistext">Alles erledigt.</p><button class="knopf haupt" data-a="schliessen">Fertig</button>', 'Erkannte Zahlungen');
+    const e = eb.entwurf;
+    const doppelt = aehnlicheBuchung(v);
+    const dk = doppelt && R.kategorie(z.daten, doppelt.kategorieId);
+    const d = new Date(Date.parse(v.zeit));
+    const wann = `${d.getDate()}. ${R.MONATE_KURZ[d.getMonth()]}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return sheet(`<h2>Erkannte Zahlung <span class="beta">BETA</span></h2>
+      <p class="hinweistext">${liste.length > 1 ? `1 von ${liste.length} · ` : ''}über ${esc(v.appName || v.app)} · ${esc(wann)}</p>
+      <div class="betrag-gross minus"><span>−</span><input id="vs-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" aria-label="Betrag in Euro"><span>€</span></div>
+      <div class="feld"><label for="vs-ort">Wo?</label><input id="vs-ort" class="eingabe" data-feld="ort" value="${esc(e.ort)}" placeholder="z. B. Edeka"></div>
+      <div class="label">Kategorie</div><div class="chips">${budgetKats().map((k) => `<button class="chip" data-a="et-kat" data-wert="${esc(k.id)}" aria-pressed="${e.kategorieId === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('')}</div>
+      ${doppelt ? `<p class="hinweistext warn-text">Schon gebucht? Es gibt bereits ${R.euro(doppelt.betrag)} in ${esc(dk ? dk.name : 'einer Kategorie')} am ${Number(doppelt.zeit.slice(8, 10))}.${Number(doppelt.zeit.slice(5, 7))}. Dann „Ignorieren“.</p>` : ''}
+      <details class="vs-text"><summary>Originale Benachrichtigung</summary><p>${esc(v.text || '')}</p></details>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe"><button class="knopf leise" data-a="vs-ignorieren">Ignorieren</button><button class="knopf haupt breit" data-a="vs-buchen">Buchen</button></div>
+      <p class="hinweistext">Beta: Die Erkennung wird noch erprobt. Betrag und Ort bitte kurz prüfen.</p>`, 'Erkannte Zahlung');
   },
   monatsende: (eb) => {
     const e = eb.entwurf; const s = eb.monat;
@@ -843,7 +926,9 @@ const EBENEN = {
     } else zus = 'Trage einen Betrag ein.';
     const mehr = eb.mehr ? `<section class="karte">
         <button class="schalter" role="switch" aria-checked="${!!f.abo}" data-a="fk-abo"><span class="t">Ist ein Abo<br><span class="klein">Abos stehen gesammelt und lassen sich kündigen</span></span><span class="spur"></span></button>
-        <div class="feld"><label for="fk-anteil">Wie viel davon zahlst du? (%)</label><input id="fk-anteil" class="eingabe" inputmode="numeric" data-feld="meinAnteil" value="${esc(f.meinAnteil == null ? 100 : f.meinAnteil)}"></div>
+        <div class="feld"><label for="fk-anteil">Wie viel davon zahlst du? (%)</label><input id="fk-anteil" class="eingabe" inputmode="decimal" data-feld="meinAnteil" data-neu-zeichnen="1" value="${esc(f.meinAnteil == null ? 100 : f.meinAnteil)}"></div>
+        <div data-geteilt>${geteiltFelder(f)}</div>
+        <div class="feld"><label for="fk-konto">Abgebucht von Konto (optional)</label><input id="fk-konto" class="eingabe" data-feld="konto" value="${esc(f.konto || '')}" placeholder="z. B. Girokonto ••4417"></div>
         <div class="feld"><label for="fk-ende">Endet am (z. B. gekündigt zum)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
         <div class="feld"><label for="fk-frist">Kündigungsfrist</label><select id="fk-frist" class="eingabe" data-feld="kuendigungsfrist">${[['', 'keine / weiß nicht'], ['2w', '2 Wochen'], ['1m', '1 Monat'], ['3m', '3 Monate']].map(([w, t]) => `<option value="${w}" ${(f.kuendigungsfrist || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       </section>` : '';
@@ -1078,12 +1163,44 @@ const AKTION = {
     setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) f.focus(); }, 60);
   },
   'et-art': (el) => { if (el.dataset.wert === 'abo') { z.ebenen.pop(); AKTION['abo-neu'](); return; } oben().entwurf.art = el.dataset.wert; oben().fehler = null; renderEbenen(); const f = document.getElementById('et-betrag'); if (f) f.focus(); },
-  'et-kat': (el) => { oben().entwurf.kategorieId = el.dataset.wert; oben().entwurf.ort = ''; renderEbenen(); },
+  'et-kat': (el) => { oben().entwurf.kategorieId = el.dataset.wert; if (oben().art === 'eintragen') oben().entwurf.ort = ''; renderEbenen(); },
   'et-ort': (el) => { const e = oben().entwurf; e.ort = e.ort === el.dataset.wert ? '' : el.dataset.wert; renderEbenen(); },
   'et-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
   'et-ziel': (el) => { oben().entwurf.kontoId = el.dataset.wert; oben().fehler = null; renderEbenen(); },
   'et-oft': (el) => { const e = oben().entwurf; e.oft = el.dataset.wert; const k = alleKonten().find((x) => x.id === e.kontoId); if (e.oft === 'monatlich' && k) e.tagText = String(k.tag || 1); renderEbenen(); },
   'et-konto-neu': () => { oben().wartetAufKonto = true; AKTION.sparkonto({ dataset: {} }); },
+  vorschlaege: () => {
+    const v = (z.vorschlaege || [])[0];
+    const b = budgetKats();
+    const gemerkt = v && (z.daten.einstellungen.haendlerKategorie || {})[haendlerSchluessel(v.haendler)];
+    const katId = [gemerkt, z.daten.einstellungen.letzteKategorie].find((id) => id && b.some((x) => x.id === id)) || (b[0] || {}).id || '';
+    const neu = { art: 'vorschlaege', entwurf: { betragText: v ? R.euro(v.betrag, false) : '', ort: v ? v.haendler || '' : '', kategorieId: katId } };
+    if (oben() && oben().art === 'vorschlaege') { z.ebenen[z.ebenen.length - 1] = neu; renderEbenen(); } else oeffne(neu);
+  },
+  'vs-ignorieren': async () => {
+    const v = z.vorschlaege[0]; if (!v) return;
+    await D.vorschlaegeEntfernen([v.id]); z.vorschlaege = z.vorschlaege.slice(1);
+    if (z.vorschlaege.length) AKTION.vorschlaege(); else { z.ebenen.pop(); render(); zeigeToast('Alle erkannten Zahlungen erledigt'); }
+  },
+  'vs-buchen': async () => {
+    const eb = oben(); const e = eb.entwurf; const v = z.vorschlaege[0]; if (!v) return;
+    const betrag = zahl(e.betragText);
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    if (!e.kategorieId) { eb.fehler = 'Bitte eine Kategorie wählen.'; renderEbenen(); return; }
+    const id = D.neueId('b'); const ort = (e.ort || '').trim();
+    await D.vorschlaegeEntfernen([v.id]); z.vorschlaege = z.vorschlaege.slice(1);
+    const kat = R.kategorie(z.daten, e.kategorieId);
+    if (!z.vorschlaege.length) z.ebenen.pop();
+    await aendern((d) => {
+      d.buchungen.push({ id, zeit: v.zeit, kategorieId: e.kategorieId, betrag, ort: ort || null, quelle: 'erkannt' });
+      if (ort) d.einstellungen.haendlerKategorie = Object.assign({}, d.einstellungen.haendlerKategorie, { [haendlerSchluessel(ort)]: e.kategorieId });
+      if (v.haendler && v.haendler !== ort) d.einstellungen.haendlerKategorie = Object.assign({}, d.einstellungen.haendlerKategorie, { [haendlerSchluessel(v.haendler)]: e.kategorieId });
+    }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
+    if (z.vorschlaege.length) AKTION.vorschlaege();
+  },
+  'er-an': async (el) => { const an = el.dataset.wert === '1'; await D.erkennungEinstellen(an); z.erkennung = await D.erkennungStatus(); renderEbenen(); },
+  'er-erlauben': async () => { await D.erkennungErlauben(); },
+  'er-app': async (el) => { await D.erkennungApp(el.dataset.wert, el.dataset.an !== '1'); z.erkennung = await D.erkennungStatus(); renderEbenen(); },
   monatsende: (el) => {
     const s = el.dataset.wert;
     const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
@@ -1205,7 +1322,7 @@ const AKTION = {
     if (!f) return;
     const entwurf = Object.assign(kopie(f), { betragText: R.euro(f.betrag, false) });
     if (!entwurf.monat) entwurf.monat = R.ymTeile(heuteYm()).monat;
-    oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist) });
+    oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist || f.konto || f.teiltMit) });
   },
   'fixkosten-neu': (el) => oeffne({ art: 'fixkosten', id: null, entwurf: { name: '', betragText: '', wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, kategorieId: el.dataset.kat || (fixKats()[0] || {}).id, abo: false, meinAnteil: 100, endetAm: null, kuendigungsfrist: null } }),
   'fk-rhythmus': (el) => { oben().entwurf.wieOft = el.dataset.wert; renderEbenen(); },
@@ -1245,11 +1362,14 @@ const AKTION = {
   'fk-speichern': async () => {
     const eb = oben(); const f = eb.entwurf;
     const betrag = zahl(f.betragText);
-    const anteil = zahl(f.meinAnteil);
+    const anteil = zahl(String(f.meinAnteil));
+    const etag = String(f.erstattungTag || '').trim() ? zahl(String(f.erstattungTag)) : null;
     if (!f.name.trim()) { eb.fehler = 'Bitte einen Namen eintragen.'; renderEbenen(); return; }
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
     if (isNaN(anteil) || anteil <= 0 || anteil > 100) { eb.fehler = 'Der Anteil muss zwischen 1 und 100 % liegen.'; renderEbenen(); return; }
-    const fertig = { id: eb.id || D.neueId('fk'), name: f.name.trim(), betrag, wieOft: f.wieOft, tag: f.tag, monat: f.wieOft === 'monatlich' ? null : f.monat, kategorieId: f.kategorieId, abo: !!f.abo, meinAnteil: anteil, endetAm: f.endetAm || null, kuendigungsfrist: f.kuendigungsfrist || null };
+    if (etag !== null && (isNaN(etag) || etag < 1 || etag > 31)) { eb.fehler = 'Der Tag der Überweisung muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
+    const fertig = { id: eb.id || D.neueId('fk'), name: f.name.trim(), betrag, wieOft: f.wieOft, tag: f.tag, monat: f.wieOft === 'monatlich' ? null : f.monat, kategorieId: f.kategorieId, abo: !!f.abo, meinAnteil: anteil, endetAm: f.endetAm || null, kuendigungsfrist: f.kuendigungsfrist || null,
+      teiltMit: anteil < 100 ? (f.teiltMit || '').trim() || null : null, erstattungTag: anteil < 100 && etag ? Math.round(etag) : null, konto: (f.konto || '').trim() || null };
     z.ebenen.pop();
     await aendern((d) => { const i = d.fixkosten.findIndex((x) => x.id === fertig.id); if (i >= 0) d.fixkosten[i] = Object.assign({}, d.fixkosten[i], fertig); else d.fixkosten.push(fertig); }, { text: `${fertig.name} gespeichert` });
   },
@@ -1733,4 +1853,7 @@ function aktualisiereZusammenfassung() {
   const neu = tmp.querySelector('[data-zusammenfassung]');
   const alt = document.querySelector('[data-zusammenfassung]');
   if (neu && alt) alt.textContent = neu.textContent;
+  // geteilte Kosten: Felder ein-/ausblenden, wenn der Anteil unter 100 % fällt (Eingaben bleiben im Entwurf)
+  const gn = tmp.querySelector('[data-geteilt]'), ga = document.querySelector('[data-geteilt]');
+  if (gn && ga && gn.innerHTML !== ga.innerHTML && !ga.contains(document.activeElement)) ga.innerHTML = gn.innerHTML;
 }

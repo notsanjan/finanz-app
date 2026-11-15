@@ -424,3 +424,17 @@ body.kachel-zieht { overflow: hidden; }
 .me-wahl { display: flex; flex-direction: column; gap: 8px; }
 .me-wahl button { min-height: 48px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, .14); background: rgba(255, 255, 255, .05); color: var(--text); font-size: 15px; text-align: left; padding: 0 16px; }
 .me-wahl button[aria-pressed="true"] { background: rgba(127, 214, 200, .16); border-color: var(--akzent); font-weight: 600; }
+
+/* BETA: erkannte Zahlungen */
+.beta { display: inline-block; font-size: 10.5px; letter-spacing: .08em; font-weight: 700; color: #14181b; background: #dfe6b0; border-radius: 6px; padding: 2px 6px; vertical-align: 2px; margin-left: 4px; }
+.vorschlag-karte { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid rgba(223, 230, 176, .45); background: rgba(223, 230, 176, .07); color: var(--text); margin-top: 12px; }
+.vorschlag-karte .mitte { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: 16px; }
+.vk-glocke { font-size: 22px; }
+.er-status { font-size: 15px; display: flex; gap: 8px; align-items: center; }
+.warn-text { color: var(--hinweis); }
+.vs-text { font-size: 13px; color: var(--gedaempft); }
+.vs-text summary { cursor: pointer; }
+.vs-text p { margin-top: 6px; white-space: pre-wrap; }
+
+/* Geteilte Kosten: Zusatzzeilen unter einer Fixkoste */
+.posten .geteilt { display: block; font-size: 12.5px; color: var(--hinweis); margin-top: 1px; }
