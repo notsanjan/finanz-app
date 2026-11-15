@@ -5,11 +5,13 @@ import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 import * as DRK from './drk.js';
 
-export const APP_VERSION = 'finanz-v25';
+export const APP_VERSION = 'finanz-v26';
 const NEU_IN_VERSION = [
-  'Neu: „? Betrag unbekannt“ bei Fixkosten/Abos, Ausgaben, Weiteren Einnahmen und beim Übertrag jeden Monat – mit Schätzung von–bis und der Wahl „Mitrechnen“ oder „Nicht mitrechnen“',
-  'Unter „Frei“ steht „Mit Offenem ≈ … bis …“; antippen öffnet die Übersicht „Offene Beträge“ mit Schalter pro Eintrag',
-  'Gehaltsrechner: Stunden, Zulagen und Abzüge dürfen „? unbekannt“ sein (von–bis); Seiten springen beim Antippen nicht mehr nach oben'
+  'Behoben: „Abbrechen / Buchen“ lagen bei offener Tastatur halb über dem Inhalt – die Leiste ist jetzt deckend und sitzt ganz unten',
+  'Verlauf: Buchungen von heute lassen sich jetzt auch ändern (nicht nur rückgängig machen)',
+  'Meldungen erscheinen oben, wenn ein Fenster offen ist – sie verdecken „Buchen“ nicht mehr',
+  'Übertrag am selben Tag wie der eingetragene Kontostand zählt jetzt zum Stand; Monatsende prüft Vertipper',
+  'Gehaltsrechner: Zulagen in Teilzeit anteilig; kleinere Textfehler behoben'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -215,6 +217,8 @@ function monatTeile(s = z.monat) {
   const zusatz = [];
   // Monatsende: Was ist mit dem Rest passiert? (vergangene Monate, und in den letzten 3 Tagen des aktuellen Monats)
   const endeNah = s === heuteYm() && Number(heute().slice(8)) >= R.tageImMonat(s) - 2;
+  // v26: Monate vor dem Start mit der App sind nicht erfasst – das sagen, statt „übrig“ vorzurechnen
+  if (s < z.daten.einstellungen.startMonat) zusatz.push(`<div class="frei-hinweis">Vor deinem Start mit der App (${esc(monatsName(z.daten.einstellungen.startMonat))}). Für diesen Monat ist nichts erfasst, die Zahl ist nur hochgerechnet.</div>`);
   if (s >= z.daten.einstellungen.startMonat && (vorbei || endeNah)) {
     if (R.monatAbgeschlossen(z.daten, s)) zusatz.push('<div class="frei-hinweis">✓ Monat abgeschlossen</div>');
     else {
@@ -385,7 +389,7 @@ function monatAnsicht() {
         : '–';
       const summe = (rk ? R.ruecklageStand(z.daten, stichtag) : 0) + sp.reduce((a, x) => a + R.sparStand(x, stichtag, z.daten), 0);
       return kachel('konten', 'Konten', rk || sp.length ? R.euroRund(summe) : '–',
-        luecke ? `Rücklage reicht bis ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
+        luecke ? `Rücklage reicht im ${R.MONATE_KURZ[R.ymTeile(R.ymAus(luecke.datum)).monat - 1]} nicht` : !rk && hatJaehrliche ? 'Rücklagenkonto einrichten?' : rk ? 'Rücklage reicht' : 'Sparen einrichten', luecke ? 'warn' : !rk && hatJaehrliche ? 'hinweis' : 'gut');
     },
     einnahmen: () => {
       const rein = weitereEinnahmen().filter((e) => R.einnahmeAktivIm(e, s));
@@ -409,7 +413,7 @@ function monatAnsicht() {
       const abos = aboListe(s).filter((x) => x.laeuft);
       const monat = abos.reduce((a, x) => a + x.proMonat, 0);
       const zeilen = abos.slice(0, 8).map((x) => `<button class="mini-zeile" data-a="fixkosten" data-id="${esc(x.f.id)}"><span>${esc(x.f.name)}</span>${x.f.offen ? offenZahl(x.f) : `<span class="minus-zahl">− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span>`}</button>`).join('');
-      return breiteKachel('abos', 'Abos', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${abos.length} Abos · ${rausSatz(monat * 12, true)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Abos.</div>');
+      return breiteKachel('abos', 'Abos', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${abos.length === 1 ? '1 Abo' : abos.length + ' Abos'} · ${rausSatz(monat * 12, true)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Abos.</div>');
     },
     naechste: (k) => {
       const liste = R.naechsteAbbuchungen(z.daten, heute()).slice(0, 6);
@@ -654,8 +658,9 @@ function verlaufAnsicht() {
     anzahl += liste.length;
     teile += `<div class="tag-titel">${esc(tagName(t))}</div><section class="karte verlauf">${liste.map((e) => {
       const kat = R.kategorie(z.daten, e.kategorieId);
+      // v26: heute geht beides – ändern (z. B. vertippt, Betrag nachtragen) und rückgängig
       const knopf = t === h
-        ? `<button class="knopf klein akzent" data-a="buchung-weg" data-id="${esc(e.id)}">Rückgängig</button>`
+        ? `<span class="eintrag-knoepfe"><button class="knopf klein leise" data-a="buchung" data-id="${esc(e.id)}">Ändern</button><button class="knopf klein akzent" data-a="buchung-weg" data-id="${esc(e.id)}">Rückgängig</button></span>`
         : `<button class="knopf klein leise" data-a="buchung" data-id="${esc(e.id)}">Ändern</button>`;
       const geteilt = e.gesamt ? `<span class="geteilt">geteilt${e.teiltMit ? ' mit ' + esc(e.teiltMit) : ''} · gesamt ${R.euro(e.gesamt)} · ${e.zurueckErhalten ? '✓ zurückbekommen' : R.euro(Math.round((e.gesamt - e.betrag) * 100) / 100) + ' offen'}</span>` : '';
       return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${betragHtml(e, rausZ(e.betrag))}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
@@ -675,14 +680,15 @@ function verlaufAnsicht() {
       const datum = s + '-' + R.zweistellig(tag);
       const istRk = sp.art === 'ruecklage';
       const art = R.kontoArt(sp);
-      const standDanach = (d2) => art === 'extern' ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
+      // v26: vor dem Tag, an dem der Stand eingetragen wurde, kennt die App den Stand nicht
+      const standDanach = (d2) => art === 'extern' || (sp.standDatum && d2 < sp.standDatum) ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
       const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : 'var(--spar)';
       if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name}`, wert: sp.offen ? offenZahl(sp) : rausZ(sp.betrag), text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
       for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
-          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(R.ruecklageStand(z.daten, d2))}` });
+          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(d2)}` });
         }
       }
     }
@@ -692,7 +698,7 @@ function verlaufAnsicht() {
     }
     if (g) {
       const w = R.einnahmeIm(g, s);
-      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)}`, wert: reinZ(w.betrag, true, w.geschaetzt ? '≈ ' : ''), text: w.geschaetzt ? 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren' : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
+      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)}`, wert: reinZ(w.betrag, true, w.geschaetzt ? '≈ ' : ''), text: w.geschaetzt ? (s + '-' + R.zweistellig(R.ankunftsTag(g, s)) > h ? `kommt am ${R.ankunftsTag(g, s)}.${R.ymTeile(s).monat}. (geschätzt) · antippen zum Korrigieren` : 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren') : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
     }
   }
   const keineHtml = keine.length ? `<div class="tag-titel">Keine Ausgaben</div><section class="karte verlauf">${keine.map((k) => {
@@ -852,8 +858,8 @@ async function uebertragSpeichern(eb, betrag) {
       const k = d.sparraten.find((x) => x.id === konto.id);
       const art = R.kontoArt(k);
       // Stand bis heute festhalten, damit die neue Rate nicht rückwirkend zählt
-      if (art === 'ruecklage') Object.assign(k, { stand: R.ruecklageStand(d, heute()), standDatum: heute() });
-      else if (art === 'sparen') Object.assign(k, { stand: R.sparStand(k, heute(), d), standDatum: heute() });
+      if (art === 'ruecklage') Object.assign(k, { stand: R.ruecklageStand(d, heute()), standDatum: heute(), standZeit: new Date().toISOString() });
+      else if (art === 'sparen') Object.assign(k, { stand: R.sparStand(k, heute(), d), standDatum: heute(), standZeit: new Date().toISOString() });
       Object.assign(k, { betrag, tag: Math.round(tag) }); delete k.offen;
     }, { text: `Jeden Monat ${R.euro(betrag)} aufs ${name}`, rueckgaengig: (d) => { const i = d.sparraten.findIndex((x) => x.id === alt.id); if (i >= 0) d.sparraten[i] = alt; } });
     return;
@@ -861,7 +867,7 @@ async function uebertragSpeichern(eb, betrag) {
   if (!e.datum) { eb.fehler = 'Bitte ein Datum wählen.'; renderEbenen(); return; }
   z.ebenen.pop();
   const id = D.neueId('ue');
-  await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id }); },
+  await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: e.datum, betrag, kontoId: konto.id, angelegt: new Date().toISOString() }); },
     { text: `${R.euro(betrag)} aufs ${name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); } });
 }
 // ---------- Gehalt bestätigen ----------
@@ -1321,7 +1327,7 @@ const EBENEN = {
       </section>
       <section class="karte gr-karte">
         <div class="label">Zulagen jeden Monat</div>
-        ${schalter('schicht', `Schichtzulage · ${R.euro(DRK.SCHICHTZULAGE)}`, 'bei ständiger Schichtarbeit (§ 14 Abs. 7)')}
+        ${schalter('schicht', `Schichtzulage · ${R.euro(DRK.SCHICHTZULAGE)}`, 'bei ständiger Schichtarbeit (§ 14 Abs. 7) · in Teilzeit anteilig')}
         ${schalter('praxis', `Praxisanleitung · ${R.euro(DRK.PRAXISANLEITUNG)}`, '§ 23 a Abs. 1 – mit deiner Abrechnung vergleichen')}
         ${feldO('gr-besitz', 'Besitzstand (€, falls auf der Abrechnung)', 'besitzText', 'z. B. 0')}
         ${feldO('gr-zulage', 'Weitere Zulagen (€)', 'zulageText', 'z. B. 98,12')}
@@ -1556,12 +1562,15 @@ const AKTION = {
     const eb = oben(); const e = eb.entwurf; const s = eb.monat;
     const betrag = zahl(e.betragText);
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    // v26: Schutz vor Vertippern – hier geht es nur um den Rest des Monats
+    const uebrigVorher = R.uebrigIm(z.daten, s).uebrig;
+    if (betrag > uebrigVorher + 0.005) { eb.fehler = `Das ist mehr, als im ${monatsName(s).split(' ')[0]} übrig war (≈ ${R.euro(Math.round(uebrigVorher * 100) / 100)}). Größere Beträge trägst du über ＋ ein.`; renderEbenen(); return; }
     const datum = letzterTag(s);
     let neu; let text;
     if (e.wahl === 'konto') {
       const konto = alleKonten().find((k) => k.id === e.kontoId);
       if (!konto) { eb.fehler = 'Bitte ein Konto wählen oder ein neues anlegen.'; renderEbenen(); return; }
-      neu = (d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id: D.neueId('ue'), datum, betrag, kontoId: konto.id }); };
+      neu = (d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id: D.neueId('ue'), datum, betrag, kontoId: konto.id, angelegt: new Date().toISOString() }); };
       text = `${R.euro(betrag)} aufs ${konto.name || 'Rücklagenkonto'}`;
     } else {
       if (!e.kategorieId) { eb.fehler = 'Bitte eine Kategorie wählen.'; renderEbenen(); return; }
@@ -1820,7 +1829,7 @@ const AKTION = {
   'bu-loeschen': () => {
     const id = oben().id; const k = R.kategorie(z.daten, id);
     const n = z.daten.buchungen.filter((b) => b.kategorieId === id).length;
-    oeffne({ art: 'frage', titel: `${k.name} löschen?`, text: n ? `Dazu gibt es ${n} Buchungen. Sie werden mitgelöscht. Widgets für dieses Budget zeigen danach „Kategorie wählen“.` : 'Widgets für dieses Budget zeigen danach „Kategorie wählen“.', ja: 'Löschen', bei: async () => {
+    oeffne({ art: 'frage', titel: `${k.name} löschen?`, text: n ? `Dazu ${n === 1 ? 'gibt es 1 Buchung. Sie wird' : `gibt es ${n} Buchungen. Sie werden`} mitgelöscht. Widgets für dieses Budget zeigen danach „Kategorie wählen“.` : 'Widgets für dieses Budget zeigen danach „Kategorie wählen“.', ja: 'Löschen', bei: async () => {
       z.ebenen.pop();
       const vorher = { k: kopie(k), i: z.daten.kategorien.indexOf(k), b: z.daten.buchungen.filter((b) => b.kategorieId === id) };
       await aendern((d) => { d.kategorien = d.kategorien.filter((x) => x.id !== id); d.buchungen = d.buchungen.filter((b) => b.kategorieId !== id); }, { text: `${k.name} gelöscht`, rueckgaengig: (d) => { d.kategorien.splice(vorher.i, 0, vorher.k); d.buchungen.push(...vorher.b); } });
@@ -1842,7 +1851,7 @@ const AKTION = {
     setTimeout(() => {
       const ziel = document.querySelector(`.eintrag[data-a="gehalt"][data-monat="${s}"]`);
       if (ziel) ziel.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      zeigeToast(`${gehalt().name} ${monatsName(s)} antippen und den echten Betrag eintragen`);
+      zeigeToast(`${gehalt().name} ${monatsName(s)} antippen und den echten Betrag eintragen`, null, 'info');
     }, 80);
   },
   'ge-schnitt': () => { const eb = oben(); const st = R.gehaltStatistik(gehalt(), 3); if (st.anzahl) { eb.schaetzungText = R.euro(Math.round(st.schnitt), false); renderEbenen(); } },
@@ -1882,7 +1891,7 @@ const AKTION = {
     if (!liste.length) { zeigeToast(an ? 'Alle mit Schätzung zählen schon mit' : 'Es zählt schon keiner mit', null, 'info'); return; }
     const vorher = liste.map((x) => [x.typ, x.id, !an]);
     await aendern((d) => liste.forEach((x) => R.offenZaehltSetzen(d, x.typ, x.id, an)),
-      { text: an ? `${liste.length} offene Beträge zählen jetzt mit` : `${liste.length} offene Beträge zählen nicht mehr mit`, rueckgaengig: (d) => vorher.forEach(([t, id, w]) => R.offenZaehltSetzen(d, t, id, w)) });
+      { text: liste.length === 1 ? `1 offener Betrag zählt ${an ? 'jetzt mit' : 'nicht mehr mit'}` : `${liste.length} offene Beträge zählen ${an ? 'jetzt mit' : 'nicht mehr mit'}`, rueckgaengig: (d) => vorher.forEach(([t, id, w]) => R.offenZaehltSetzen(d, t, id, w)) });
   },
   'of-oeffnen': (el) => {
     const { typ, id } = el.dataset;
@@ -1964,7 +1973,7 @@ const AKTION = {
     const unten = z.ebenen[z.ebenen.length - 1];
     if (unten && unten.wartetAufKonto) { unten.entwurf.kontoId = neuId; unten.wartetAufKonto = false; unten.fehler = null; }
     await aendern((d) => {
-      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), art: e.art === 'extern' ? 'extern' : undefined };
+      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString(), art: e.art === 'extern' ? 'extern' : undefined };
       const sp = d.sparraten.find((x) => x.id === eb.id);
       if (o) werte.offen = o.offen;
       if (sp) { Object.assign(sp, werte); if (!o) delete sp.offen; } else d.sparraten.push(Object.assign({ id: neuId, ziel: null }, werte));
@@ -1996,7 +2005,7 @@ const AKTION = {
     if (isNaN(stand)) { eb.fehler = 'Der Stand ist keine Zahl.'; renderEbenen(); return; }
     z.ebenen.pop();
     await aendern((d) => {
-      const werte = { betrag, tag: Math.round(tag), stand, standDatum: heute() };
+      const werte = { betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString() };
       const rk = d.sparraten.find((x) => x.art === 'ruecklage');
       if (rk) Object.assign(rk, werte); else d.sparraten.push(Object.assign({ id: 'ruecklage', name: 'Rücklagenkonto', art: 'ruecklage', ziel: null }, werte));
     }, { text: 'Rücklagenkonto gespeichert' });
@@ -2146,7 +2155,7 @@ const AKTION = {
       const pfad = await D.exportieren(z.daten, name);
       zeigeToast(`Gespeichert in ${pfad}`);
       render();
-    } catch (e) { zeigeToast('Sicherung fehlgeschlagen: ' + (e && e.message ? e.message : e)); }
+    } catch (e) { zeigeToast('Sicherung fehlgeschlagen: ' + (e && e.message ? e.message : e), null, 'fehler'); haptik('fehler'); }
   },
   import: () => document.getElementById('import-datei').click()
 };
@@ -2369,7 +2378,7 @@ function bindeEreignisse() {
     if (!datei) return;
     const text = await datei.text();
     const r = D.pruefeImport(text);
-    if (!r.ok) { zeigeToast(r.fehler); return; }
+    if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
     oeffne({ art: 'import-frage', daten: r.daten });
   });
   AKTION['import-ja'] = async () => {

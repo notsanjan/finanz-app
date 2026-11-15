@@ -38,4 +38,6 @@ test('Teilzeit halbiert das Tabellenentgelt, nicht die Zuschlagsbasis je Stunde'
   const r = gehaltRechnen({ ...basis, tz: 50, nacht: 10 }, '2026-11');
   assert.equal(r.tabellenentgelt, 2064.41);
   assert.equal(r.basisStunde, 22.16);
+  const z = gehaltRechnen({ ...basis, tz: 50, schicht: true }, '2026-11');
+  assert.deepEqual(z.zulagen[0], ['Schichtzulage (anteilig)', 57.5]); // § 29 Abs. 2: Zulagen anteilig
 });

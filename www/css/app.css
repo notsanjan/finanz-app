@@ -562,10 +562,13 @@ button.ef-chip.da { opacity: .75; }
 .bl-name { font-size: var(--t-text); }
 .bl-rest { font-size: var(--t-klein); color: var(--gedaempft); text-align: right; min-width: 92px; }
 .bl-rest.warn { color: var(--fehler); }
-.seite-innen > .knopfreihe:last-child, .sheet > .knopfreihe:last-child { position: sticky; bottom: 0; z-index: 2; padding: 12px 0 calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 12px); margin-bottom: calc(-1 * (var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 12px)); background: linear-gradient(to bottom, transparent, var(--bg) 35%); }
+.seite-innen > .knopfreihe:last-child, .sheet > .knopfreihe:last-child { position: sticky; z-index: 2; --unten: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 20px); bottom: 0; padding: 12px 0 var(--unten); margin-bottom: calc(-1 * var(--unten)); background: var(--bg); }
+.seite-innen > .knopfreihe:last-child::before, .sheet > .knopfreihe:last-child::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 18px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg)); }
 .bl-zeile .mini { margin-top: 0; }
 
-.sheet > .knopfreihe:last-child { background: linear-gradient(to bottom, transparent, var(--flaeche-fenster) 35%); }
+/* Fenster: der Rand unten gehört zur Scroll-Fläche, deshalb die Leiste um diesen Rand nach unten ziehen */
+.sheet > .knopfreihe:last-child { --unten: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 18px); bottom: calc(-1 * var(--unten)); background: var(--flaeche-fenster); }
+.sheet > .knopfreihe:last-child::before { background: linear-gradient(to bottom, transparent, var(--flaeche-fenster)); }
 
 /* v23: Geld-Farben auch in Zeilen-Titeln (Verlauf, Konten) – Größe vom Titel, Farbe rot/grün */
 .eintrag .t b > .minus-zahl, .eintrag .t b > .plus-zahl { font-size: inherit; }
@@ -628,3 +631,14 @@ button.ef-chip.da { opacity: .75; }
 .gr-frage::before { content: ''; position: absolute; inset: -12px -8px; }
 .gr-offen { margin-top: 6px; padding: 10px 12px; border-radius: var(--r-klein); border: 1px dashed var(--hinweis); display: flex; flex-direction: column; gap: 8px; }
 .gr-offen .gr-zeile { border: 0; padding: 0; }
+
+/* v26: Verlauf – heute „Ändern“ und „Rückgängig“ untereinander */
+.eintrag-knoepfe { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+
+/* v26: Ist ein Fenster von unten offen, kommt die Meldung oben – sonst verdeckt sie dessen Knöpfe (z. B. „Buchen“ bei erkannten Zahlungen) */
+.schleier + .toast { bottom: auto; top: calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 12px); }
+.schleier + .toast.neu { animation-name: toastReinOben; }
+@keyframes toastReinOben { from { opacity: 0; transform: translateX(-50%) translateY(-16px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+/* Tippen neben das Fenster soll weiter schließen, auch wenn dort gerade die Meldung steht */
+.schleier + .toast { pointer-events: none; }
+.schleier + .toast button { pointer-events: auto; }

@@ -8,6 +8,7 @@
 //   Basis = Stundenanteil der niedrigsten Stufe der eigenen Entgeltgruppe; Sonntag 25 %, Feiertag 35 %,
 //   24./31.12. ab 14 Uhr 35 %, Nachtarbeit (20–6 Uhr) 5,50 € je Stunde ab 01.01.2026.
 // - Schichtzulage § 14 Abs. 7: 115,00 € je Monat ab 01.01.2026 (ständige Schichtarbeit).
+// - Teilzeit § 29 Abs. 2: Tabellenentgelt und alle sonstigen Entgeltbestandteile anteilig (auch Schichtzulage).
 // - Stundenanteil § 29 Abs. 3: Monatsbetrag ÷ (4,348 × regelmäßige Wochenarbeitszeit). Rettungsdienst 38,5 Std. (§ 12 Abs. 1).
 // - Jahressonderzahlung § 23 Abs. 2 (ab 01.01.2026): 90 % des Durchschnitts Juli–September, mit dem Novembergehalt.
 // - Sozialversicherung 2026: RV 18,6 %, AV 2,6 %, KV 14,6 % + Zusatzbeitrag (Ø 2,9 %), PV 3,6 % (+0,6 % kinderlos ab 23,
@@ -86,8 +87,9 @@ export function gehaltRechnen(e, ym) {
 
   const tabellenentgelt = r2(reihe[stufe - 1] * tz);
   const zulagen = [];
-  if (e.schicht) zulagen.push(['Schichtzulage', SCHICHTZULAGE]);
-  if (e.praxis) zulagen.push(['Praxisanleitung', PRAXISANLEITUNG]);
+  // Teilzeit: alle Entgeltbestandteile anteilig (§ 29 Abs. 2 DRK-RTV) – auch die Zulagen
+  if (e.schicht) zulagen.push([tz < 1 ? 'Schichtzulage (anteilig)' : 'Schichtzulage', r2(SCHICHTZULAGE * tz)]);
+  if (e.praxis) zulagen.push([tz < 1 ? 'Praxisanleitung (anteilig)' : 'Praxisanleitung', r2(PRAXISANLEITUNG * tz)]);
   if (e.besitz > 0) zulagen.push(['Besitzstand', r2(e.besitz)]);
   if (e.zulage > 0) zulagen.push(['Weitere Zulagen', r2(e.zulage)]);
   const zulagenSumme = r2(zulagen.reduce((a, z) => a + z[1], 0));
