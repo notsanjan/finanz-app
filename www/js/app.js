@@ -4,12 +4,13 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v2';
+export const APP_VERSION = 'finanz-v3';
 const NEU_IN_VERSION = [
-  'Monat, Jahr und Verlauf wie im Mockup',
-  'Fixkosten, Budgets, Gehalt und Sparkonto bearbeiten',
-  'Widgets auf dem Homescreen: pro Kategorie eins, dazu „Fixkosten“',
-  'Sicherung als Datei exportieren und wieder importieren'
+  'Ausgaben neu: eine farbige Karte pro Kategorie, Farbe und Emoji selbst wählbar',
+  'Umschalter „Pro Monat gerechnet“: jährliche Kosten auf den Monat umgerechnet',
+  'Rücklagenkonto: jährliche Kosten über einen festen Dauerauftrag, jeden Monat gleich viel frei',
+  'Potenzielle Ausgaben planen: Die App warnt, wenn das Geld oder ein Budget nicht reicht',
+  'Einführung, die alles mit dir einrichtet (unten in der Monatsansicht erneut startbar)'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -101,7 +102,9 @@ function monatAnsicht() {
     <button class="knopf rund" data-a="monat" data-wert="1" aria-label="Nächster Monat">${ICON.rechts}</button>
   </div>`;
 
-  // Balken: jede Kategorie ein Stück, dann Zurücklegen, Sparkonto, Rest = Frei
+  const pruefung = R.wunschPruefung(z.daten, heuteYm());
+  const geplant = s >= heuteYm() ? R.geplantAusFrei(z.daten, s, pruefung) : 0;
+  // Balken: jede Kategorie ein Stück, dann Rücklage, Sparkonto, Rest = Frei
   const basis = Math.max(r.einkommen, r.ausgaben + r.zuruecklegen + r.sparen, 1);
   const pct = (x) => (Math.max(0, x) / basis * 100).toFixed(2);
   const stuecke = r.gruppen.filter((gr) => gr.summe > 0).map((gr) => `<span style="width:${pct(gr.summe)}%;background:${gr.farbe}" title="${esc(gr.name)}"></span>`).join('')
@@ -110,7 +113,11 @@ function monatAnsicht() {
     + (r.frei > 0 ? '<span class="rest"></span>' : '');
   const ungefaehr = r.geschaetzt ? '≈ ' : '';
   const freiText = (r.frei < 0 ? '− ' : ungefaehr) + R.euroRund(Math.abs(r.frei));
-  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${R.euroRund(r.zuruecklegen)} zurücklegen, ${R.euroRund(r.sparen)} aufs Sparkonto, ${freiText} frei`;
+  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparkonto, ${freiText} frei`;
+  const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
+  const zusatz = [];
+  if (geplant > 0) zusatz.push(`<div class="frei-zeile"><span>Nach Geplantem</span><b class="${r.frei - geplant < 0 ? 'minus' : ''}">${r.frei - geplant < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei - geplant))}</b></div>`);
+  if (brocken) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
   const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
 
   const freiKarte = `<section class="karte ring">
@@ -122,15 +129,33 @@ function monatAnsicht() {
     <div class="balken" role="img" aria-label="${esc(aria)}">${stuecke}</div>
     <div class="legende">
       <span><i class="punkt ausgaben"></i>Ausgaben · ${R.euroRund(r.ausgaben)}</span>
-      <span><i class="punkt streifen"></i>Zurücklegen · ${R.euroRund(r.zuruecklegen)}</span>
+      ${r.mitRuecklage ? `<span><i class="punkt streifen"></i>Rücklage · ${R.euroRund(r.zuruecklegen)}</span>` : ''}
       <span><i class="punkt" style="background:var(--spar)"></i>Sparkonto · ${R.euroRund(r.sparen)}</span>
       <span><i class="punkt leer"></i>Frei · ${freiText}</span>
     </div>
+    ${zusatz.join('')}
     ${g && !g.betrag && !gehaltWert.betrag ? '<button class="knopf haupt" data-a="gehalt">Gehalt eintragen</button>' : ''}
   </section>`;
 
-  const sparKarten = z.daten.sparraten.length ? z.daten.sparraten.map((sp) => {
-    const stichtag = s === heuteYm() ? heute() : (s < heuteYm() ? s + '-' + R.tageImMonat(s) : s + '-' + R.tageImMonat(s));
+  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
+  const rk = R.ruecklage(z.daten);
+  const hatJaehrliche = z.daten.fixkosten.some((f) => f.wieOft !== 'monatlich');
+  let ruecklageKarte = '';
+  if (rk) {
+    const luecke = R.ruecklageLuecke(z.daten, heute());
+    ruecklageKarte = `<button class="karte spar ruecklage" data-a="ruecklage">
+      <span class="symbol">${ICON.pfeil}</span>
+      <span class="mitte"><span style="font-size:15px;font-weight:600">Aufs Rücklagenkonto · ${R.euro(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
+        ${luecke ? `<span class="warn-text">Bis ${esc(Number(luecke.datum.slice(8)) + '. ' + R.MONATE_LANG[R.ymTeile(R.ymAus(luecke.datum)).monat - 1])} fehlen ≈ ${R.euroRund(luecke.fehlt)} (${esc(luecke.fixkosten.name)})</span>` : ''}</span>
+      <span class="stand"><span class="klein" style="font-size:12px">Stand</span><span style="font-size:17px;font-weight:500">${R.euroRund(R.ruecklageStand(z.daten, stichtag))}</span></span>
+    </button>`;
+  } else if (hatJaehrliche && !z.daten.einstellungen.ruecklageHinweisAus) {
+    ruecklageKarte = `<section class="karte hinweis-karte"><div class="hinweis-kopf"><b>Jährliche Kosten glätten?</b><button class="knopf klein leise rund" style="width:36px" data-a="ruecklage-hinweis-weg" aria-label="Hinweis schließen">${ICON.x}</button></div>
+      <p class="hinweistext">Mit einem eigenen Rücklagenkonto (z. B. Unterkonto oder Tagesgeld) und einem Dauerauftrag von ≈ ${R.euroRund(R.empfohleneRuecklage(z.daten, s))} im Monat ist jeden Monat gleich viel frei. Versicherungen und Co. zahlt dann die Rücklage.</p>
+      <button class="knopf akzent" data-a="ruecklage">Rücklagenkonto einrichten</button></section>`;
+  }
+  const normale = R.sparratenNormal(z.daten);
+  const sparKarten = normale.length ? normale.map((sp) => {
     return `<button class="karte spar" data-a="sparkonto" data-id="${esc(sp.id)}">
       <span class="symbol">${ICON.pfeil}</span>
       <span class="mitte"><span style="font-size:15px;font-weight:600">Aufs ${esc(sp.name)} · ${R.euro(sp.betrag)}</span><span class="klein">am ${sp.tag || 1}. · keine Ausgabe, das Geld bleibt deins</span></span>
@@ -139,6 +164,7 @@ function monatAnsicht() {
   }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:15px;font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
 
   const liste = ausgabenHtml(r, s);
+  const geplantKarte = s >= heuteYm() ? geplantHtml(s, pruefung) : '';
 
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
@@ -149,7 +175,7 @@ function monatAnsicht() {
     <div class="klein" style="font-size:12px">${APP_VERSION}</div>
   </section>`;
 
-  return nav + freiKarte + sparKarten + liste + sicherung;
+  return nav + freiKarte + ruecklageKarte + sparKarten + geplantKarte + liste + sicherung;
 }
 
 // ---------- Ausgabenliste ----------
@@ -168,7 +194,8 @@ function ausgabenHtml(r, s) {
   };
   const fixZeile = (p) => p.faellig
     ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`
-    : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${R.euro(p.betrag)} im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">≈ ${R.euro(Math.round(p.anteil))}</span>${PFEIL}</button>`;
+    : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
+  const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}</small></span><span class="b">${R.euro(p.betrag)}</span>${PFEIL}</button>`;
   const budgetZeile = (p) => {
     const pct = p.budget > 0 ? Math.min(100, p.ausgegeben / p.budget * 100) : 0;
     const ueber = p.budget > 0 && p.ausgegeben > p.budget;
@@ -196,10 +223,12 @@ function ausgabenHtml(r, s) {
         <button class="kat-kopf" data-a="kategorie" data-id="${esc(k.id)}" aria-label="Kategorie ${esc(gr.name)} bearbeiten">${zeichen}<span class="kat-titel"><b>${esc(gr.name)} ${STIFT_KLEIN}</b><small>${R.euroRund(monat * 12)} im Jahr</small></span><span class="kat-summe">≈ ${R.euroRund(monat)}</span></button>
         ${gr.posten.map(proMonatZeile).join('')}${!gr.posten.length ? '<div class="leer-zeile">Noch nichts eingetragen</div>' : ''}</section>`;
     }
-    const faellig = gr.posten.filter((p) => p.faellig);
-    const spaeter = gr.posten.filter((p) => !p.faellig);
+    const faellig = gr.posten.filter((p) => p.zaehlt);
+    const ausRk = gr.posten.filter((p) => p.ausRuecklage);
+    const spaeter = gr.posten.filter((p) => !p.faellig && !p.ausRuecklage);
     const zeilen = gr.art === 'budget' ? gr.posten.map(budgetZeile).join('') : faellig.map(fixZeile).join('');
-    const spaeterHtml = spaeter.length ? `<div class="unterkopf">Nicht im ${kurz} · ≈ ${R.euroRund(gr.anteilSumme)} pro Monat zurücklegen</div>${spaeter.map(fixZeile).join('')}` : '';
+    const spaeterHtml = (ausRk.length ? `<div class="unterkopf">Aus dem Rücklagenkonto bezahlt</div>${ausRk.map(rkZeile).join('')}` : '')
+      + (spaeter.length ? `<div class="unterkopf">Nicht im ${kurz}</div>${spaeter.map(fixZeile).join('')}` : '');
     const leer = !gr.posten.length ? '<div class="leer-zeile">Noch nichts eingetragen</div>' : '';
     const unter = gr.art === 'budget' ? 'Einkäufe aus den Widgets' : (faellig.length ? `${faellig.length} Abbuchung${faellig.length > 1 ? 'en' : ''} im ${kurz}` : `keine Abbuchung im ${kurz}`);
     const k = gr.kategorie;
@@ -225,7 +254,9 @@ function jahrAnsicht() {
   const max = Math.max(1, ...monate.map((m) => m.summe));
   const zeilen = monate.map((m) => {
     const teile = m.teile.filter((t) => t.summe > 0).map((t) => `<span style="width:${(t.summe / max * 100).toFixed(1)}%;background:${t.kategorie.farbe}"></span>`).join('');
-    const extra = m.zusaetzlich.length ? `<span class="extra">+ ${m.zusaetzlich.map((x) => esc(x.text)).join(' · ')}</span>` : '';
+    const rk = !!R.ruecklage(z.daten);
+    const extra = (m.zusaetzlich.length ? `<span class="extra">+ ${m.zusaetzlich.map((x) => esc(x.text)).join(' · ')}${rk ? ' · aus der Rücklage' : ''}</span>` : '')
+      + R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat).map((w) => `<span class="extra geplant">geplant: ${esc(w.name)} ${esc(R.preisText(w))}</span>`).join('');
     const jahr = R.ymTeile(m.monat).monat === 1 ? ` ${R.ymTeile(m.monat).jahr}` : '';
     return `<button class="jahr-zeile ${m.zusaetzlich.length ? 'gross' : ''}" data-a="zu-monat" data-wert="${m.monat}" aria-label="${esc(R.MONATE_LANG[R.ymTeile(m.monat).monat - 1] + jahr)}: ${R.euroRund(m.summe)}${m.zusaetzlich.length ? ', zusätzlich ' + esc(m.zusaetzlich.map((x) => x.text).join(', ')) : ''}">
       <span class="mon">${m.name}</span><span class="mitte"><span class="jahr-balken">${teile}</span>${extra}</span><span class="summe">${R.euroRund(m.summe)}</span></button>`;
@@ -274,7 +305,14 @@ function verlaufAnsicht() {
     for (const sp of z.daten.sparraten) {
       const tag = Math.min(sp.tag || 1, R.tageImMonat(s));
       const datum = s + '-' + R.zweistellig(tag);
-      if (datum <= h) keine.push({ farbe: 'var(--spar)', titel: `Aufs ${sp.name} · ${R.euro(sp.betrag)}`, text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(R.sparStand(sp, datum))}` });
+      const istRk = sp.art === 'ruecklage';
+      if (datum <= h) keine.push({ farbe: 'var(--spar)', titel: `Aufs ${sp.name} · ${R.euro(sp.betrag)}`, text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, datum) : R.sparStand(sp, datum))}` });
+      if (istRk) {
+        for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
+          const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
+          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: `${f.name} · ${R.euro(R.eigenerBetrag(f))} aus der Rücklage`, text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]} · Stand danach ${R.euroRund(R.ruecklageStand(z.daten, d2))}` });
+        }
+      }
     }
     if (g) {
       const w = R.einnahmeIm(g, s);
@@ -289,6 +327,46 @@ function verlaufAnsicht() {
   return `<p class="hinweistext">Jede Buchung zeigt den Stand vorher und nachher. Vertippt? Hier rückgängig machen oder den Betrag ändern.</p>${teile}${keineHtml}`;
 }
 function tages(m) { return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)); }
+
+// ---------- Potenzielle Ausgaben ----------
+function wunschStatus(w, r, s) {
+  if (!r) return { text: '', art: '' };
+  const mon = (m) => R.MONATE_LANG[R.ymTeile(m).monat - 1];
+  if (r.offen) {
+    if (r.sofort) return { text: 'Kann jetzt gekauft werden', art: 'gut' };
+    if (r.fruehestens) return { text: `ab ≈ ${mon(r.fruehestens)} leistbar`, art: '' };
+    return { text: 'In den nächsten 2 Jahren nicht leistbar', art: 'warn' };
+  }
+  const teile = [];
+  let art = 'gut';
+  if (r.budgetUeber > 0) { teile.push(`Budget ${r.kategorie.name} reicht nicht, ≈ ${R.euroRund(r.budgetUeber)} kommen aus „Frei“`); art = 'hinweis'; }
+  if (r.fehlt > 0) { teile.push(`Reicht im ${mon(r.monat)} nicht, es fehlen ≈ ${R.euroRund(r.fehlt)}` + (r.fruehestens ? ` · frühestens im ${mon(r.fruehestens)}` : '')); art = 'warn'; }
+  if (!teile.length) teile.push(`Passt in den ${mon(r.monat)}`);
+  return { text: teile.join(' · '), art };
+}
+
+function geplantHtml(s, pruefung) {
+  const istHeute = s === heuteYm();
+  const liste = R.offeneWuensche(z.daten).filter((w) => w.monat === s || (istHeute && (!w.monat || w.monat < s)));
+  const zeilen = liste.map((w) => {
+    const st = wunschStatus(w, pruefung[w.id], s);
+    const k = w.kategorieId ? R.kategorie(z.daten, w.kategorieId) : null;
+    const wann = w.monat ? (w.monat < s ? `geplant für ${R.MONATE_KURZ[R.ymTeile(w.monat).monat - 1]}` : '') : 'Monat noch offen';
+    const quelle = k ? `aus Budget ${mitEmoji(k)}${k.name}` : 'aus „Frei“';
+    return `<button class="posten" data-a="wunsch" data-id="${esc(w.id)}" aria-label="${esc(w.name)} bearbeiten"><span class="t"><span class="n">${esc((w.emoji ? w.emoji + ' ' : '') + w.name)}</span><small>${esc([wann, quelle].filter(Boolean).join(' · '))}</small>${st.text ? `<small class="status ${st.art}">${esc(st.text)}</small>` : ''}</span><span class="b">${esc(R.preisText(w))}</span>${PFEIL}</button>`;
+  }).join('');
+  return `<section class="karte geplant-karte">
+    <div class="geplant-kopf"><span class="t"><b>Geplant</b><small>potenzielle Ausgaben, noch nicht fest</small></span>${liste.length ? `<span class="kat-summe">${R.euroRund(liste.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : ''}</div>
+    ${zeilen}
+    <button class="knopf akzent" data-a="wunsch-neu" data-monat="${s}">${ICON.plus} Potenzielle Ausgabe planen</button>
+  </section>`;
+}
+
+function preisAusText(t) {
+  const teile = String(t || '').split(/\s*[–-]\s*(?=\d)/).map((x) => zahl(x));
+  if (teile.length === 2 && !isNaN(teile[0]) && !isNaN(teile[1]) && teile[1] > teile[0]) return { von: teile[0], bis: teile[1] };
+  return teile.length === 1 ? teile[0] : NaN;
+}
 
 // ---------- Ebenen (Seiten und Sheets) ----------
 function renderEbenen() {
@@ -463,6 +541,36 @@ const EBENEN = {
       ${chips ? `<div class="label">${esc(kat.frage || 'Wo?')}</div><div class="chips">${chips}${wahlKnopf('bh-ort', '', 'ohne', !eb.ort, 'class="chip"')}</div>` : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe"><button class="knopf leise" data-a="buchung-weg" data-id="${esc(b.id)}">Löschen</button><button class="knopf haupt breit" data-a="bh-speichern">Speichern</button></div>`, 'Buchung ändern');
+  },
+
+  wunsch: (eb) => {
+    const w = eb.entwurf;
+    const monate = Array.from({ length: 13 }, (_, i) => R.ymPlus(heuteYm(), i));
+    const budgets = budgetKats();
+    return sheet(`<h2>${eb.id ? 'Potenzielle Ausgabe' : 'Potenzielle Ausgabe planen'}</h2>
+      <p class="hinweistext">Noch nicht fest: Die App prüft nur, ob das Geld reicht, und warnt dich.</p>
+      <div class="feld"><label for="wu-name">Was?</label><input id="wu-name" class="eingabe" data-feld="name" value="${esc(w.name)}" placeholder="z. B. 🛰️ Starlink"></div>
+      <div class="feld"><label for="wu-preis">Preis (oder Spanne, z. B. 250–300)</label><input id="wu-preis" class="eingabe" inputmode="text" data-feld="preisText" value="${esc(w.preisText)}" placeholder="z. B. 300"></div>
+      <div class="feld"><label for="wu-monat">Wann?</label><select id="wu-monat" class="eingabe" data-feld="monat"><option value="" ${!w.monat ? 'selected' : ''}>noch offen – App sagt, ab wann es geht</option>${monate.map((m) => `<option value="${m}" ${w.monat === m ? 'selected' : ''}>${R.MONATE_LANG[R.ymTeile(m).monat - 1]} ${R.ymTeile(m).jahr}</option>`).join('')}</select></div>
+      <div class="feld"><label for="wu-quelle">Bezahlt aus</label><select id="wu-quelle" class="eingabe" data-feld="kategorieId"><option value="" ${!w.kategorieId ? 'selected' : ''}>„Frei“ (was übrig bleibt)</option>${budgets.map((k) => `<option value="${esc(k.id)}" ${w.kategorieId === k.id ? 'selected' : ''}>Budget ${esc(mitEmoji(k) + k.name)}</option>`).join('')}</select></div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      ${eb.id ? `<div class="knopfreihe"><button class="knopf leise" data-a="wu-loeschen">Löschen</button><button class="knopf" data-a="wu-gekauft">Gekauft</button><button class="knopf haupt" data-a="wu-speichern">Speichern</button></div>`
+        : `<div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="wu-speichern">Planen</button></div>`}`, 'Potenzielle Ausgabe');
+  },
+
+  ruecklage: (eb) => {
+    const e = eb.entwurf;
+    const empf = R.empfohleneRuecklage(z.daten, heuteYm());
+    return sheet(`<h2>Rücklagenkonto</h2>
+      <p class="hinweistext">Ein eigenes Konto (z. B. Unterkonto oder Tagesgeld), auf das ein Dauerauftrag jeden Monat denselben Betrag schiebt. Daraus zahlst du alle jährlichen und vierteljährlichen Kosten. So ist jeden Monat gleich viel frei.</p>
+      <div class="zusammenfassung">Empfohlen: <b>${R.euroRund(empf)} pro Monat</b>. Das ist die Summe der Monatsanteile aller nicht monatlichen Fixkosten. ${empf ? `<button class="knopf klein akzent" data-a="rk-empfohlen" style="margin-top:8px">${R.euroRund(empf)} übernehmen</button>` : ''}</div>
+      <div class="zwei">
+        <div class="feld"><label for="rk-betrag">Dauerauftrag pro Monat</label><input id="rk-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}"></div>
+        <div class="feld"><label for="rk-tag">Am Tag</label><input id="rk-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(e.tagText)}"></div>
+      </div>
+      <div class="feld"><label for="rk-stand">Was liegt heute auf dem Rücklagenkonto?</label><input id="rk-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(e.standText)}"></div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe">${eb.vorhanden ? '<button class="knopf leise" data-a="rk-loeschen">Ohne Rücklage</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="rk-speichern">Speichern</button></div>`, 'Rücklagenkonto');
   },
 
   'import-frage': (eb) => sheet(`<h2>Sicherung importieren?</h2>
@@ -690,6 +798,79 @@ const AKTION = {
     const id = oben().id; const sp = z.daten.sparraten.find((x) => x.id === id);
     z.ebenen.pop();
     await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.id !== id); }, { text: `${sp.name} gelöscht`, rueckgaengig: (d) => d.sparraten.push(sp) });
+  },
+
+  // Rücklagenkonto
+  ruecklage: () => {
+    const rk = R.ruecklage(z.daten);
+    const empf = R.empfohleneRuecklage(z.daten, heuteYm());
+    oeffne({ art: 'ruecklage', vorhanden: !!rk, entwurf: rk
+      ? { betragText: R.euro(rk.betrag, false), tagText: String(rk.tag || 1), standText: R.euro(Math.round(R.ruecklageStand(z.daten, heute()) * 100) / 100, false) }
+      : { betragText: String(empf || ''), tagText: '1', standText: '0' } });
+  },
+  'rk-empfohlen': () => { oben().entwurf.betragText = String(R.empfohleneRuecklage(z.daten, heuteYm())); renderEbenen(); },
+  'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }); },
+  'rk-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf;
+    const betrag = zahl(e.betragText); const tag = zahl(e.tagText); const stand = zahl(e.standText || '0');
+    if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte den Dauerauftrag ab 0 € eintragen.'; renderEbenen(); return; }
+    if (isNaN(tag) || tag < 1 || tag > 31) { eb.fehler = 'Der Tag muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
+    if (isNaN(stand)) { eb.fehler = 'Der Stand ist keine Zahl.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    await aendern((d) => {
+      const werte = { betrag, tag: Math.round(tag), stand, standDatum: heute() };
+      const rk = d.sparraten.find((x) => x.art === 'ruecklage');
+      if (rk) Object.assign(rk, werte); else d.sparraten.push(Object.assign({ id: 'ruecklage', name: 'Rücklagenkonto', art: 'ruecklage', ziel: null }, werte));
+    }, { text: 'Rücklagenkonto gespeichert' });
+  },
+  'rk-loeschen': async () => {
+    const rk = R.ruecklage(z.daten); const i = z.daten.sparraten.indexOf(rk);
+    z.ebenen.pop();
+    await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.art !== 'ruecklage'); }, { text: 'Ohne Rücklagenkonto: jährliche Kosten zählen jetzt im Monat der Abbuchung', rueckgaengig: (d) => d.sparraten.splice(i, 0, rk) });
+  },
+
+  // Potenzielle Ausgaben
+  'wunsch-neu': (el) => oeffne({ art: 'wunsch', id: null, entwurf: { name: '', preisText: '', monat: el.dataset.monat && el.dataset.monat !== heuteYm() ? el.dataset.monat : '', kategorieId: '' } }),
+  wunsch: (el) => {
+    const w = (z.daten.wuensche || []).find((x) => x.id === el.dataset.id); if (!w) return;
+    const p = w.preis;
+    oeffne({ art: 'wunsch', id: w.id, entwurf: { name: (w.emoji ? w.emoji + ' ' : '') + w.name, preisText: p && typeof p === 'object' ? R.euro(p.von, false) + '–' + R.euro(p.bis, false) : R.euro(Number(p) || 0, false), monat: w.monat || '', kategorieId: w.kategorieId || '' } });
+  },
+  'wu-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf;
+    const preis = preisAusText(e.preisText);
+    if (!String(e.name || '').trim()) { eb.fehler = 'Bitte eintragen, was du kaufen möchtest.'; renderEbenen(); return; }
+    if (typeof preis === 'number' && (isNaN(preis) || preis <= 0)) { eb.fehler = 'Bitte einen Preis eintragen, z. B. 300 oder 250–300.'; renderEbenen(); return; }
+    const werte = { name: e.name.trim(), preis, monat: e.monat || null, kategorieId: e.kategorieId || null };
+    z.ebenen.pop();
+    await aendern((d) => {
+      if (!Array.isArray(d.wuensche)) d.wuensche = [];
+      const w = d.wuensche.find((x) => x.id === eb.id);
+      if (w) { Object.assign(w, werte); delete w.emoji; } else d.wuensche.push(Object.assign({ id: D.neueId('wunsch'), status: 'geplant' }, werte));
+    }, { text: `${werte.name} geplant` });
+  },
+  'wu-loeschen': async () => {
+    const id = oben().id; const w = z.daten.wuensche.find((x) => x.id === id); const i = z.daten.wuensche.indexOf(w);
+    z.ebenen.pop();
+    await aendern((d) => { d.wuensche = d.wuensche.filter((x) => x.id !== id); }, { text: `${w.name} gelöscht`, rueckgaengig: (d) => d.wuensche.splice(i, 0, w) });
+  },
+  'wu-gekauft': async () => {
+    const eb = oben(); const w = z.daten.wuensche.find((x) => x.id === eb.id);
+    const preis = preisAusText(eb.entwurf.preisText);
+    const betrag = typeof preis === 'object' ? preis.bis : preis;
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte zuerst den Preis eintragen.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    const buchungId = D.neueId('b');
+    await aendern((d) => {
+      let katId = w.kategorieId;
+      if (!katId || !R.kategorie(d, katId)) {
+        let k = d.kategorien.find((x) => x.id === 'sonstiges' && x.art === 'budget');
+        if (!k) { k = { id: 'sonstiges', name: 'Sonstiges', emoji: '🧾', art: 'budget', budget: 0, symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: [] }; d.kategorien.push(k); }
+        katId = k.id;
+      }
+      d.buchungen.push({ id: buchungId, zeit: R.zeitText(new Date()), kategorieId: katId, betrag, ort: w.name, quelle: 'geplant' });
+      const x = d.wuensche.find((y) => y.id === w.id); x.status = 'gekauft'; x.gekauftAm = heute();
+    }, { text: `${w.name} gekauft: ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((b) => b.id !== buchungId); d.wuensche.find((y) => y.id === w.id).status = 'geplant'; } });
   },
 
   // Buchungen
