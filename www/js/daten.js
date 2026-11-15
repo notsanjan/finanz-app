@@ -59,6 +59,8 @@ export function beispielDaten(heute = new Date()) {
     f('Rundfunkbeitrag', 55, 'vierteljaehrlich', 15, 2, 'wohnen'),
     f('Handy', 15, 'monatlich', 28, null, 'abos'),
     f('Netflix', 14, 'monatlich', 12, null, 'abos', { abo: true }),
+    f('Spotify', 10.99, 'monatlich', 20, null, 'abos', { abo: true, kuendigungsfrist: '1m' }),
+    f('Fitnessstudio', 29.9, 'monatlich', 1, null, 'abos', { abo: true, endetAm: (heute.getFullYear() + 1) + '-01-31', kuendigungsfrist: '3m' }),
     f('Cloud-Speicher', 30, 'jaehrlich', 1, 7, 'abos', { abo: true }),
     f('Haftpflicht', 65, 'jaehrlich', 1, 1, 'versicherungen'),
     f('Kfz-Versicherung', 480, 'jaehrlich', 1, 3, 'versicherungen'),

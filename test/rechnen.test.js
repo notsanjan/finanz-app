@@ -4,7 +4,8 @@ import * as R from '../www/js/rechnen.js';
 import { beispielDaten, pruefeImport } from '../www/js/daten.js';
 
 const nov = new Date(2026, 10, 12);
-const daten = () => beispielDaten(nov);
+// Beispiel ohne die zusätzlichen Demo-Abos (Spotify, Fitnessstudio), damit die Mockup-Zahlen gelten
+const daten = () => { const d = beispielDaten(nov); d.fixkosten = d.fixkosten.filter((f) => !['Spotify', 'Fitnessstudio'].includes(f.name)); return d; };
 
 const ohneRuecklage = () => { const d = daten(); d.sparraten = d.sparraten.filter((x) => x.art !== 'ruecklage'); return d; };
 
@@ -115,8 +116,8 @@ test('Budget überzogen zählt mit dem Ausgegebenen', () => {
 test('Fixkosten mit Ende und Anteil', () => {
   const d = daten();
   d.fixkosten.push({ id: 'k', name: 'Kredit', betrag: 100, wieOft: 'monatlich', tag: 1, kategorieId: 'wohnen', endetAm: '2027-01-31', meinAnteil: 50 });
-  assert.equal(R.monatsRechnung(d, '2027-01').ausgaben - R.monatsRechnung(beispielDaten(nov), '2027-01').ausgaben, 50);
-  assert.equal(R.monatsRechnung(d, '2027-02').ausgaben, R.monatsRechnung(beispielDaten(nov), '2027-02').ausgaben);
+  assert.equal(R.monatsRechnung(d, '2027-01').ausgaben - R.monatsRechnung(daten(), '2027-01').ausgaben, 50);
+  assert.equal(R.monatsRechnung(d, '2027-02').ausgaben, R.monatsRechnung(daten(), '2027-02').ausgaben);
 });
 
 test('Nächste Abbuchungen ab 12. Nov', () => {
@@ -129,7 +130,7 @@ test('Abnahme 7: Export/Import-Datei', () => {
   const d = daten();
   const r = pruefeImport(JSON.stringify(d));
   assert.equal(r.ok, true);
-  assert.equal(r.daten.fixkosten.length, 10);
+  assert.equal(r.daten.fixkosten.length, d.fixkosten.length);
   assert.equal(pruefeImport('{"a":1}').ok, false);
   assert.equal(pruefeImport('kaputt').ok, false);
 });
