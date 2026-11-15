@@ -4,7 +4,7 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v10';
+export const APP_VERSION = 'finanz-v11';
 const NEU_IN_VERSION = [
   'Überträge: über ＋ → „⇄ Übertrag“ Geld auf ein Konto schieben, einmalig (z. B. 300 € extra aufs Tagesgeld) oder jeden Monat',
   'Beliebig viele Konten mit eigenem Namen: „Sparen“ (Stand wächst) oder „Anderes Konto“ wie ein Gemeinschaftskonto (zählt wie eine Ausgabe)',
@@ -1219,7 +1219,7 @@ const AKTION = {
   sparkonto: (el) => {
     const sp = z.daten.sparraten.find((x) => x.id === el.dataset.id);
     if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { art: R.kontoArt(sp), name: sp.name, betragText: R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute(), z.daten), false) } });
-    else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: '', betragText: '', tagText: '1', standText: '0' } });
+    else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: R.sparratenNormal(z.daten).length ? '' : 'Sparkonto', betragText: '', tagText: '1', standText: '0' } });
   },
   'sp-art': (el) => { oben().entwurf.art = el.dataset.wert; renderEbenen(); },
   'sp-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
