@@ -443,3 +443,11 @@ body.kachel-zieht { overflow: hidden; }
 .eintrag .geteilt { display: block; font-size: 12.5px; color: var(--hinweis); margin-top: 2px; }
 .rueck-zeile { display: flex; align-items: center; gap: 10px; }
 .rueck-zeile .t { flex: 1; }
+
+/* Teilen: eigener Kasten, klappt nach „Geteilt“ auf */
+.teil-box { margin-top: 10px; padding: 12px 14px 12px; border-radius: 18px; border: 1.5px solid rgba(127, 214, 200, .55); background: rgba(127, 214, 200, .08); box-shadow: inset 4px 0 0 var(--akzent); display: flex; flex-direction: column; gap: 10px; }
+.teil-box .label { color: var(--akzent); }
+.teil-box .eingabe { background: rgba(20, 24, 27, .55); }
+.teil-box.oeffnet { animation: teilAuf .3s ease-out; transform-origin: top; }
+@keyframes teilAuf { from { opacity: 0; transform: translateY(-8px) scaleY(.92); } to { opacity: 1; transform: none; } }
+.teil-box .hinweistext { margin: 0; }
