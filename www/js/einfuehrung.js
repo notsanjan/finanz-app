@@ -231,14 +231,16 @@ export function einfuehrungHtml(eb, h) {
   }
 
   const zurueckText = eb.schritt === 0 ? (eb.erstStart ? 'Zurück' : 'Abbrechen') : 'Zurück';
-  const weiterText = art === 'fertig' ? 'Fertig' : 'Weiter';
+  const weiterText = art === 'fertig' ? '✓ Fertig – alles speichern' : 'Weiter';
+  const speicherHinweis = art === 'fertig' ? '<p class="ef-speicher">Erst mit „Fertig“ wird alles gespeichert.</p>'
+    : `<p class="ef-speicher">${eb.schritt > 0 ? '✓ Gemerkt · ' : ''}gespeichert wird am Ende mit „Fertig“</p>`;
   return `<div class="seite" role="dialog" aria-modal="true" aria-label="Einführung"><div class="seite-innen">
     <div class="ef-kopf"><span class="klein">${art === 'fertig' ? 'Geschafft' : `Schritt ${eb.schritt + 1} von ${gesamt}`}</span>${art === 'fertig' ? '' : '<button class="knopf klein leise" data-a="ef-ueberspringen">Alles überspringen</button>'}</div>
     <div class="ef-fortschritt" role="progressbar" aria-valuenow="${Math.round(fortschritt)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${fortschritt}%"></span></div>
     ${inhalt}
     ${eb.fehler ? `<p class="fehlertext" role="alert">${esc(eb.fehler)}</p>` : ''}
     <div class="abstand"></div>
-    <div class="knopfreihe"><button class="knopf leise" data-a="ef-zurueck">${zurueckText}</button><button class="knopf haupt breit" data-a="ef-weiter">${weiterText}</button></div>
+    ${speicherHinweis}<div class="knopfreihe"><button class="knopf leise" data-a="ef-zurueck">${zurueckText}</button><button class="knopf haupt breit" data-a="ef-weiter">${weiterText}</button></div>
   </div></div>`;
 }
 
