@@ -129,6 +129,23 @@ export async function exportieren(daten, dateiname) {
   return 'Downloads/' + dateiname;
 }
 
+// Auftrag aus Widget/Kurzbefehl: { art: 'ausgabe', kategorie } oder {}.
+// Im Browser (Test): Adresse mit ?eintragen=<kategorie> oder ?eintragen
+export async function auftragHolen() {
+  const p = plugin();
+  if (p && p.auftragHolen) { try { return (await p.auftragHolen()) || {}; } catch (e) { return {}; } }
+  const q = new URLSearchParams(location.search);
+  if (q.has('eintragen')) { history.replaceState(null, '', location.pathname); return { art: 'ausgabe', kategorie: q.get('eintragen') || '' }; }
+  return {};
+}
+export function tastaturZeigen() {
+  const p = plugin();
+  if (p && p.tastaturZeigen) p.tastaturZeigen().catch(() => {});
+}
+export function beiAuftrag(fn) {
+  const p = plugin();
+  if (p && p.addListener) p.addListener('auftrag', fn);
+}
 export function beiRueckkehr(fn) {
   const p = plugin();
   if (p && p.addListener) p.addListener('fortgesetzt', fn);

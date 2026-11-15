@@ -4,11 +4,12 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 
-export const APP_VERSION = 'finanz-v12';
+export const APP_VERSION = 'finanz-v13';
 const NEU_IN_VERSION = [
-  'Monatsende: Im neuen Monat fragt die App, was mit dem Rest vom Vormonat passiert ist – aufs Konto geschoben, ausgegeben (nicht eingetragen) oder liegt noch auf dem Girokonto. Teilen geht auch',
-  'Vergangene Monate zeigen „Übrig im …“: Budgets zählen dort nur mit dem, was wirklich ausgegeben wurde',
-  'Überträge: über ＋ → „⇄ Übertrag“ Geld auf ein Konto schieben, einmalig oder jeden Monat; Konten mit eigenem Namen'
+  'Schneller erfassen: Im Widget auf den Betrag (✎) tippen öffnet sofort „Ausgabe eintragen“ – Kategorie gewählt, Tastatur offen. Für genaue Beträge wie 67,43 € beim Tanken',
+  'App-Symbol lange drücken: „Ausgabe eintragen“ und deine 3 meistgenutzten Kategorien. Lassen sich auch als eigene Symbole auf den Homescreen ziehen',
+  '＋ merkt sich die zuletzt benutzte Kategorie',
+  'Monatsende: Die App fragt, was mit dem Rest vom Vormonat passiert ist'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -54,7 +55,9 @@ export async function start() {
   if (!z.daten) { z.daten = D.leereDaten(); z.ebenen.push({ art: 'start' }); }
   else zeigeNeuigkeiten();
   render();
+  await pruefeAuftrag();
   pruefeMonatsende();
+  D.beiAuftrag(() => pruefeAuftrag());
   D.beiRueckkehr(async () => {
     const neu = await D.laden();
     if (neu) { z.daten = neu; if (z.monat < z.daten.einstellungen.startMonat) z.monat = heuteYm(); render(); pruefeMonatsende(); }
@@ -62,6 +65,18 @@ export async function start() {
   window.__finanz = z; // für Tests
 }
 
+// Widget-Betrag oder Kurzbefehl am App-Symbol: direkt „Ausgabe eintragen“ öffnen
+async function pruefeAuftrag() {
+  const a = await D.auftragHolen();
+  if (!a || a.art !== 'ausgabe' || !z.daten) return;
+  z.ebenen = z.ebenen.filter((e) => e.art === 'start' || e.art === 'einfuehrung');
+  if (z.ebenen.length) return;
+  z.ansicht = 'monat'; z.monat = heuteYm(); z.bearbeiten = false;
+  z.monatsendeGefragt = true; // jetzt nicht dazwischenfragen
+  render();
+  AKTION.eintragen({ dataset: { wert: 'ausgabe', kat: a.kategorie || '' } });
+  setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) { f.focus(); D.tastaturZeigen(); } }, 250);
+}
 // Neuer Monat: einmal pro App-Start nach dem Rest des Vormonats fragen (nur wenn nichts anderes offen ist)
 function pruefeMonatsende() {
   if (z.monatsendeGefragt || z.ebenen.length || !z.daten) return;
@@ -1055,7 +1070,11 @@ const AKTION = {
   eintragen: (el) => {
     const b = budgetKats();
     const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];
-    oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: (b[0] || {}).id || '', ort: '', datum: heute(), name: '', kontoId: erstes ? erstes.id : '', oft: 'einmalig', tagText: '1' } });
+    // Kategorie: vom Widget/Kurzbefehl, sonst die zuletzt benutzte, sonst die erste
+    const wunsch = el && el.dataset && el.dataset.kat;
+    const zuletzt = z.daten.einstellungen.letzteKategorie;
+    const katId = [wunsch, zuletzt].find((id) => id && b.some((x) => x.id === id)) || (b[0] || {}).id || '';
+    oeffne({ art: 'eintragen', entwurf: { art: (el && el.dataset && el.dataset.wert) || 'ausgabe', betragText: '', kategorieId: katId, ort: '', datum: heute(), name: '', kontoId: erstes ? erstes.id : '', oft: 'einmalig', tagText: '1' } });
     setTimeout(() => { const f = document.getElementById('et-betrag'); if (f) f.focus(); }, 60);
   },
   'et-art': (el) => { if (el.dataset.wert === 'abo') { z.ebenen.pop(); AKTION['abo-neu'](); return; } oben().entwurf.art = el.dataset.wert; oben().fehler = null; renderEbenen(); const f = document.getElementById('et-betrag'); if (f) f.focus(); },
@@ -1119,7 +1138,7 @@ const AKTION = {
     if (e.art === 'ausgabe') {
       if (!e.kategorieId) { eb.fehler = 'Bitte eine Kategorie wählen.'; z.ebenen.push(eb); renderEbenen(); return; }
       const id = D.neueId('b'); const kat = R.kategorie(z.daten, e.kategorieId);
-      await aendern((d) => d.buchungen.push({ id, zeit, kategorieId: e.kategorieId, betrag, ort: e.ort || null, quelle: 'app' }), { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
+      await aendern((d) => { d.buchungen.push({ id, zeit, kategorieId: e.kategorieId, betrag, ort: e.ort || null, quelle: 'app' }); d.einstellungen.letzteKategorie = e.kategorieId; }, { text: `${kat ? kat.name : 'Ausgabe'}: − ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((x) => x.id !== id); } });
     } else {
       const name = (e.name || '').trim() || 'Einnahme';
       const id = D.neueId('ein');
