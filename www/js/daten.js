@@ -155,12 +155,16 @@ const lsListe = () => { try { return JSON.parse(localStorage.getItem(VS) || '[]'
 export async function erkennungStatus() {
   const p = plugin();
   if (p && p.erkennungStatus) { try { return await p.erkennungStatus(); } catch (e) { return { verfuegbar: false }; } }
-  if (localStorage.getItem('finanz.erkennungTest')) return { verfuegbar: true, an: true, erlaubt: true, meldungen: true, apps: [{ paket: 'com.paypal.android.p2pmobile', name: 'PayPal', an: true, bekannt: true }, { paket: 'com.google.android.apps.walletnfcrel', name: 'Google Wallet', an: true, bekannt: true }, { paket: 'de.fiduciagad.android.vrbanking', name: 'VR Banking', an: true, bekannt: true }] };
+  // Browser-Test: 'finanz.erkennungTest' = 'gesperrt' spielt ein per APK installiertes Handy ohne Freigabe nach
+  const test = localStorage.getItem('finanz.erkennungTest');
+  if (test === 'gesperrt' || test === 'freigegeben') return { verfuegbar: true, an: true, erlaubt: false, meldungen: true, eingeschraenkt: true, freigegeben: test === 'freigegeben', apps: [] };
+  if (test) return { verfuegbar: true, an: true, erlaubt: true, meldungen: true, apps: [{ paket: 'com.paypal.android.p2pmobile', name: 'PayPal', an: true, bekannt: true }, { paket: 'com.google.android.apps.walletnfcrel', name: 'Google Wallet', an: true, bekannt: true }, { paket: 'de.fiduciagad.android.vrbanking', name: 'VR Banking', an: true, bekannt: true }] };
   return { verfuegbar: false };
 }
 export async function erkennungEinstellen(an) { const p = plugin(); if (p && p.erkennungEinstellen) await p.erkennungEinstellen({ an }); }
 export async function erkennungApp(paket, an) { const p = plugin(); if (p && p.erkennungApp) await p.erkennungApp({ paket, an }); }
 export async function erkennungErlauben() { const p = plugin(); if (p && p.erkennungErlauben) await p.erkennungErlauben(); }
+export async function appInfoOeffnen() { const p = plugin(); if (p && p.appInfoOeffnen) await p.appInfoOeffnen(); }
 export async function vorschlaegeHolen() {
   const p = plugin();
   if (p && p.vorschlaegeHolen) { try { const r = await p.vorschlaegeHolen(); return (r && r.liste) || []; } catch (e) { return []; } }

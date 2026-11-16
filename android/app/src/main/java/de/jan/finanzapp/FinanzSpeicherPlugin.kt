@@ -1,6 +1,8 @@
 package de.jan.finanzapp
 
 import android.Manifest
+import android.app.AppOpsManager
+import android.net.Uri
 import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.provider.Settings
@@ -122,7 +124,40 @@ class FinanzSpeicherPlugin : Plugin() {
         r.put("erlaubt", Erkennung.erlaubt(context))
         r.put("meldungen", Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
         r.put("apps", JSArray(Erkennung.apps(context).toString()))
+        // v30: Android 13+ sperrt den Zugriff für Apps, die nicht aus einem App-Store kommen („eingeschränkte Einstellungen“)
+        r.put("eingeschraenkt", nichtAusStore())
+        val f = freigabe()
+        if (f != null) r.put("freigegeben", f)
         call.resolve(r)
+    }
+
+    /** true, wenn die App per APK (Browser, Dateien) installiert wurde – dann gilt die Sperre ab Android 13. */
+    private fun nichtAusStore(): Boolean {
+        if (Build.VERSION.SDK_INT < 33) return false
+        return try {
+            val q = context.packageManager.getInstallSourceInfo(context.packageName)
+            q.packageSource != PackageManager.PACKAGE_SOURCE_STORE
+        } catch (e: Exception) { true }
+    }
+
+    /** Hat der Nutzer „Eingeschränkte Einstellungen zulassen“ schon getippt? null = lässt sich nicht feststellen. */
+    private fun freigabe(): Boolean? {
+        if (Build.VERSION.SDK_INT < 33) return null
+        return try {
+            val ops = context.getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+            val modus = ops.unsafeCheckOpNoThrow("android:access_restricted_settings", context.applicationInfo.uid, context.packageName)
+            modus == AppOpsManager.MODE_ALLOWED
+        } catch (e: Exception) { null }
+    }
+
+    /** Öffnet die App-Infos der Finanz-App (dort: ⋮ → „Eingeschränkte Einstellungen zulassen“). */
+    @PluginMethod
+    fun appInfoOeffnen(call: PluginCall) {
+        try {
+            val i = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(i)
+            call.resolve()
+        } catch (e: Exception) { call.reject(e.message ?: "App-Infos nicht erreichbar") }
     }
 
     @PluginMethod

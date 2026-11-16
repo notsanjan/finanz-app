@@ -7,12 +7,9 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v29';
+export const APP_VERSION = 'finanz-v30';
 const NEU_IN_VERSION = [
-  'Neu: Brutto-Netto-Abrechnung einlesen (PDF) – echtes Gehalt eintragen, jede Zeile mit dem Gehaltsrechner vergleichen, Einstellungen übernehmen',
-  'Nachberechnung: Die App zeigt, aus welchem Monat Zuschläge und Pauschale kommen, und vergleicht die Stunden mit deinen Diensten',
-  'Monatsübersicht einlesen: Vergleich Tag für Tag mit deinem Kalender und Stunden-Vergleich nach Monatsende',
-  'Beide Leser stehen getrennt unter „Dienste und Gehalt“; die Datei bleibt auf dem Handy, Nummern und Bankverbindung werden nicht gelesen'
+  'Zahlungen erkennen (Beta): Blockiert Android den Zugriff („App wurde Zugriff verweigert“), zeigt die App jetzt Schritt für Schritt, wie du ihn freigibst – mit Knopf direkt zu den App-Infos'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -994,6 +991,22 @@ function geteiltFelder(f) {
 const geteiltHtml = (f) => geteiltText(f).map((t) => `<span class="geteilt">${esc(t)}</span>`).join('');
 
 // ---------- BETA: Zahlungen erkennen ----------
+// v30: Android 13+ sperrt den Zugriff für Apps, die nicht aus einem App-Store kommen. Anleitung zum Freigeben.
+function erSperreHtml(e) {
+  const frei = e.freigegeben === true;
+  const schritt = (n, titel, text, knopf, erledigt) => `<li class="er-schritt ${erledigt ? 'erledigt' : ''}"><span class="er-nr" aria-hidden="true">${erledigt ? '✓' : n}</span><span class="t"><b>${titel}</b><span>${text}</span>${knopf || ''}</span></li>`;
+  return `<div class="er-sperre">
+    <p class="hinweistext"><b>Android blockiert den Zugriff zuerst.</b> Die App kommt nicht aus dem Play Store, deshalb meldet Android „App wurde Zugriff verweigert“. So gibst du ihn frei:</p>
+    <ol class="er-schritte">
+      ${schritt(1, 'Einmal versuchen', 'In den Einstellungen „Finanzen“ einschalten. Kommt „App wurde Zugriff verweigert“: „Schließen“ tippen und zurückkommen. Erst danach bietet Android die Freigabe an.', '', frei)}
+      ${schritt(2, 'Eingeschränkte Einstellungen zulassen', 'In den App-Infos oben rechts ⋮ tippen → „Eingeschränkte Einstellungen zulassen“ → mit PIN oder Fingerabdruck bestätigen.', frei ? '' : '<button class="knopf akzent" data-a="er-appinfo">App-Infos öffnen</button>', frei)}
+      ${schritt(3, 'Zugriff einschalten', 'Nochmal in die Einstellungen, „Finanzen“ einschalten, „Zulassen“ und zurück in die App.', '<button class="knopf haupt" data-a="er-erlauben">Zugriff erlauben</button>', false)}
+    </ol>
+    ${frei ? '<p class="hinweistext er-ok">✓ Eingeschränkte Einstellungen sind zugelassen – jetzt nur noch Schritt 3.</p>'
+      : '<p class="hinweistext">Kein ⋮ in den App-Infos? Dann zuerst Schritt 1 machen. Fehlt es danach immer noch: Android-Einstellungen → Apps → „Finanzen“ öffnen, dort ist es oben rechts.</p>'}
+    <p class="hinweistext">Google rät, das nur bei Apps zu erlauben, deren Herkunft du kennst. Die Benachrichtigungen bleiben auf diesem Handy.</p>
+  </div>`;
+}
 function erkennungKarte() {
   const e = z.erkennung;
   if (!e) { D.erkennungStatus().then((x) => { z.erkennung = x; renderEbenen(); }); return '<section class="karte"><div class="label">Zahlungen erkennen <span class="beta">BETA</span></div><p class="hinweistext">Lädt …</p></section>'; }
@@ -1004,7 +1017,7 @@ function erkennungKarte() {
   return `<section class="karte">${kopf}${info}
     <div class="wahl zwei-sp">${wahlKnopf('er-an', '1', 'Ein', !!e.an)}${wahlKnopf('er-an', '0', 'Aus', !e.an)}</div>
     ${e.an ? `<div class="er-status">${e.erlaubt ? '<span class="plus-zahl">✓</span> Zugriff auf Benachrichtigungen erlaubt' : '<span class="minus-zahl">!</span> Zugriff auf Benachrichtigungen fehlt noch'}</div>
-      ${e.erlaubt ? '' : '<button class="knopf haupt" data-a="er-erlauben">In den Einstellungen erlauben</button><p class="hinweistext">Dort „Finanz-App“ einschalten und zurückkommen.</p>'}
+      ${e.erlaubt ? '' : e.eingeschraenkt ? erSperreHtml(e) : '<button class="knopf haupt" data-a="er-erlauben">In den Einstellungen erlauben</button><p class="hinweistext">Dort „Finanzen“ einschalten und zurückkommen.</p>'}
       ${e.meldungen === false ? '<p class="hinweistext">Ohne Erlaubnis für Mitteilungen erscheinen erkannte Zahlungen nur hier in der App.</p>' : ''}
       <div class="label">Diese Apps mitlesen</div>
       <div class="chips">${apps || '<span class="klein">Noch keine Zahlungs-App gefunden. Sobald eine App einen Betrag meldet, erscheint sie hier.</span>'}</div>
@@ -2183,7 +2196,8 @@ const AKTION = {
     z.erkennung = await D.erkennungStatus();
     zeigeToast(an ? (z.erkennung && z.erkennung.erlaubt ? 'Erkennung eingeschaltet' : 'Eingeschaltet – jetzt noch den Zugriff erlauben') : 'Erkennung ausgeschaltet', null, an && !(z.erkennung && z.erkennung.erlaubt) ? 'info' : 'ok');
   },
-  'er-erlauben': async () => { await D.erkennungErlauben(); },
+  'er-erlauben': async () => { try { await D.erkennungErlauben(); } catch (e) { zeigeToast('Die Einstellungen ließen sich nicht öffnen. Android-Einstellungen → Benachrichtigungen → Benachrichtigungen lesen.', null, 'fehler'); } },
+  'er-appinfo': async () => { try { await D.appInfoOeffnen(); } catch (e) { zeigeToast('Die App-Infos ließen sich nicht öffnen. Android-Einstellungen → Apps → „Finanzen“.', null, 'fehler'); } },
   'er-app': async (el) => {
     const an = el.dataset.an !== '1';
     await D.erkennungApp(el.dataset.wert, an); z.erkennung = await D.erkennungStatus();

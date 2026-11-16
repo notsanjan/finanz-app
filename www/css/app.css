@@ -757,3 +757,16 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .vgl-zeile.kopf b { font-size: var(--t-mini); font-weight: 400; color: var(--gedaempft); letter-spacing: .03em; }
 .ds-leser .label:not(:first-child) { margin-top: 8px; }
 .ds-leser .hinweistext { margin: 0; }
+
+/* ---------- v30: Freigabe der Zahlungserkennung ---------- */
+.er-sperre { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-mittel); border: 1px solid rgba(223, 230, 176, .45); background: rgba(223, 230, 176, .06); }
+.er-sperre .hinweistext { margin: 0; }
+.er-schritte { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.er-schritt { display: flex; gap: 12px; align-items: flex-start; }
+.er-schritt .er-nr { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: var(--t-klein); background: var(--flaeche-3); color: var(--text); }
+.er-schritt.erledigt .er-nr { background: var(--haupt); }
+.er-schritt.erledigt b { color: var(--gedaempft); }
+.er-schritt .t { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: var(--t-klein); color: var(--gedaempft); line-height: 1.4; min-width: 0; }
+.er-schritt .t b { color: var(--text); font-size: var(--t-text); font-weight: 600; }
+.er-schritt .knopf { align-self: flex-start; margin-top: 4px; }
+.er-ok { color: var(--plus) !important; }
