@@ -14,6 +14,8 @@
 // - Sozialversicherung 2026: RV 18,6 %, AV 2,6 %, KV 14,6 % + Zusatzbeitrag (Ø 2,9 %), PV 3,6 % (+0,6 % kinderlos ab 23,
 //   −0,25 % je Kind ab dem 2. bis 5., Sachsen AN 2,3 %); BBG KV/PV 5.812,50 €, RV/AV 8.450 € im Monat.
 // - Steuerfreie SFN-Zuschläge § 3b EStG (Grundlohn höchstens 50 €/Std.), beitragsfrei bis Grundlohn 25 €/Std. (§ 1 SvEV).
+// - v27 (nachgelesen 16.11.2026): Zeitzuschläge werden am Zahltag des zweiten Folgemonats fällig (§ 29 Abs. 1 Satz 3);
+//   Jahressonderzahlung § 23 Abs. 2 und 4; Praxisanleitung § 23 a Abs. 1 (153,32 € ab 01.10.2026).
 import { lohnsteuer2026, sonstigerBezug2026 } from './lohnsteuer.js';
 
 // Monatsentgelte Vollzeit, Stufe 1–6 (null = Stufe gibt es nicht)
@@ -96,9 +98,14 @@ export function gehaltRechnen(e, ym) {
 
   const basisStunde = zuschlagBasisMonat(e.eg, stufe, ym) / (FAKTOR_WOCHE * vz);
   const zuschlaege = [];
-  if (e.nacht > 0) zuschlaege.push({ name: 'Nachtzuschlag', stunden: e.nacht, betrag: r2(e.nacht * NACHT_JE_STUNDE), frei: 0.25 });
-  if (e.sonntag > 0) zuschlaege.push({ name: 'Sonntagszuschlag', stunden: e.sonntag, betrag: r2(e.sonntag * basisStunde * 0.25), frei: 0.5 });
-  if (e.feiertag > 0) zuschlaege.push({ name: 'Feiertagszuschlag', stunden: e.feiertag, betrag: r2(e.feiertag * basisStunde * 0.35), frei: 1.25 });
+  // v27: Nachtstunden zwischen 0 und 4 Uhr sind bis 40 % des Grundlohns steuerfrei (§ 3b Abs. 3 EStG), sonst 25 %
+  const n04 = Math.min(Number(e.nacht04) || 0, Number(e.nacht) || 0);
+  const nRest = (Number(e.nacht) || 0) - n04;
+  if (nRest > 0) zuschlaege.push({ id: 'nacht', name: 'Nachtzuschlag', stunden: nRest, satz: NACHT_JE_STUNDE, betrag: r2(nRest * NACHT_JE_STUNDE), frei: 0.25 });
+  if (n04 > 0) zuschlaege.push({ id: 'nacht04', name: 'Nachtzuschlag 0–4 Uhr', stunden: n04, satz: NACHT_JE_STUNDE, betrag: r2(n04 * NACHT_JE_STUNDE), frei: 0.4 });
+  if (e.sonntag > 0) zuschlaege.push({ id: 'sonntag', name: 'Sonntagszuschlag', stunden: e.sonntag, prozent: 25, betrag: r2(e.sonntag * basisStunde * 0.25), frei: 0.5 });
+  if (e.feiertag > 0) zuschlaege.push({ id: 'feiertag', name: 'Feiertagszuschlag', stunden: e.feiertag, prozent: 35, betrag: r2(e.feiertag * basisStunde * 0.35), frei: 1.25 });
+  if (e.vorfest > 0) zuschlaege.push({ id: 'vorfest', name: 'Zuschlag 24./31.12. ab 14 Uhr', stunden: e.vorfest, prozent: 35, betrag: r2(e.vorfest * basisStunde * 0.35), frei: 1.25 });
   const zuschlaegeSumme = r2(zuschlaege.reduce((a, z) => a + z.betrag, 0));
 
   const brutto = r2(tabellenentgelt + zulagenSumme + zuschlaegeSumme);
@@ -143,7 +150,7 @@ export function gehaltRechnen(e, ym) {
   const jszNetto = r2(jsz - sb.LST / 100 - sb.SOLZ / 100 - jszKist - jszSV);
 
   return {
-    stufe, tarif: tarifStand(ym), tabellenentgelt, zulagen, zuschlaege, basisStunde: r2(basisStunde), brutto,
+    stufe, tarif: tarifStand(ym), tabellenentgelt, zulagen, zulagenSumme, zuschlaege, zuschlaegeSumme, basisStunde: r2(basisStunde), basisMonat: zuschlagBasisMonat(e.eg, stufe, ym), grundlohn: r2(grundlohn), vz, tz, vollzeit: reihe[stufe - 1], brutto,
     steuerfrei, svfrei, steuerBrutto, svBrutto,
     lohnsteuer, soli, kirchensteuer, kv, pv, rv, av, abzug, abzuege, netto,
     satz: { kv: kvSatz, pv: pvSatz }, pvz, pva,
@@ -154,3 +161,79 @@ export function gehaltRechnen(e, ym) {
 export const STANDARD = { eg: '9c', stufe: 3, vz: '38,5', tz: '100', schicht: true, praxis: false, zulageText: '', besitzText: '',
   nachtText: '', sonntagText: '', feiertagText: '', stkl: 1, kinder: 0, ab23: true, zkfText: '0', kvzText: '2,9', kirche: 0, sachsen: false,
   freibetragText: '', abzugText: '', offenZaehlt: '1' };
+
+// ---------- v27: Eingaben aus dem gemerkten Gehaltsrechner (Texte → Zahlen) ----------
+function zahlAus(text) {
+  if (text == null) return NaN;
+  const t = String(text).replace(/[€\s]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.');
+  return t === '' ? NaN : Number(t);
+}
+const nz = (t) => { const n = zahlAus(t); return isNaN(n) ? 0 : n; };
+// Felder, die „unbekannt“ sein dürfen: [Name, true = erhöht das Netto]
+export const OFFENE_FELDER = { zulageText: ['Weitere Zulagen', true], besitzText: ['Besitzstand', true], nachtText: ['Nachtstunden', true], sonntagText: ['Sonntagsstunden', true], feiertagText: ['Feiertagsstunden', true], abzugText: ['Weitere Abzüge', false] };
+// modus: 'aus' = offene Felder zählen 0 · 'min' = ungünstig (wenig Zuschläge, hohe Abzüge) · 'max' = günstig
+export function feldWert(e, f, modus) {
+  if (!e[f + 'Offen']) return nz(e[f]);
+  const lies = (t) => (String(t == null ? '' : t).trim() === '' ? null : zahlAus(t));
+  let von = lies(e[f + 'Von']), bis = lies(e[f + 'Bis']);
+  if (von == null && bis == null) return 0;
+  if (von == null || isNaN(von)) von = bis; if (bis == null || isNaN(bis)) bis = von;
+  if (modus === 'aus' || isNaN(von)) return 0;
+  if (bis < von) [von, bis] = [bis, von];
+  return (modus === 'max') === OFFENE_FELDER[f][1] ? bis : von;
+}
+export function eingaben(e, modus = String(e.offenZaehlt) === '0' ? 'aus' : 'min') {
+  const w = (f) => feldWert(e, f, modus);
+  return { eg: e.eg, stufe: Number(e.stufe) || 1, vz: nz(e.vz) || 38.5, tz: nz(e.tz) || 100, schicht: !!e.schicht, praxis: !!e.praxis,
+    zulage: w('zulageText'), besitz: w('besitzText'), nacht: w('nachtText'), sonntag: w('sonntagText'), feiertag: w('feiertagText'),
+    stkl: Number(e.stkl) || 1, kinder: nz(e.kinder), ab23: e.ab23 !== false, zkf: nz(e.zkfText), kvz: nz(e.kvzText),
+    kirche: Number(e.kirche) || 0, sachsen: !!e.sachsen, freibetrag: nz(e.freibetragText), abzug: w('abzugText') };
+}
+
+// ---------- v27: Woher kommt jede Zahl? ----------
+// Liefert zu einer Rechnung jede Zeile mit Rechenweg und Fundstelle. `stand` = wann zuletzt am Text nachgelesen.
+const de = (x, n = 2) => Number(x).toLocaleString('de-DE', { minimumFractionDigits: n, maximumFractionDigits: n });
+const std = (x) => String(Math.round(x * 100) / 100).replace('.', ',');
+export const QUELLEN_STAND = '16.11.2026';
+export const QUELLEN = {
+  rtv: { titel: 'DRK-Reformtarifvertrag (DRK-RTV), durchgeschriebene Fassung in der Fassung des 52. Änderungstarifvertrags', stand: 'Stand Juli 2025, nachgelesen am 16.11.2026', wo: 'drk.de → Das DRK → Verbandsstruktur (PDF „DRK-RTV idF 52. ÄTV“)' },
+  aetv: { titel: '52. Änderungstarifvertrag zum DRK-RTV vom 10.07.2025, Anlage A 1 (Entgelttabelle)', stand: 'nachgelesen am 15.11.2026', wo: 'btg.drk.de; gegengeprüft mit oeffentlichen-dienst.de/entgelttabelle/drk.html' },
+  pap: { titel: 'Programmablaufplan für den Lohnsteuerabzug 2026 (Bundesfinanzministerium)', stand: 'BMF-Schreiben vom 12.11.2025; centgenau gegen 207 Vergleichsfälle der BMF-Schnittstelle geprüft', wo: 'bundesfinanzministerium.de → Lohnsteuer → Programmablaufplan' },
+  sv: { titel: 'Sozialversicherung 2026: Beitragssätze und Beitragsbemessungsgrenzen', stand: 'Werte für 2026, eingebaut am 15.11.2026', wo: 'SGB V, SGB VI, SGB XI, SGB III; Sozialversicherungsrechengrößen-Verordnung 2026' },
+  estg: { titel: 'Einkommensteuergesetz § 3b und Sozialversicherungsentgeltverordnung § 1', stand: 'eingebaut am 15.11.2026', wo: 'gesetze-im-internet.de' }
+};
+export function rechenweg(e, ym) {
+  const r = gehaltRechnen(e, ym);
+  const z = [];
+  const teiler = `4,348 × ${std(r.vz)} Std.`;
+  z.push({ teil: 'Brutto', name: `Tabellenentgelt E ${e.eg} Stufe ${r.stufe}`, betrag: r.tabellenentgelt,
+    weg: r.tz < 1 ? `${de(r.vollzeit)} € × ${std(r.tz * 100)} % Teilzeit` : `${de(r.vollzeit)} € laut Tabelle ab ${r.tarif}`,
+    fund: '§ 19 Abs. 1 DRK-RTV, Anlage A 1' + (r.tz < 1 ? ' · Teilzeit: § 29 Abs. 2' : ''), q: 'aetv' });
+  for (const [n, b] of r.zulagen) {
+    if (n.startsWith('Schichtzulage')) z.push({ teil: 'Brutto', name: n, betrag: b, weg: r.tz < 1 ? `${de(SCHICHTZULAGE)} € × ${std(r.tz * 100)} %` : `${de(SCHICHTZULAGE)} € je Monat (seit 01.01.2026)`, fund: '§ 14 Abs. 7 DRK-RTV · Schichtarbeit: § 13 Abs. 2', q: 'rtv' });
+    else if (n.startsWith('Praxisanleitung')) z.push({ teil: 'Brutto', name: n, betrag: b, weg: r.tz < 1 ? `${de(PRAXISANLEITUNG)} € × ${std(r.tz * 100)} %` : `${de(PRAXISANLEITUNG)} € je Monat (seit 01.10.2026)`, fund: '§ 23 a Abs. 1 DRK-RTV', q: 'rtv', hinweis: 'Nur mit schriftlicher Anordnung und nur für die Dauer der Anleitung.' });
+    else z.push({ teil: 'Brutto', name: n, betrag: b, weg: 'von dir eingetragen', fund: n === 'Besitzstand' ? 'Überleitungstarifvertrag (TVÜ-DRK) – Betrag von deiner Abrechnung' : 'eigene Angabe', q: null });
+  }
+  const FUND = { nacht: '§ 14 Abs. 2 Satz 3 DRK-RTV · Nacht = 20 bis 6 Uhr (§ 13 Abs. 6)', nacht04: '§ 14 Abs. 2 Satz 3 DRK-RTV · Nacht = 20 bis 6 Uhr (§ 13 Abs. 6)', sonntag: '§ 14 Abs. 2 Satz 2 Buchst. b DRK-RTV', feiertag: '§ 14 Abs. 2 Satz 2 Buchst. c DRK-RTV', vorfest: '§ 14 Abs. 2 Satz 2 Buchst. d DRK-RTV' };
+  for (const x of r.zuschlaege) {
+    z.push({ teil: 'Brutto', name: x.name, betrag: x.betrag, q: 'rtv', fund: FUND[x.id],
+      weg: x.prozent ? `${std(x.stunden)} Std. × ${de(r.basisStunde)} € × ${x.prozent} %` : `${std(x.stunden)} Std. × ${de(x.satz)} €` });
+  }
+  if (r.zuschlaege.some((x) => x.prozent)) z.push({ teil: 'Brutto', name: 'Grundlage der Prozent-Zuschläge', info: true, betrag: null, weg: `${de(r.basisMonat)} € (niedrigste Stufe der Gruppe) ÷ (${teiler}) = ${de(r.basisStunde)} € je Stunde`, fund: '§ 14 Abs. 2 Satz 2 und 2a · Stundenanteil: § 29 Abs. 3 Satz 3 DRK-RTV', q: 'rtv' });
+  z.push({ teil: 'Brutto', name: 'Brutto', betrag: r.brutto, summe: true, weg: 'Tabellenentgelt + Zulagen + Zeitzuschläge', fund: '', q: null });
+  if (r.steuerfrei > 0) z.push({ teil: 'Steuer', name: 'Steuerfreie Zuschläge', info: true, betrag: r.steuerfrei, weg: `Grundlohn ${de(r.grundlohn)} € je Std.; frei bis Nacht 25 % (0–4 Uhr 40 %), Sonntag 50 %, Feiertag 125 % davon${r.svfrei < r.steuerfrei ? ` · beitragsfrei nur ${de(r.svfrei)} €` : ' · auch beitragsfrei'}`, fund: '§ 3b EStG (Grundlohn höchstens 50 €) · beitragsfrei bis 25 € Grundlohn: § 1 Abs. 1 Satz 1 Nr. 1 SvEV', q: 'estg' });
+  z.push({ teil: 'Steuer', name: 'Lohnsteuer', betrag: -r.lohnsteuer, weg: `aus ${de(r.steuerBrutto)} € steuerpflichtigem Monatslohn, Steuerklasse ${['I', 'II', 'III', 'IV', 'V', 'VI'][(Number(e.stkl) || 1) - 1]}`, fund: '§ 39b EStG · Programmablaufplan 2026', q: 'pap' });
+  if (r.soli > 0) z.push({ teil: 'Steuer', name: 'Solidaritätszuschlag', betrag: -r.soli, weg: '5,5 % der Lohnsteuer, erst über der Freigrenze', fund: '§§ 3, 4 Solidaritätszuschlaggesetz · Programmablaufplan 2026', q: 'pap' });
+  if (r.kirchensteuer > 0) z.push({ teil: 'Steuer', name: 'Kirchensteuer', betrag: -r.kirchensteuer, weg: `${e.kirche} % der Lohnsteuer (mit Kinderfreibeträgen gerechnet)`, fund: 'Kirchensteuergesetz des Landes (8 % in BW und BY, sonst 9 %)', q: 'pap' });
+  const p = (x) => String(Math.round(x * 10000) / 100).replace('.', ',') + ' %';
+  const kvB = Math.min(r.svBrutto, BBG_KV), rvB = Math.min(r.svBrutto, BBG_RV);
+  z.push({ teil: 'Versicherung', name: 'Krankenversicherung', betrag: -r.kv, weg: `${de(kvB)} € × ${p(r.satz.kv)} (halbe 14,6 % + halber Zusatzbeitrag ${std(Number(e.kvz) || 0)} %)`, fund: '§§ 241, 242, 249 SGB V', q: 'sv' });
+  z.push({ teil: 'Versicherung', name: 'Pflegeversicherung', betrag: -r.pv, weg: `${de(kvB)} € × ${p(r.satz.pv)}${r.pvz ? ' (mit 0,6 % Zuschlag für Kinderlose ab 23)' : r.pva ? ` (Abschlag für ${r.pva + 1} Kinder)` : ''}`, fund: '§ 55 SGB XI', q: 'sv' });
+  z.push({ teil: 'Versicherung', name: 'Rentenversicherung', betrag: -r.rv, weg: `${de(rvB)} € × 9,3 % (halbe 18,6 %)`, fund: '§ 158 SGB VI', q: 'sv' });
+  z.push({ teil: 'Versicherung', name: 'Arbeitslosenversicherung', betrag: -r.av, weg: `${de(rvB)} € × 1,3 % (halbe 2,6 %)`, fund: '§ 341 SGB III', q: 'sv' });
+  if (r.svBrutto > BBG_KV) z.push({ teil: 'Versicherung', name: 'Beitragsbemessungsgrenzen', info: true, betrag: null, weg: `Kranken/Pflege höchstens aus ${de(BBG_KV)} €, Rente/Arbeitslos aus ${de(BBG_RV)} € im Monat`, fund: 'Sozialversicherungsrechengrößen-Verordnung 2026', q: 'sv' });
+  if (r.abzug > 0) z.push({ teil: 'Versicherung', name: 'Weitere Abzüge', betrag: -r.abzug, weg: 'von dir eingetragen (z. B. Eigenanteil Zusatzversorgung)', fund: 'Zusatzversorgung: § 30 DRK-RTV – Höhe steht auf deiner Abrechnung', q: null });
+  z.push({ teil: 'Netto', name: 'Netto', betrag: r.netto, summe: true, weg: 'Brutto − Steuern − Versicherungen − weitere Abzüge', fund: '', q: null });
+  z.push({ teil: 'Jahressonderzahlung', name: 'Jahressonderzahlung (November)', betrag: r.jsz, weg: `90 % von ${de(r.brutto)} € – genau: 90 % vom Durchschnitt Juli bis September`, fund: '§ 23 Abs. 2 und 4 DRK-RTV', q: 'rtv', hinweis: 'Voraussetzung: ungekündigt am 1. Dezember und seit 1. Juni beschäftigt (§ 23 Abs. 1).' });
+  return { r, zeilen: z };
+}

@@ -642,3 +642,99 @@ button.ef-chip.da { opacity: .75; }
 /* Tippen neben das Fenster soll weiter schließen, auch wenn dort gerade die Meldung steht */
 .schleier + .toast { pointer-events: none; }
 .schleier + .toast button { pointer-events: auto; }
+
+/* ---------- v27 ---------- */
+.frei-hinweis.warn { color: var(--fehler); }
+.kachel-tipp-klein { font-size: var(--t-mini); color: var(--grau); line-height: 1.2; }
+.ziel-zeile { display: flex; flex-direction: column; gap: 3px; margin-top: 4px; }
+.ziel-mini { max-width: none; margin-top: 0; }
+.ziel-mini span { background: var(--spar); }
+.ziel-zeile .warn-text { margin-top: 0; }
+.giltab { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: var(--r-klein); background: var(--akzent-hauch); border: 1px solid rgba(127, 214, 200, .35); }
+.giltab .hinweistext { margin: 0; }
+.frueher { display: flex; flex-direction: column; gap: 4px; }
+.frueher .knopf { align-self: flex-start; margin-top: 4px; }
+.person-kopf { display: flex; align-items: center; gap: 10px; padding: 12px 0 6px; border-top: 1px solid var(--rand-mittel); }
+.person-kopf .t { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.person-kopf b { font-size: var(--t-text); font-weight: 600; }
+.person-kopf small { font-size: var(--t-label); color: var(--gedaempft); }
+.person-kopf + .posten { border-top: 0; }
+.rueck-zeile { padding-left: 12px; min-height: 48px; }
+/* Verlauf: Suche und Filter */
+.vf-kopf { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.vf-kopf .eingabe { min-width: 0; }
+.vf-kopf .knopf { width: auto; padding: 0 16px; }
+.vf-filter { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--r-mittel); background: var(--flaeche-1); border: 1px solid var(--rand-leise); }
+.vf-ergebnis { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--t-klein); color: var(--gedaempft); padding: 0 4px; }
+#vf-liste { display: flex; flex-direction: column; gap: 12px; }
+/* Auswertung */
+.aw-start { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; color: var(--text); flex-direction: row; }
+.aw-start .mitte { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.aw-start b { font-size: var(--t-text); font-weight: 600; }
+.aw-symbol { font-size: 22px; }
+.aw-diagramm { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; align-items: end; height: 190px; padding-top: 4px; border-bottom: 1px solid var(--rand-mittel); }
+.aw-balken { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; border: 0; background: transparent; color: var(--gedaempft); padding: 0 1px 6px; min-width: 0; border-radius: var(--r-klein) var(--r-klein) 0 0; }
+.aw-balken[aria-pressed="true"] { background: var(--flaeche-1); color: var(--text); }
+.aw-wert { font-size: var(--t-mini); min-height: 15px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aw-saeule { flex: 1; width: 100%; display: flex; align-items: flex-end; justify-content: center; min-height: 0; }
+.aw-saeule i { display: block; width: min(24px, 72%); background: var(--minus); border-radius: 4px 4px 0 0; opacity: .78; }
+.aw-balken[aria-pressed="true"] .aw-saeule i { opacity: 1; }
+.aw-balken.laeuft .aw-saeule i { background: repeating-linear-gradient(135deg, var(--minus) 0 4px, rgba(239, 154, 143, .38) 4px 8px); }
+.aw-monat { font-size: var(--t-mini); }
+.aw-detail { display: flex; flex-direction: column; gap: 3px; font-size: var(--t-klein); color: var(--gedaempft); line-height: 1.35; }
+.aw-detail b { color: var(--text); font-weight: 600; font-size: var(--t-text); }
+.aw-kat { display: flex; flex-direction: column; gap: 6px; padding: 12px 0; border-top: 1px solid var(--rand-leise); }
+.aw-kat:first-of-type { border-top: 0; padding-top: 2px; }
+.aw-kat .knopf { align-self: flex-start; }
+.aw-kat .hinweistext { margin: 0; }
+.aw-kat-kopf, .aw-ort-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.aw-kat-kopf .n, .aw-ort-kopf .n { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-urteil { font-size: var(--t-label); color: var(--gedaempft); white-space: nowrap; padding: 3px 10px; border-radius: var(--r-pille); background: var(--flaeche-2); }
+.aw-urteil i { font-style: normal; }
+.aw-urteil.warn { color: var(--fehler); background: rgba(240, 169, 154, .12); }
+.aw-urteil.gut { color: var(--plus); background: rgba(143, 214, 160, .10); }
+.aw-spur { position: relative; height: 12px; border-radius: 4px; background: var(--flaeche-2); }
+.aw-spur.klein { height: 6px; }
+.aw-schnitt { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--minus); opacity: .85; }
+.aw-budget { position: absolute; top: -4px; bottom: -4px; width: 3px; margin-left: -1.5px; background: var(--text); border-radius: 2px; box-shadow: 0 0 0 2px var(--karte); }
+.aw-zahlen { display: flex; justify-content: space-between; gap: 10px; font-size: var(--t-label); color: var(--gedaempft); }
+.aw-zahlen b { color: var(--text); font-weight: 600; }
+.aw-ort { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--flaeche-1); }
+.aw-ort small { font-size: var(--t-label); color: var(--gedaempft); }
+.aw-ort b { font-weight: 500; white-space: nowrap; }
+/* Gehaltsrechner: Fundstellen */
+.gr-zeile > span { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.gr-fund { font-size: var(--t-mini); color: var(--grau); font-weight: 400; line-height: 1.3; }
+.gr-quellen-knopf { align-self: flex-start; margin-top: 8px; }
+.schaetz-box small { color: var(--gedaempft); font-size: var(--t-label); }
+.quellen-karte { gap: 0; }
+.quellen-karte .label { margin-bottom: 6px; }
+.qz { display: flex; flex-direction: column; gap: 3px; padding: 10px 0; border-top: 1px solid var(--rand-leise); }
+.quellen-karte .label + .qz { border-top: 0; padding-top: 2px; }
+.qz-kopf { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.qz-kopf .n { font-weight: 500; }
+.qz-kopf b { font-weight: 500; white-space: nowrap; }
+.qz.summe .qz-kopf .n, .qz.summe .qz-kopf b { font-weight: 600; font-size: var(--t-titel-karte); }
+.qz-weg { font-size: var(--t-klein); color: var(--gedaempft); line-height: 1.35; }
+.qz-fund { font-size: var(--t-label); color: var(--akzent); line-height: 1.35; }
+.qz-hinweis { font-size: var(--t-label); color: var(--hinweis); line-height: 1.35; }
+.qz-liste { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 8px; font-size: var(--t-klein); color: var(--gedaempft); line-height: 1.4; }
+/* Dienste */
+.ds-monat { margin-top: 0; }
+h3.monatstitel { font-size: var(--t-zahl-m); }
+.ds-kopf, .ds-kalender { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.ds-kopf span { text-align: center; font-size: var(--t-mini); color: var(--gedaempft); }
+.ds-kopf span:last-child { color: var(--hinweis); }
+.ds-tag { height: 52px; border-radius: var(--r-klein); border: 1px solid var(--rand-leise); background: var(--flaeche-1); color: var(--text); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; padding: 0; min-width: 0; }
+.ds-tag .t { font-size: var(--t-mini); color: var(--gedaempft); line-height: 1; }
+.ds-tag .k { font-size: var(--t-label); font-weight: 600; line-height: 1.1; min-height: 14px; max-width: 100%; overflow: hidden; white-space: nowrap; }
+.ds-tag.sonntag .t, .ds-tag.feiertag .t { color: var(--hinweis); }
+.ds-tag.feiertag { border-color: rgba(223, 230, 176, .5); }
+.ds-tag.dienst { background: var(--akzent-flaeche); border-color: rgba(127, 214, 200, .45); }
+.ds-tag.nacht { background: rgba(143, 179, 217, .20); border-color: rgba(143, 179, 217, .55); }
+.ds-tag.frei { background: var(--flaeche-2); }
+.ds-tag.frei .k { color: var(--gedaempft); font-weight: 500; }
+.ds-tag.heute { box-shadow: 0 0 0 2px var(--text); }
+.ds-tag:active { background: var(--flaeche-3); }
+.ds-pinsel .chip small { color: var(--gedaempft); font-size: var(--t-mini); margin-left: 4px; }
+.ds-pinsel .chip[aria-pressed="true"] small { color: inherit; }

@@ -36,9 +36,33 @@ export function euro(x, mitZeichen = true) {
 export function euroRund(x) { return Math.round(x).toLocaleString('de-DE') + ' €'; }
 
 // ---------- Fixkosten ----------
-export function eigenerBetrag(fk) {
-  const anteil = fk.meinAnteil == null ? 100 : fk.meinAnteil;
-  return (Number(fk.betrag) || 0) * anteil / 100;
+// v27: Ein Betrag kann sich ändern, ohne dass alte Monate mitgeändert werden.
+// `frueher: [{ bis: "2026-10", betrag, meinAnteil? }]` = bis einschließlich Oktober galt der alte Betrag.
+// Mit Monat s liefert betragIm den Eintrag, der in diesem Monat galt; ohne Monat den heutigen.
+export function betragIm(fk, s) {
+  if (s && Array.isArray(fk.frueher)) {
+    const e = fk.frueher.filter((x) => x && x.bis && s <= x.bis).sort((a, b) => (a.bis < b.bis ? -1 : 1))[0];
+    if (e) return e;
+  }
+  return fk;
+}
+export function eigenerBetrag(fk, s) {
+  const q = betragIm(fk, s);
+  const a = q.meinAnteil == null ? fk.meinAnteil : q.meinAnteil;
+  const anteil = a == null ? 100 : a;
+  return (Number(q.betrag) || 0) * anteil / 100;
+}
+// Betrag ändern mit „gilt ab“: ab = erster Monat mit dem neuen Betrag (null = schon immer)
+export function betragAendern(fk, werte, ab) {
+  if (ab) {
+    const bis = ymPlus(ab, -1);
+    const alt = betragIm(fk, bis);
+    const liste = (fk.frueher || []).filter((x) => x && x.bis < bis);
+    liste.push({ bis, betrag: Number(alt.betrag) || 0, meinAnteil: alt.meinAnteil == null ? (fk.meinAnteil == null ? 100 : fk.meinAnteil) : alt.meinAnteil });
+    fk.frueher = liste;
+  }
+  Object.assign(fk, werte);
+  return fk;
 }
 
 // Monate (1–12), in denen abgebucht wird
@@ -65,7 +89,7 @@ export function wirdAbgebuchtIm(fk, s) {
 export function abbuchungsTag(fk, s) { return Math.min(fk.tag || 1, tageImMonat(s)); }
 
 // Monatsanteil, der in den anderen Monaten zurückgelegt wird
-export function monatsAnteil(fk) { return eigenerBetrag(fk) / (RHYTHMUS[fk.wieOft] || 1); }
+export function monatsAnteil(fk, s) { return eigenerBetrag(fk, s) / (RHYTHMUS[fk.wieOft] || 1); }
 
 export function rhythmusBeschreibung(fk) {
   const tag = (fk.tag || 1) + '.';
@@ -91,8 +115,14 @@ export function einnahmeAktivIm(e, s) {
 // Zählt zu „Frei“, wenn sie fest ist oder im Monat angekommen ist; „geplant“ zählt erst nach „Kam an“.
 export function einnahmeIm(e, s) {
   const ist = (e.istWerte || []).find((w) => ymAus(w.datum) === s);
-  if (ist) return { betrag: Number(ist.betrag) || 0, geschaetzt: false, schaetzung: schaetzung(e), zaehlt: true, angekommen: true };
-  return { betrag: schaetzung(e), geschaetzt: !e.sicher, schaetzung: schaetzung(e), zaehlt: e.status !== 'geplant', angekommen: false };
+  const sch = schaetzungIm(e, s);
+  if (ist) return { betrag: Number(ist.betrag) || 0, geschaetzt: false, schaetzung: sch, zaehlt: true, angekommen: true };
+  return { betrag: sch, geschaetzt: !e.sicher, schaetzung: sch, zaehlt: e.status !== 'geplant', angekommen: false, ausDiensten: !!(e.schaetzWerte && e.schaetzWerte[s] != null) };
+}
+// v27: Schätzung für genau diesen Monat (aus dem Dienstplan gerechnet, liegt in `schaetzWerte`), sonst die allgemeine
+export function schaetzungIm(e, s) {
+  const w = e.schaetzWerte && e.schaetzWerte[s];
+  return w != null && isFinite(Number(w)) ? Number(w) : schaetzung(e);
 }
 export function schaetzung(e) {
   const b = e.betrag;
@@ -184,7 +214,7 @@ function ruecklageBewegungen(daten, rk, von, bis, abStand = false) {
     for (const f of daten.fixkosten || []) {
       if (istMonatlich(f) || !wirdAbgebuchtIm(f, s)) continue;
       const d = s + '-' + zweistellig(abbuchungsTag(f, s));
-      if (d > von && d <= bis) liste.push({ datum: d, betrag: -eigenerBetrag(f), fixkosten: f });
+      if (d > von && d <= bis) liste.push({ datum: d, betrag: -eigenerBetrag(f, s), fixkosten: f });
     }
     s = ymPlus(s, 1);
   }
@@ -230,7 +260,7 @@ export function monatsRechnung(daten, s, opt = {}) {
     const posten = (daten.fixkosten || []).filter((f) => f.kategorieId === kat.id && laeuftIm(f, s)).map((f) => {
       const faellig = wirdAbgebuchtIm(f, s);
       const ausRuecklage = !!rk && !istMonatlich(f);
-      return { fixkosten: f, faellig, ausRuecklage, zaehlt: faellig && !ausRuecklage, betrag: eigenerBetrag(f), anteil: monatsAnteil(f), wann: rhythmusBeschreibung(f) + (f.abo ? ' · Abo' : '') };
+      return { fixkosten: f, faellig, ausRuecklage, zaehlt: faellig && !ausRuecklage, betrag: eigenerBetrag(f, s), anteil: monatsAnteil(f, s), wann: rhythmusBeschreibung(f) + (f.abo ? ' · Abo' : '') };
     });
     const summe = posten.filter((p) => p.zaehlt).reduce((a, p) => a + p.betrag, 0);
     gruppen.push({ kategorie: kat, art: 'fix', farbe: kat.farbe, name: kat.name, posten, summe });
@@ -270,7 +300,7 @@ export function naechsterBrockenMonat(daten, s) {
   for (let i = 1; i <= 12; i++) {
     const m = ymPlus(s, i);
     const posten = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && wirdAbgebuchtIm(f, m));
-    if (posten.length) return { monat: m, posten, summe: posten.reduce((a, f) => a + eigenerBetrag(f), 0), frei: monatsRechnung(daten, m).frei };
+    if (posten.length) return { monat: m, posten, summe: posten.reduce((a, f) => a + eigenerBetrag(f, m), 0), frei: monatsRechnung(daten, m).frei };
   }
   return null;
 }
@@ -378,10 +408,10 @@ export function jahresUeberblick(daten, abMonat, anzahl = 12) {
     const s = ymPlus(abMonat, i);
     const teile = fixKats.map((k) => ({
       kategorie: k,
-      summe: (daten.fixkosten || []).filter((f) => f.kategorieId === k.id && wirdAbgebuchtIm(f, s)).reduce((a, f) => a + eigenerBetrag(f), 0)
+      summe: (daten.fixkosten || []).filter((f) => f.kategorieId === k.id && wirdAbgebuchtIm(f, s)).reduce((a, f) => a + eigenerBetrag(f, s), 0)
     }));
     const zusaetzlich = (daten.fixkosten || []).filter((f) => f.wieOft !== 'monatlich' && wirdAbgebuchtIm(f, s))
-      .map((f) => ({ fixkosten: f, text: f.name + ' ' + euro(eigenerBetrag(f)) + ' am ' + abbuchungsTag(f, s) + '.' }));
+      .map((f) => ({ fixkosten: f, betrag: eigenerBetrag(f, s), text: f.name + ' ' + euro(eigenerBetrag(f, s)) + ' am ' + abbuchungsTag(f, s) + '.' }));
     monate.push({ monat: s, name: MONATE_KURZ[ymTeile(s).monat - 1], teile, summe: teile.reduce((a, t) => a + t.summe, 0), zusaetzlich });
   }
   return monate;
@@ -395,7 +425,7 @@ export function naechsteAbbuchungen(daten, heute) {
     for (const f of daten.fixkosten || []) {
       if (!wirdAbgebuchtIm(f, s)) continue;
       const datum = s + '-' + zweistellig(abbuchungsTag(f, s));
-      if (datum >= heute) ergebnis.push({ datum, fixkosten: f, betrag: eigenerBetrag(f) });
+      if (datum >= heute) ergebnis.push({ datum, fixkosten: f, betrag: eigenerBetrag(f, s) });
     }
     s = ymPlus(s, 1);
   }
@@ -482,4 +512,127 @@ export function mitOffenem(daten, s, opt = {}) {
   const min = monatsRechnung(mitOffenenWerten(daten, 'min'), s, opt).frei;
   const max = monatsRechnung(mitOffenenWerten(daten, 'max'), s, opt).frei;
   return { anzahl: liste.length, ohne: liste.filter((x) => !offenSpanne(x.eintrag.offen).hat).length, frei, min, max, betrifft: Math.abs(min - frei) >= 0.005 || Math.abs(max - frei) >= 0.005 };
+}
+
+// ---------- v27: Auswertung der Ausgaben ----------
+// Schnitt pro Budget-Kategorie über die letzten n abgeschlossenen Monate (ab dem Start mit der App),
+// Urteil zum Budget, Vergleich laufender Monat ↔ Vormonat bis zum selben Tag, häufigste Orte.
+export function auswertung(daten, heute, n = 3) {
+  const h = ymAus(heute);
+  const start = (daten.einstellungen && daten.einstellungen.startMonat) || h;
+  const monate = [];
+  for (let i = n; i >= 1; i--) { const m = ymPlus(h, -i); if (m >= start) monate.push(m); }
+  const tag = heute.slice(8, 10);
+  const vm = ymPlus(h, -1);
+  const bisTag = (m) => m + '-' + zweistellig(Math.min(Number(tag), tageImMonat(m))) + 'T99';
+  const kats = (daten.kategorien || []).filter((k) => k.art === 'budget').map((k) => {
+    const werte = monate.map((m) => ausgegebenIm(daten, m, k.id));
+    const schnitt = werte.length ? werte.reduce((a, x) => a + x, 0) / werte.length : null;
+    const budget = Number(k.budget) || 0;
+    const jetzt = ausgegebenIm(daten, h, k.id);
+    const vorBisTag = vm >= start ? buchungenIm(daten, vm, k.id).filter((b) => b.zeit <= bisTag(vm)).reduce((a, b) => a + (Number(b.betrag) || 0), 0) : null;
+    let urteil = 'ohne';
+    if (schnitt != null && budget > 0) urteil = schnitt > budget * 1.05 ? 'knapp' : schnitt < budget * 0.75 ? 'luft' : 'passt';
+    else if (schnitt == null) urteil = 'neu';
+    return { kategorie: k, werte, schnitt, budget, urteil, jetzt, vorBisTag, max: werte.length ? Math.max(...werte) : null, min: werte.length ? Math.min(...werte) : null };
+  });
+  const verlauf = [...monate, h].map((m) => ({ monat: m, name: MONATE_KURZ[ymTeile(m).monat - 1], summe: ausgegebenIm(daten, m), laeuft: m === h }));
+  // Orte über denselben Zeitraum plus den laufenden Monat
+  const ab = monate[0] || h;
+  const orte = new Map();
+  for (const b of daten.buchungen || []) {
+    if (ymAus(b.zeit) < ab || ymAus(b.zeit) > h || !b.ort) continue;
+    const o = orte.get(b.ort) || { ort: b.ort, anzahl: 0, summe: 0 };
+    o.anzahl++; o.summe += Number(b.betrag) || 0; orte.set(b.ort, o);
+  }
+  const summeJetzt = ausgegebenIm(daten, h);
+  const summeVorBisTag = vm >= start ? buchungenIm(daten, vm).filter((b) => b.zeit <= bisTag(vm)).reduce((a, b) => a + (Number(b.betrag) || 0), 0) : null;
+  return { monate, kats, verlauf, orte: [...orte.values()].sort((a, b) => b.summe - a.summe), summeJetzt, summeVorBisTag, vormonat: vm >= start ? vm : null };
+}
+
+// ---------- v27: Abrechnung pro Person (geteilte Ausgaben) ----------
+export function personenAbrechnung(daten) {
+  const personen = new Map();
+  for (const b of daten.buchungen || []) {
+    if (!b.gesamt || b.zurueckErhalten) continue;
+    const name = (b.teiltMit || '').trim() || 'Ohne Namen';
+    const p = personen.get(name) || { name, summe: 0, buchungen: [] };
+    p.summe += b.gesamt - b.betrag; p.buchungen.push(b); personen.set(name, p);
+  }
+  return [...personen.values()].map((p) => Object.assign(p, { summe: Math.round(p.summe * 100) / 100, buchungen: p.buchungen.sort((a, b) => (a.zeit < b.zeit ? 1 : -1)) })).sort((a, b) => b.summe - a.summe);
+}
+
+// ---------- v27: Sparziel pro Konto ----------
+// ziel = Betrag, zielBis = Monat „2027-08“. Liefert Stand, nötige Monatsrate und wann die heutige Rate ankommt.
+export function sparziel(sp, heute, daten) {
+  const ziel = Number(sp.ziel) || 0;
+  if (!(ziel > 0)) return null;
+  const stand = sparStand(sp, heute, daten);
+  const fehlt = Math.max(0, ziel - stand);
+  const rate = Number(sp.betrag) || 0;
+  const h = ymAus(heute);
+  // Raten, die bis zum Ende des Zielmonats noch kommen (die Rate dieses Monats zählt, wenn ihr Tag noch aussteht)
+  const dieseNoch = Number(heute.slice(8, 10)) < Math.min(sp.tag || 1, tageImMonat(h)) ? 1 : 0;
+  const ratenBis = (m) => { let k = 0; for (let x = ymPlus(h, 1); x <= m && k < 1200; x = ymPlus(x, 1)) k++; return k + dieseNoch; };
+  const erg = { ziel, stand, fehlt, rate, anteil: Math.min(1, stand / ziel), erreicht: fehlt <= 0.005, zielBis: sp.zielBis || null };
+  if (erg.erreicht) return erg;
+  if (rate > 0) { const k = Math.ceil(fehlt / rate - 1e-9); erg.fertigIm = ymPlus(h, k - dieseNoch); }
+  if (sp.zielBis) {
+    const k = sp.zielBis >= h ? ratenBis(sp.zielBis) : 0;
+    erg.raten = k;
+    erg.noetig = k > 0 ? Math.ceil(fehlt / k * 100) / 100 : null;
+    erg.reicht = rate > 0 && k > 0 && rate * k >= fehlt - 0.005;
+    erg.vorbei = sp.zielBis < h;
+  }
+  return erg;
+}
+
+// ---------- v27: engster Monat (ohne Rücklagenkonto) ----------
+// Der Monat der nächsten 12 mit dem wenigsten „Frei“ – nur wenn er deutlich enger ist als ein gewöhnlicher Monat.
+export function engsterMonat(daten, ab, anzahl = 12) {
+  if (ruecklage(daten)) return null;
+  const liste = [];
+  for (let i = 0; i < anzahl; i++) { const m = ymPlus(ab, i); liste.push({ monat: m, frei: monatsRechnung(daten, m).frei }); }
+  const eng = liste.reduce((a, x) => (x.frei < a.frei ? x : a), liste[0]);
+  const sortiert = liste.map((x) => x.frei).sort((a, b) => a - b);
+  const ueblich = sortiert[Math.floor(sortiert.length / 2)];
+  const posten = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && wirdAbgebuchtIm(f, eng.monat));
+  if (!posten.length || ueblich - eng.frei < 50) return null;
+  return { monat: eng.monat, frei: eng.frei, ueblich, weniger: ueblich - eng.frei, posten, summe: posten.reduce((a, f) => a + eigenerBetrag(f, eng.monat), 0), inMonaten: liste.indexOf(eng) };
+}
+
+// ---------- v27: Erinnerung an die Sicherung ----------
+// Fällig, wenn es Daten gibt und die letzte Sicherung (oder der erste Eintrag) länger als `tage` Tage her ist.
+export function sicherungFaellig(daten, jetzt = new Date(), tage = 30) {
+  const e = daten.einstellungen || {};
+  const hat = (daten.buchungen || []).length + (daten.fixkosten || []).length;
+  if (!hat || daten.beispiel) return null;
+  const tagMs = 864e5;
+  if (e.letzteSicherungZeit) {
+    const alt = Math.floor((jetzt - new Date(e.letzteSicherungZeit)) / tagMs);
+    return alt >= tage ? { tage: alt, nie: false } : null;
+  }
+  if (e.letzteSicherung) { // ältere Version: nur Text „16.11.2026 10:00“
+    const m = String(e.letzteSicherung).match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+    if (m) { const alt = Math.floor((jetzt - new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) / tagMs); return alt >= tage ? { tage: alt, nie: false } : null; }
+  }
+  const erste = (daten.buchungen || []).map((b) => b.zeit).sort()[0] || ((e.startMonat || '') + '-01');
+  const alt = Math.floor((jetzt - new Date(erste.slice(0, 10) + 'T12:00:00')) / tagMs);
+  return alt >= tage ? { tage: alt, nie: true } : null;
+}
+
+// ---------- v27: Verlauf durchsuchen ----------
+// filter: { text, kategorieId, monat, ort }
+export function verlaufFiltern(eintraege, daten, filter = {}) {
+  const t = (filter.text || '').trim().toLowerCase();
+  const zahlText = t.replace(',', '.');
+  return eintraege.filter((b) => {
+    if (filter.kategorieId && b.kategorieId !== filter.kategorieId) return false;
+    if (filter.monat && ymAus(b.zeit) !== filter.monat) return false;
+    if (filter.ort && (b.ort || '') !== filter.ort) return false;
+    if (!t) return true;
+    const k = kategorie(daten, b.kategorieId);
+    const heu = [(b.ort || ''), k ? k.name : '', b.teiltMit || '', String(b.betrag).replace('.', ','), String(b.betrag)].join(' ').toLowerCase();
+    return heu.includes(t) || heu.includes(zahlText);
+  });
 }
