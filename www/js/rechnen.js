@@ -168,7 +168,70 @@ const summeBetrag = (l) => l.reduce((a, x) => a + (Number(x.betrag) || 0), 0);
 export function uebertraegeIm(daten, s, kontoId) {
   return (daten.uebertraege || []).filter((u) => ymAus(u.datum) === s && (!kontoId || u.kontoId === kontoId));
 }
-export function kontoArt(sp) { return sp.art === 'ruecklage' ? 'ruecklage' : sp.art === 'extern' ? 'extern' : 'sparen'; }
+export function kontoArt(sp) { return sp.art === 'ruecklage' ? 'ruecklage' : sp.art === 'extern' ? 'extern' : sp.art === 'konsum' ? 'konsum' : 'sparen'; }
+// Interne Überträge (v31): { vonKontoId } = Geld geht von einem eigenen Konto weg (z. B. Rest vom Konsumkonto).
+// kontoId leer = zurück aufs Eingangskonto. Interne Überträge zwischen zwei Konten ändern „Frei“ nicht.
+export function ausEingang(u) { return !u.vonKontoId; }
+
+// ---------- Konsumkonto (v31) ----------
+// Ein Konto mit art "konsum": fester Dauerauftrag vom Eingangskonto (betrag, tag). Budget-Kategorien mit
+// kontoId = Konsumkonto werden von dort bezahlt: Ihre Ausgaben zählen nicht in „Frei“, dort zählt nur der Dauerauftrag.
+export function konsumKonto(daten) { return (daten.sparraten || []).find((sp) => sp.art === 'konsum') || null; }
+export function istKonsum(daten, k, kk = konsumKonto(daten)) { return !!kk && !!k && k.art === 'budget' && k.kontoId === kk.id; }
+export function konsumKategorien(daten) { const kk = konsumKonto(daten); return (daten.kategorien || []).filter((k) => istKonsum(daten, k, kk)); }
+// Buchung nach dem eingetragenen Stand? Am selben Tag entscheidet die Uhrzeit.
+function buchungNachStand(sp, b) {
+  const d = b.zeit.slice(0, 10); const sd = sp.standDatum || '';
+  if (d > sd) return true;
+  return d === sd && !!sp.standZeit && b.zeit > zeitText(new Date(sp.standZeit));
+}
+// Stand am Tag d: Stand + Dauerauftrag + Überträge hinein − Konsum-Buchungen − Überträge hinaus (jeweils seit dem Stand)
+export function konsumStand(daten, d) {
+  const kk = konsumKonto(daten);
+  if (!kk) return 0;
+  let stand = sparStand(kk, d, daten);
+  const ids = new Set(konsumKategorien(daten).map((k) => k.id));
+  for (const b of daten.buchungen || []) if (ids.has(b.kategorieId) && b.zeit.slice(0, 10) <= d && buchungNachStand(kk, b)) stand -= Number(b.betrag) || 0;
+  for (const u of daten.uebertraege || []) if (u.vonKontoId === kk.id && u.datum <= d && uebertragNachStand(kk, u)) stand -= Number(u.betrag) || 0;
+  return Math.round(stand * 100) / 100;
+}
+// Tag des Dauerauftrags im Monat s
+export function konsumEingang(kk, s) { return s + '-' + zweistellig(Math.min(kk.tag || 1, tageImMonat(s))); }
+const tageZwischen = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
+// Für die Kachel: Stand heute, ausgegeben im Monat, wie viel pro Tag bis zum nächsten Eingang
+export function konsumUebersicht(daten, heute) {
+  const kk = konsumKonto(daten);
+  if (!kk) return null;
+  const s = ymAus(heute);
+  const kats = konsumKategorien(daten);
+  const ids = new Set(kats.map((k) => k.id));
+  const buchungen = buchungenIm(daten, s).filter((b) => ids.has(b.kategorieId));
+  const ausgegeben = summeBetrag(buchungen);
+  let naechster = konsumEingang(kk, s);
+  if (naechster <= heute) naechster = konsumEingang(kk, ymPlus(s, 1));
+  const tage = Math.max(1, tageZwischen(heute, naechster));
+  const stand = konsumStand(daten, heute);
+  const proKategorie = kats.map((k) => ({ kategorie: k, ausgegeben: ausgegebenIm(daten, s, k.id), budget: Number(k.budget) || 0 }));
+  return { konto: kk, stand, ausgegeben, rate: Number(kk.betrag) || 0, naechster, tage, proTag: Math.max(0, stand) / tage, kategorien: kats, proKategorie, buchungen };
+}
+// Rest der letzten Runde: einmal fragen, sobald der neue Dauerauftrag da ist (Monat = Monat vor dem Eingang)
+export function konsumRest(daten, heute) {
+  const kk = konsumKonto(daten);
+  if (!kk || !kk.standDatum) return null;
+  const s = ymAus(heute);
+  const eingang = konsumEingang(kk, s);
+  if (heute < eingang) return null;
+  const vm = ymPlus(s, -1);
+  if (((daten.einstellungen && daten.einstellungen.konsumAbgeschlossen) || []).includes(vm)) return null;
+  const vorher = new Date(eingang + 'T12:00:00');
+  vorher.setDate(vorher.getDate() - 1);
+  const bis = datumText(vorher);
+  // erst fragen, wenn die App mindestens einen Tag der Runde mitverfolgt hat
+  if (kk.standDatum >= bis) return null;
+  const rest = konsumStand(daten, bis);
+  if (Math.abs(rest) < 1) return null;
+  return { monat: vm, bis, rest };
+}
 
 // ---------- Buchungen (Ausgaben aus den Widgets) ----------
 export function buchungenIm(daten, s, kategorieId) {
@@ -265,34 +328,46 @@ export function monatsRechnung(daten, s, opt = {}) {
     const summe = posten.filter((p) => p.zaehlt).reduce((a, p) => a + p.betrag, 0);
     gruppen.push({ kategorie: kat, art: 'fix', farbe: kat.farbe, name: kat.name, posten, summe });
   }
+  const kk = konsumKonto(daten);
   const budgetKats = (daten.kategorien || []).filter((k) => k.art === 'budget');
-  if (budgetKats.length) {
-    const posten = budgetKats.map((k) => {
-      const ausgegeben = ausgegebenIm(daten, s, k.id);
-      const budget = Number(k.budget) || 0;
-      return { kategorie: k, faellig: true, zaehlt: true, betrag: opt.vorbei ? ausgegeben : Math.max(budget, ausgegeben), budget, ausgegeben };
-    });
+  const budgetPosten = (k) => {
+    const ausgegeben = ausgegebenIm(daten, s, k.id);
+    const budget = Number(k.budget) || 0;
+    return { kategorie: k, faellig: true, zaehlt: true, betrag: opt.vorbei ? ausgegeben : Math.max(budget, ausgegeben), budget, ausgegeben };
+  };
+  const normal = budgetKats.filter((k) => !istKonsum(daten, k, kk));
+  if (normal.length) {
+    const posten = normal.map(budgetPosten);
     gruppen.push({ art: 'budget', farbe: (daten.einstellungen && daten.einstellungen.budgetFarbe) || '#5d7d99', name: 'Budgets', posten, summe: posten.reduce((a, p) => a + p.betrag, 0) });
+  }
+  // v31: Konsum-Kategorien – bezahlt vom Konsumkonto, zählen nicht in „Frei“ (summe 0)
+  const konsumKats = budgetKats.filter((k) => istKonsum(daten, k, kk));
+  if (konsumKats.length) {
+    const posten = konsumKats.map((k) => Object.assign(budgetPosten(k), { zaehlt: false, betrag: 0, konsum: true }));
+    gruppen.push({ art: 'budget', konsum: true, farbe: 'var(--konsum)', name: kk.name || 'Konsumkonto', posten, summe: 0, ausgegeben: posten.reduce((a, p) => a + p.ausgegeben, 0) });
   }
 
   const ausgaben = gruppen.reduce((a, g) => a + g.summe, 0);
   // Konten: feste Monatsrate + einmalige Überträge in diesem Monat
-  const konten = [rk].concat(sparratenNormal(daten), sparratenExtern(daten)).filter(Boolean).map((sp) => {
+  const konten = [rk].concat(sparratenNormal(daten), sparratenExtern(daten), [kk]).filter(Boolean).map((sp) => {
     const rate = Number(sp.betrag) || 0;
-    const extra = summeBetrag(uebertraegeIm(daten, s, sp.id));
-    return { konto: sp, art: kontoArt(sp), rate, extra, betrag: rate + extra };
+    // nur Geld vom Eingangskonto zählt; Rest, der zurück aufs Eingangskonto geht, zählt dagegen
+    const zurueck = summeBetrag((daten.uebertraege || []).filter((u) => u.vonKontoId === sp.id && !u.kontoId && ymAus(u.datum) === s));
+    const extra = summeBetrag(uebertraegeIm(daten, s, sp.id).filter(ausEingang)) - zurueck;
+    return { konto: sp, art: kontoArt(sp), rate, extra, zurueck, betrag: rate + extra };
   });
   const summeArt = (art) => konten.filter((k) => k.art === art).reduce((a, k) => a + k.betrag, 0);
   const zuruecklegen = summeArt('ruecklage');
   const sparen = summeArt('sparen');
   const extern = summeArt('extern');
-  const frei = einkommen - ausgaben - zuruecklegen - sparen - extern;
+  const konsum = summeArt('konsum');
+  const frei = einkommen - ausgaben - zuruecklegen - sparen - extern - konsum;
   const g = gehaltVon(daten);
   const gehaltWert = einnahmen.find((e) => g && e.einnahme === g) || { betrag: 0, geschaetzt: !!g && !g.sicher, schaetzung: g ? schaetzung(g) : 0 };
   const weitere = einnahmen.filter((e) => !g || e.einnahme !== g).reduce((a, e) => a + e.betrag, 0);
   // offene Beträge (v25) stehen unter „Mit Offenem“, nicht unter „Mit Geplantem“
   const geplantRein = geplanteEinnahmen.filter((e) => !e.einnahme.offen).reduce((a, e) => a + e.betrag, 0);
-  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konten, frei, vorbei: !!opt.vorbei };
+  return { monat: s, einnahmen, geplanteEinnahmen, gehaltWert, weitere, geplantRein, einkommen, geschaetzt, gruppen, ausgaben, zuruecklegen, mitRuecklage: !!rk, sparen, extern, konsum, mitKonsum: !!kk, konten, frei, vorbei: !!opt.vorbei };
 }
 
 // Ohne Rücklagenkonto: nächster Monat (ab dem folgenden), in dem nicht monatliche Kosten anfallen

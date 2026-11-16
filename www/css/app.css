@@ -31,6 +31,7 @@
   --ruecklage: #8d9895;
   --extern: #d8bc8c;
   --spar: #8fb3d9;
+  --konsum: #c3a6e0;
   --hinweis: #dfe6b0;
   --fehler: #f0a99a;
 }
@@ -770,3 +771,14 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .er-schritt .t b { color: var(--text); font-size: var(--t-text); font-weight: 600; }
 .er-schritt .knopf { align-self: flex-start; margin-top: 4px; }
 .er-ok { color: var(--plus) !important; }
+
+/* v31: Konsumkonto */
+.karte.spar.konsum .symbol { background: color-mix(in srgb, var(--konsum) 22%, transparent); }
+.konsum-kachel .kachel-kopf { width: 100%; }
+.konsum-kachel .kk-aus { margin-left: auto; font-size: var(--t-klein); font-weight: 400; color: var(--gedaempft); white-space: nowrap; }
+.konsum-mini span { background: var(--konsum); }
+.konsum-mini.gross { height: 8px; max-width: none; border-radius: 4px; margin: 6px 0 2px; }
+.konsum-kopf .aufstellung { margin-top: 4px; }
+.konsum-frage { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid color-mix(in srgb, var(--konsum) 50%, transparent); background: color-mix(in srgb, var(--konsum) 8%, transparent); color: var(--text); margin-top: 12px; }
+.konsum-frage .mitte { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: var(--t-text); min-width: 0; }
+.konsum-frage small { font-size: var(--t-klein); color: var(--gedaempft); }

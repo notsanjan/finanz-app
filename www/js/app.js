@@ -7,9 +7,11 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v30';
+export const APP_VERSION = 'finanz-v31';
 const NEU_IN_VERSION = [
-  'Zahlungen erkennen (Beta): Blockiert Android den Zugriff („App wurde Zugriff verweigert“), zeigt die App jetzt Schritt für Schritt, wie du ihn freigibst – mit Knopf direkt zu den App-Infos'
+  'Konsumkonto: Unter Konten ein Konto als „Konsum“ einrichten (fester Übertrag vom Eingangskonto). Tanken, Essen und Co. werden dann von dort bezahlt und zählen nicht mehr in „Frei“ – dort zählt nur der Übertrag',
+  'Neue Kachel „Konsum“: was noch auf dem Konsumkonto ist, wie viel pro Tag bis zum nächsten Übertrag, was du im Monat ausgegeben hast',
+  'Am Monatsende fragt die App, was mit dem Rest auf dem Konsumkonto passiert: bleibt drauf, zurück aufs Eingangskonto oder aufs Sparkonto'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -202,16 +204,17 @@ function monatTeile(s = z.monat) {
   const pruefung = R.wunschPruefung(z.daten, heuteYm());
   const geplant = s >= heuteYm() ? R.geplantAusFrei(z.daten, s, pruefung) : 0;
   // Balken: jede Kategorie ein Stück, dann Rücklage, Sparkonto, Rest = Frei
-  const basis = Math.max(r.einkommen, r.ausgaben + r.zuruecklegen + r.sparen + r.extern, 1);
+  const basis = Math.max(r.einkommen, r.ausgaben + r.zuruecklegen + r.sparen + r.extern + r.konsum, 1);
   const pct = (x) => (Math.max(0, x) / basis * 100).toFixed(2);
   const stuecke = r.gruppen.filter((gr) => gr.summe > 0).map((gr) => `<span style="width:${pct(gr.summe)}%;background:${gr.farbe}" title="${esc(gr.name)}"></span>`).join('')
     + (r.zuruecklegen > 0 ? `<span class="streifen" style="width:${pct(r.zuruecklegen)}%"></span>` : '')
     + (r.sparen > 0 ? `<span style="width:${pct(r.sparen)}%;background:var(--spar)"></span>` : '')
     + (r.extern > 0 ? `<span style="width:${pct(r.extern)}%;background:var(--extern)"></span>` : '')
+    + (r.konsum > 0 ? `<span style="width:${pct(r.konsum)}%;background:var(--konsum)" title="Konsumkonto"></span>` : '')
     + (r.frei > 0 ? '<span class="rest"></span>' : '');
   const ungefaehr = r.geschaetzt ? '≈ ' : '';
   const freiText = (r.frei < 0 ? '− ' : ungefaehr) + R.euroRund(Math.abs(r.frei));
-  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparen, ${r.extern > 0 ? R.euroRund(r.extern) + ' an andere Konten, ' : ''}${freiText} frei`;
+  const aria = `Gehalt ${R.euroRund(r.einkommen)}: ${R.euroRund(r.ausgaben)} Ausgaben, ${r.mitRuecklage ? R.euroRund(r.zuruecklegen) + ' aufs Rücklagenkonto, ' : ''}${R.euroRund(r.sparen)} aufs Sparen, ${r.extern > 0 ? R.euroRund(r.extern) + ' an andere Konten, ' : ''}${r.konsum > 0 ? R.euroRund(r.konsum) + ' aufs Konsumkonto, ' : ''}${freiText} frei`;
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
   // Monatsende: Was ist mit dem Rest passiert? (vergangene Monate, und in den letzten 3 Tagen des aktuellen Monats)
@@ -288,6 +291,12 @@ function monatTeile(s = z.monat) {
       <p class="hinweistext">Mit einem eigenen Rücklagenkonto (z. B. Unterkonto oder Tagesgeld) und einem Dauerauftrag von ≈ ${R.euroRund(R.empfohleneRuecklage(z.daten, s))} im Monat ist jeden Monat gleich viel frei. Versicherungen und Co. zahlt dann die Rücklage.</p>
       <button class="knopf akzent" data-a="ruecklage">Rücklagenkonto einrichten</button></section>`;
   }
+  const kk = R.konsumKonto(z.daten);
+  const konsumKarte = kk ? `<button class="karte spar konsum" data-a="bereich" data-wert="konsum">
+      <span class="symbol">${ICON.pfeil}</span>
+      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">${Number(kk.betrag) > 0 ? `Aufs ${esc(kk.name)} · ${rausZ(kk.betrag)}` : esc(kk.name)}</span><span class="klein">${Number(kk.betrag) > 0 ? `am ${kk.tag || 1}. · ` : ''}${esc(konsumNamen() || 'noch keine Kategorie')}</span></span>
+      <span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.konsumStand(z.daten, stichtag))}</span></span>
+    </button>` : '';
   const normale = R.sparratenNormal(z.daten).concat(R.sparratenExtern(z.daten));
   const sparKarten = normale.length ? normale.map((sp) => {
     const extern = R.kontoArt(sp) === 'extern';
@@ -323,7 +332,7 @@ function monatTeile(s = z.monat) {
     <div class="klein" style="font-size:var(--t-mini)">${APP_VERSION}</div>
   </section>`;
 
-  return { s, r, pruefung, rk, hatJaehrliche, nav, freiKarte, konten: ruecklageKarte + sparKarten, liste, geplantKarte, einnahmenKarte, sicherung };
+  return { s, r, pruefung, rk, hatJaehrliche, nav, freiKarte, konten: ruecklageKarte + konsumKarte + sparKarten, liste, geplantKarte, einnahmenKarte, sicherung };
 }
 
 // ---------- Übersicht: Frei-Karte und vier Kacheln, ohne Scrollen ----------
@@ -332,6 +341,7 @@ const KACHEL_ICON = {
   konten: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10l9-6 9 6M5 10v8M19 10v8M9.5 10v8M14.5 10v8M3 20h18"/></svg>',
   einnahmen: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   geplant: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4M9 15h6"/></svg>',
+  konsum: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>',
   zahnrad: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
 };
 
@@ -342,11 +352,13 @@ function kachelListe() {
   return (Array.isArray(l) ? l : STANDARD_KACHELN).filter((k) => kachelArt(k.id));
 }
 function kachelArt(id) {
+  if (id === 'konsum' && !R.konsumKonto(z.daten)) return null;
   if (id.startsWith('budget:')) { const k = R.kategorie(z.daten, id.slice(7)); return k ? { titel: (k.emoji ? k.emoji + ' ' : '') + k.name, beschreibung: 'Budget mit Balken' } : null; }
   return KACHEL_KATALOG[id] || null;
 }
 const AUFKLAPPBAR = new Set(['ausgaben', 'geplant', 'abos', 'naechste']);
 const KACHEL_KATALOG = {
+  konsum: { titel: 'Konsum', beschreibung: 'Was noch auf dem Konsumkonto ist, pro Tag bis zum nächsten Übertrag', breit: true },
   ausgaben: { titel: 'Ausgaben', beschreibung: 'Summe des Monats, aufklappbar: zuletzt gebucht' },
   konten: { titel: 'Konten', beschreibung: 'Rücklagenkonto und Sparkonto' },
   einnahmen: { titel: 'Einnahmen', beschreibung: 'Gehalt und weitere Einnahmen' },
@@ -378,8 +390,21 @@ function monatAnsicht() {
   const klappKnopf = (k) => `<button class="aufklapp klein-auf" data-a="kachel-auf" data-wert="${esc(k.id)}" aria-expanded="false" aria-label="Aufklappen">${ICON.runter}</button>`;
   const tagText = (zeit) => { const d = zeit.slice(0, 10); return d === heute() ? 'heute ' + zeit.slice(11, 16) : Number(d.slice(8)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1]; };
   const bauer = {
+    konsum: () => {
+      const u = R.konsumUebersicht(z.daten, heute());
+      const naechster = Number(u.naechster.slice(8)) + '. ' + R.MONATE_KURZ[Number(u.naechster.slice(5, 7)) - 1];
+      const verfuegbar = u.ausgegeben + Math.max(0, u.stand);
+      const pct = verfuegbar > 0 ? Math.min(100, u.ausgegeben / verfuegbar * 100) : 0;
+      const wert = u.stand < 0 ? `<span class="minus-zahl">− ${R.euroRund(-u.stand)}</span>` : `noch ${R.euroRund(u.stand)}`;
+      const unter = u.stand < 0 ? 'überzogen' : u.stand > 0 ? `≈ ${R.euroRund(u.proTag)} pro Tag bis ${naechster}` : `leer bis ${naechster}`;
+      return `<button class="kachel konsum-kachel" data-a="bereich" data-wert="konsum" aria-label="Konsum öffnen">
+        <span class="kachel-kopf">${KACHEL_ICON.konsum}<span>Konsum</span><span class="kk-aus">${esc(monatsName(heuteYm()))}: − ${R.euroRund(u.ausgegeben)}</span></span>
+        <span class="kachel-wert ${leuchtet() && u.kategorien.some((k) => leuchtet(k.id)) ? 'leuchtet' : ''}">${wert}</span>
+        <span class="mini kachel-mini konsum-mini"><span style="width:${pct.toFixed(1)}%"></span></span>
+        <span class="kachel-unter ${u.stand < 0 ? 'warn' : ''}">${unter}</span></button>`;
+    },
     ausgaben: (k) => {
-      const budgets = (r.gruppen.find((g) => g.art === 'budget') || { posten: [] }).posten;
+      const budgets = r.gruppen.filter((g) => g.art === 'budget').flatMap((g) => g.posten);
       const ueber = budgets.filter((p) => p.budget > 0 && p.ausgegeben > p.budget);
       const ausgegeben = budgets.reduce((a, p) => a + p.ausgegeben, 0);
       const unter = ueber.length ? `${esc(ueber.map((p) => p.kategorie.name).join(', '))} über Budget` : `${rausSatz(ausgegeben, true)} von den Budgets ausgegeben`;
@@ -460,7 +485,7 @@ function monatAnsicht() {
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
-  const gf = !bearbeiten && z.monat === heuteYm() && hinweisAn('gehalt') ? gehaltFrageKarte() : '';
+  const gf = (!bearbeiten && z.monat === heuteYm() && hinweisAn('gehalt') ? gehaltFrageKarte() : '') + (!bearbeiten && z.monat === heuteYm() ? konsumRestKarte() : '');
   const sk = !bearbeiten && z.monat === heuteYm() ? sicherungKarte() : '';
   return t.nav + t.freiKarte + gf + vk + sk + budgetLeiste(s) + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
@@ -488,12 +513,14 @@ function fabHtml(art) {
 }
 
 // Frei-Karte: jedes Konto mit seinem Namen; ab 4 Konten (ohne Rücklage) nach Art zusammengefasst
-const KONTO_PUNKT = { ruecklage: '<i class="punkt streifen"></i>', sparen: '<i class="punkt" style="background:var(--spar)"></i>', extern: '<i class="punkt" style="background:var(--extern)"></i>' };
+const KONTO_PUNKT = { ruecklage: '<i class="punkt streifen"></i>', sparen: '<i class="punkt" style="background:var(--spar)"></i>', extern: '<i class="punkt" style="background:var(--extern)"></i>', konsum: '<i class="punkt" style="background:var(--konsum)"></i>' };
 function kontoZeilen(r) {
-  const knopf = (art, text, betrag, extra) => `<button class="auf-zeile auf-knopf" data-a="bereich" data-wert="konten" aria-label="${esc(text)}: Konten öffnen"><span class="l">${KONTO_PUNKT[art]}${esc(text)}${extra > 0 ? `<small>inkl. ${R.euroRund(extra)} extra</small>` : ''}</span><span class="r minus-zahl">− ${R.euroRund(betrag)}</span></button>`;
+  const knopf = (art, text, betrag, extra, zurueck = 0) => `<button class="auf-zeile auf-knopf" data-a="bereich" data-wert="${art === 'konsum' ? 'konsum' : 'konten'}" aria-label="${esc(text)}: ${art === 'konsum' ? 'Konsum' : 'Konten'} öffnen"><span class="l">${KONTO_PUNKT[art]}${esc(text)}${extra + zurueck > 0 ? `<small>inkl. ${R.euroRund(extra + zurueck)} extra</small>` : ''}${zurueck > 0 ? `<small>${R.euroRund(zurueck)} kam zurück</small>` : ''}</span><span class="r ${betrag < 0 ? 'plus-zahl' : 'minus-zahl'}">${betrag < 0 ? '+' : '−'} ${R.euroRund(Math.abs(betrag))}</span></button>`;
   const rk = r.konten.filter((k) => k.art === 'ruecklage');
-  const andere = r.konten.filter((k) => k.art !== 'ruecklage' && k.betrag > 0);
-  let html = rk.map((k) => knopf('ruecklage', k.konto.name || 'Rücklagenkonto', k.betrag, k.extra)).join('');
+  const ks = r.konten.filter((k) => k.art === 'konsum' && (k.betrag !== 0 || k.zurueck > 0));
+  const andere = r.konten.filter((k) => k.art !== 'ruecklage' && k.art !== 'konsum' && k.betrag > 0);
+  let html = rk.map((k) => knopf('ruecklage', k.konto.name || 'Rücklagenkonto', k.betrag, k.extra)).join('')
+    + ks.map((k) => knopf('konsum', k.konto.name || 'Konsumkonto', k.betrag, k.extra, k.zurueck)).join('');
   if (andere.length <= 3) return html + andere.map((k) => knopf(k.art, k.konto.name, k.betrag, k.extra)).join('');
   for (const [art, titel] of [['sparen', 'Sparen'], ['extern', 'Andere Konten']]) {
     const l = andere.filter((k) => k.art === art);
@@ -537,11 +564,12 @@ function abosHtml(s) {
     <p class="hinweistext">Neues Abo: ＋ unten rechts. Gekündigt? Abo antippen → „Mehr“ → „Endet am“ eintragen. Ab dann zählt es nicht mehr.</p>`;
 }
 
-const BEREICH_TITEL = { ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplante Ausgaben', abos: 'Abos', einstellungen: 'Einstellungen' };
+const BEREICH_TITEL = { konsum: 'Konsum', ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplante Ausgaben', abos: 'Abos', einstellungen: 'Einstellungen' };
 function bereichHtml(eb) {
   const t = monatTeile(z.monat);
   const kopf = `<p class="hinweistext">${esc(monatsName(z.monat))} ${R.ymTeile(z.monat).jahr}</p>`;
   let inhalt = '';
+  if (eb.typ === 'konsum') return seite('Konsum', konsumSeite());
   if (eb.typ === 'ausgaben') inhalt = t.liste;
   else if (eb.typ === 'konten') inhalt = t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>';
   else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
@@ -576,7 +604,7 @@ function ausgabenHtml(r, s) {
     const pct = p.budget > 0 ? Math.min(100, p.ausgegeben / p.budget * 100) : 0;
     const ueber = p.budget > 0 && p.ausgegeben > p.budget;
     const unter = p.budget > 0 ? (ueber ? `${R.euro(p.ausgegeben - p.budget)} über dem Budget` : `${rausSatz(p.ausgegeben)} ausgegeben · noch ${R.euro(p.budget - p.ausgegeben)}`) : `${rausSatz(p.ausgegeben)} ausgegeben · ohne Budget`;
-    return `<button class="posten budget" data-a="budget" data-id="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)} bearbeiten"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`;
+    return `<button class="posten budget" data-a="budget" data-id="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)} bearbeiten"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${betragHtml(p.fixkosten, rausZ(p.konsum ? p.ausgegeben : p.betrag))}</span>${PFEIL}</button>`;
   };
 
   // Ansicht „pro Monat gerechnet“: jede Fixkoste mit ihrem Monatsanteil, Jahresbetrag darunter
@@ -602,6 +630,11 @@ function ausgabenHtml(r, s) {
     const faellig = gr.posten.filter((p) => p.zaehlt);
     const ausRk = gr.posten.filter((p) => p.ausRuecklage);
     const spaeter = gr.posten.filter((p) => !p.faellig && !p.ausRuecklage);
+    if (gr.konsum) {
+      return `<section class="kat-karte" style="--kat:${gr.farbe}">
+        <button class="kat-kopf" data-a="bereich" data-wert="konsum" aria-label="Konsum öffnen"><i class="kat-farbe" aria-hidden="true"></i><span class="kat-titel"><b>Konsum</b><small>vom ${esc(gr.name)} · zählt nicht in „Frei“</small></span><span class="kat-summe">${rausZ(gr.ausgegeben)}</span></button>
+        ${gr.posten.map(budgetZeile).join('')}</section>`;
+    }
     const zeilen = gr.art === 'budget' ? gr.posten.map(budgetZeile).join('') : faellig.map(fixZeile).join('');
     const spaeterHtml = (ausRk.length ? `<div class="unterkopf">Aus dem Rücklagenkonto bezahlt</div>${ausRk.map(rkZeile).join('')}` : '')
       + (spaeter.length ? `<div class="unterkopf">Nicht im ${kurz}</div>${spaeter.map(fixZeile).join('')}` : '');
@@ -705,10 +738,13 @@ function verlaufListe() {
       const istRk = sp.art === 'ruecklage';
       const art = R.kontoArt(sp);
       // v26: vor dem Tag, an dem der Stand eingetragen wurde, kennt die App den Stand nicht
-      const standDanach = (d2) => art === 'extern' || (sp.standDatum && d2 < sp.standDatum) ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
-      const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : 'var(--spar)';
+      const standDanach = (d2) => art === 'extern' || (sp.standDatum && d2 < sp.standDatum) ? '' : ` · Stand danach ${R.euroRund(istRk ? R.ruecklageStand(z.daten, d2) : art === 'konsum' ? R.konsumStand(z.daten, d2) : R.sparStand(sp, d2, z.daten))}`;
+      const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : art === 'konsum' ? 'var(--konsum)' : 'var(--spar)';
+      const vonName = (u) => { const v = u.vonKontoId && z.daten.sparraten.find((x) => x.id === u.vonKontoId); return v ? ` vom ${v.name}` : ''; };
+      // v31: Rest vom Konsumkonto zurück aufs Eingangskonto
+      for (const u of (z.daten.uebertraege || []).filter((x) => x.vonKontoId === sp.id && !x.kontoId && R.ymAus(x.datum) === s)) if (u.datum <= h) keine.push({ farbe, titel: `Vom ${sp.name} zurück aufs Eingangskonto`, wert: `<span class="plus-zahl">+ ${R.euro(u.betrag)}</span>`, text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name}`, wert: sp.offen ? offenZahl(sp) : rausZ(sp.betrag), text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
-      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
+      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag${vonName(u)} aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
@@ -850,7 +886,70 @@ function seite(titel, inhalt) {
 function eintragenWahl(art) {
   return `<div class="ansicht-wahl vier">${[['ausgabe', '− Ausgabe'], ['einnahme', '+ Einnahme'], ['uebertrag', '⇄ Übertrag'], ['abo', '↻ Abo']].map(([w, t]) => `<button data-a="et-art" data-wert="${w}" aria-pressed="${art === w}">${t}</button>`).join('')}</div>`;
 }
-function alleKonten() { return [R.ruecklage(z.daten)].concat(R.sparratenNormal(z.daten), R.sparratenExtern(z.daten)).filter(Boolean); }
+function alleKonten() { return [R.ruecklage(z.daten), R.konsumKonto(z.daten)].concat(R.sparratenNormal(z.daten), R.sparratenExtern(z.daten)).filter(Boolean); }
+function konsumNamen() { return R.konsumKategorien(z.daten).map((k) => mitEmoji(k) + k.name).join(', '); }
+const kurzDatum = (d) => Number(d.slice(8, 10)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1];
+
+// ---------- Konsumkonto (v31) ----------
+function konsumSeite() {
+  const u = R.konsumUebersicht(z.daten, heute());
+  if (!u) return `<div class="leerzustand">Noch kein Konsumkonto.</div><p class="hinweistext">Unter Konten ein Konto anlegen (oder dein Konto antippen) und „Konsum“ wählen.</p><button class="knopf akzent" data-a="sparkonto">${ICON.plus} Konto anlegen</button>`;
+  const kk = u.konto; const s = heuteYm();
+  const verfuegbar = u.ausgegeben + Math.max(0, u.stand);
+  const pct = verfuegbar > 0 ? Math.min(100, u.ausgegeben / verfuegbar * 100) : 0;
+  const zeile = (text, betrag, art) => `<div class="auf-zeile"><span class="l">${text}</span><span class="r ${art}">${betrag}</span></div>`;
+  const kopf = `<section class="karte ring konsum-kopf">
+    <div class="label">Noch auf dem ${esc(kk.name)}</div>
+    <div class="grosszahl" style="font-size:var(--t-zahl-xl)">${u.stand < 0 ? `<span class="minus-zahl">− ${R.euroRund(-u.stand)}</span>` : R.euroRund(u.stand)}</div>
+    <div class="mini konsum-mini gross" role="img" aria-label="${esc(`${R.euroRund(u.ausgegeben)} ausgegeben, ${R.euroRund(Math.max(0, u.stand))} übrig`)}"><span style="width:${pct.toFixed(1)}%"></span></div>
+    <p class="hinweistext">${u.stand > 0 ? `≈ <b>${R.euroRund(u.proTag)} pro Tag</b> bis zum nächsten Übertrag am ${kurzDatum(u.naechster)} (${u.tage} ${u.tage === 1 ? 'Tag' : 'Tage'})` : u.stand < 0 ? 'Überzogen. Ausgleichen: ＋ → ⇄ Übertrag aufs ' + esc(kk.name) + '.' : 'Leer bis zum nächsten Übertrag am ' + kurzDatum(u.naechster) + '.'}</p>
+    <div class="aufstellung">
+      ${zeile(`Ausgegeben im ${esc(monatsName(s))}`, '− ' + R.euro(u.ausgegeben), 'minus-zahl')}
+      ${u.rate > 0 ? zeile(`Übertrag jeden Monat am ${kk.tag || 1}.`, '+ ' + R.euroRund(u.rate), 'plus-zahl') : zeile('Kein fester Übertrag eingetragen', '–', '')}
+    </div>
+  </section>`;
+  const katZeilen = u.proKategorie.map((p) => {
+    const ueber = p.budget > 0 && p.ausgegeben > p.budget;
+    const unter = p.budget > 0 ? (ueber ? `${R.euro(p.ausgegeben - p.budget)} über dem Budget` : `noch ${R.euro(p.budget - p.ausgegeben)} von ${R.euroRund(p.budget)}`) : 'ohne eigenes Budget';
+    return `<button class="posten budget" data-a="eintragen" data-kat="${esc(p.kategorie.id)}" aria-label="${esc(p.kategorie.name)}: Ausgabe eintragen"><span class="t"><span class="n">${esc(mitEmoji(p.kategorie) + p.kategorie.name)}</span><small class="${ueber ? 'warn' : ''}">${unter}</small>${p.budget > 0 ? `<span class="mini"><span style="width:${Math.min(100, p.ausgegeben / p.budget * 100).toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}</span><span class="b">${rausZ(p.ausgegeben)}</span>${PFEIL}</button>`;
+  }).join('');
+  const ids = new Set(u.kategorien.map((k) => k.id));
+  const letzte = R.verlaufMitStand(z.daten).filter((b) => ids.has(b.kategorieId)).slice(0, 8).map((b) => {
+    const kat = R.kategorie(z.daten, b.kategorieId);
+    return `<button class="mini-zeile" data-a="buchung" data-id="${esc(b.id)}"><span>${esc(kurzDatum(b.zeit) + ' · ' + mitEmoji(kat) + (b.ort || (kat ? kat.name : '')))}</span>${b.offen ? offenZahl(b) : `<span class="minus-zahl">− ${R.euro(b.betrag)}</span>`}</button>`;
+  }).join('');
+  const wahl = budgetKats().map((k) => `<button class="chip" data-a="konsum-kat" data-wert="${esc(k.id)}" aria-pressed="${R.istKonsum(z.daten, k, kk)}">${esc(mitEmoji(k) + k.name)}</button>`).join('');
+  return kopf + `
+    <div class="abschnitt-kopf"><span class="label">Kategorien</span><span class="klein">antippen = eintragen</span></div>
+    <section class="karte liste">${katZeilen || '<div class="leer-zeile" style="border:0">Noch keine Kategorie. Unten auswählen.</div>'}</section>
+    <section class="karte"><div class="label">Zuletzt gebucht</div><div class="mini-liste">${letzte || '<div class="mini-leer">Noch keine Konsum-Ausgaben.</div>'}</div></section>
+    <section class="karte"><div class="label">Was zahlst du vom ${esc(kk.name)}?</div><div class="chips">${wahl || '<span class="klein">Noch keine Budget-Kategorie.</span>'}</div>
+      <p class="hinweistext">Ausgaben aus diesen Kategorien zählen nicht in „Frei“. Dort zählt nur der Übertrag aufs ${esc(kk.name)}. Die übrigen Budgets zahlst du weiter vom Eingangskonto.</p></section>
+    <button class="knopf" data-a="sparkonto" data-id="${esc(kk.id)}">Konto bearbeiten · Stand korrigieren</button>
+    <div class="fab-platz"></div>${fabHtml('konsum')}`;
+}
+function konsumRestKarte() {
+  const kr = R.konsumRest(z.daten, heute()); if (!kr) return '';
+  const name = monatsName(kr.monat);
+  return `<button class="karte konsum-frage" data-a="konsum-ende"><span class="gf-symbol" aria-hidden="true">🛒</span><span class="mitte"><b>${kr.rest > 0 ? `Konsum ${esc(name)}: ${R.euroRund(kr.rest)} übrig` : `Konsum ${esc(name)}: ${R.euroRund(-kr.rest)} überzogen`}</b><small>${kr.rest > 0 ? 'Bleibt es drauf, zurück aufs Eingangskonto oder aufs Sparkonto?' : 'Ausgleichen oder so lassen?'}</small></span>${PFEIL}</button>`;
+}
+const konsumAbschliessen = (d, m) => { d.einstellungen.konsumAbgeschlossen = (d.einstellungen.konsumAbgeschlossen || []).filter((x) => x !== m).concat([m]).slice(-24); };
+const konsumWiederOffen = (d, m) => { d.einstellungen.konsumAbgeschlossen = (d.einstellungen.konsumAbgeschlossen || []).filter((x) => x !== m); };
+async function konsumRestWeg(zielId) {
+  const eb = oben(); const kr = R.konsumRest(z.daten, heute()); const kk = R.konsumKonto(z.daten);
+  if (!kr || !kk) { z.ebenen.pop(); renderEbenen(); return; }
+  const betrag = zahl(eb.entwurf.betragText);
+  if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+  if (betrag > kr.rest + 0.005) { eb.fehler = `Höchstens ${R.euro(kr.rest)} – mehr war nicht übrig.`; renderEbenen(); return; }
+  const ziel = zielId ? z.daten.sparraten.find((x) => x.id === zielId) : null;
+  z.ebenen.pop();
+  const id = D.neueId('ue');
+  await aendern((d) => {
+    if (!Array.isArray(d.uebertraege)) d.uebertraege = [];
+    d.uebertraege.push({ id, datum: heute(), betrag, vonKontoId: kk.id, kontoId: ziel ? ziel.id : null, angelegt: new Date().toISOString() });
+    konsumAbschliessen(d, kr.monat);
+  }, { text: `${R.euro(betrag)} vom ${kk.name} ${ziel ? 'aufs ' + ziel.name : 'zurück aufs Eingangskonto'}`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); konsumWiederOffen(d, kr.monat); } });
+}
 function uebertragHtml(eb) {
   const e = eb.entwurf;
   const konten = alleKonten();
@@ -860,6 +959,7 @@ function uebertragHtml(eb) {
     + `<button class="chip" data-a="et-konto-neu">${ICON.plus} Neues Konto</button>`;
   const art = ziel ? R.kontoArt(ziel) : null;
   const hinweis = !ziel ? '' : art === 'extern' ? `Das Geld geht aufs ${esc(ziel.name)} und wird dort ausgegeben. „Frei“ sinkt.`
+    : art === 'konsum' ? `Das Geld geht aufs ${esc(ziel.name)}: Dort ist mehr für Konsum da, „Frei“ sinkt.`
     : art === 'ruecklage' ? 'Das Geld bleibt deins: Die Rücklage wächst, „Frei“ sinkt.' : `Das Geld bleibt deins: Der Stand auf ${esc(ziel.name)} wächst, „Frei“ sinkt.`;
   const ersetzt = monatlich && ziel && Number(ziel.betrag) > 0 ? `<p class="hinweistext">Ersetzt den bisherigen Übertrag von ${R.euro(ziel.betrag)} am ${ziel.tag || 1}.</p>` : '';
   return sheet(`${eintragenWahl('uebertrag')}
@@ -889,6 +989,7 @@ async function uebertragSpeichern(eb, betrag) {
       // Stand bis heute festhalten, damit die neue Rate nicht rückwirkend zählt
       if (art === 'ruecklage') Object.assign(k, { stand: R.ruecklageStand(d, heute()), standDatum: heute(), standZeit: new Date().toISOString() });
       else if (art === 'sparen') Object.assign(k, { stand: R.sparStand(k, heute(), d), standDatum: heute(), standZeit: new Date().toISOString() });
+      else if (art === 'konsum') Object.assign(k, { stand: R.konsumStand(d, heute()), standDatum: heute(), standZeit: new Date().toISOString() });
       Object.assign(k, { betrag, tag: Math.round(tag) }); delete k.offen;
     }, { text: `Jeden Monat ${R.euro(betrag)} aufs ${name}`, rueckgaengig: (d) => { const i = d.sparraten.findIndex((x) => x.id === alt.id); if (i >= 0) d.sparraten[i] = alt; } });
     return;
@@ -1039,7 +1140,7 @@ function uebertragListe(kontoId) {
     return `<div class="ue-zeile"><span>${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[t.monat - 1]} ${t.jahr}</span><span class="r">${rausZ(u.betrag)}</span><button class="knopf klein rund leise" style="width:36px" data-a="ue-weg" data-wert="${esc(u.id)}" aria-label="Übertrag löschen">${ICON.x}</button></div>`;
   }).join('')}</div>`;
 }
-const KONTO_NAMEN = { sparen: ['Tagesgeld', 'Notgroschen', 'Urlaub', 'ETF-Sparplan', 'Bausparvertrag'], extern: ['Gemeinschaftskonto', 'Haushaltskonto'] };
+const KONTO_NAMEN = { sparen: ['Tagesgeld', 'Notgroschen', 'Urlaub', 'ETF-Sparplan', 'Bausparvertrag'], extern: ['Gemeinschaftskonto', 'Haushaltskonto'], konsum: ['Konsumkonto', 'Alltagskonto'] };
 
 const wahlKnopf = (aktion, wert, text, an, extra = '') => `<button data-a="${aktion}" data-wert="${esc(wert)}" aria-pressed="${!!an}" ${extra}>${esc(text)}</button>`;
 
@@ -1632,7 +1733,7 @@ const EBENEN = {
   },
   katalog: () => {
     const da = new Set(kachelListe().map((k) => k.id));
-    const ids = Object.keys(KACHEL_KATALOG).concat(budgetKats().map((k) => 'budget:' + k.id)).filter((id) => !da.has(id));
+    const ids = Object.keys(KACHEL_KATALOG).concat(budgetKats().map((k) => 'budget:' + k.id)).filter((id) => !da.has(id) && kachelArt(id));
     return sheet(`<h2>Kachel hinzufügen</h2>${ids.length ? ids.map((id) => { const a = kachelArt(id); return `<button class="knopf voll katalog-eintrag" data-a="kachel-dazu" data-wert="${esc(id)}"><span><b>${esc(a.titel)}</b><small>${esc(a.beschreibung)}</small></span>${ICON.plus}</button>`; }).join('') : '<p class="hinweistext">Alle Kacheln sind schon auf der Übersicht.</p>'}`, 'Kachel hinzufügen');
   },
   kachelmenue: (eb) => {
@@ -1702,6 +1803,31 @@ const EBENEN = {
     return sheet(`<h2>Kategorie</h2>${liste}<button class="knopf akzent" data-a="kategorie-neu">${ICON.plus} Neue Kategorie</button>`, 'Kategorie wählen');
   },
 
+  konsumende: (eb) => {
+    const kr = R.konsumRest(z.daten, heute()); const kk = R.konsumKonto(z.daten);
+    if (!kr || !kk) return sheet('<h2>Konsum</h2><p class="hinweistext">Hier ist nichts mehr offen.</p><button class="knopf haupt" data-a="schliessen">Schließen</button>', 'Konsum');
+    const name = monatsName(kr.monat); const jetzt = monatsName(heuteYm());
+    if (kr.rest < 0) return sheet(`<h2>Konsum ${esc(name)}</h2>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)"><span class="minus-zahl">− ${R.euroRund(-kr.rest)}</span> <span style="font-size:var(--t-titel-karte);color:var(--gedaempft)">überzogen</span></div>
+      <p class="hinweistext">So viel fehlte am ${esc(kurzDatum(kr.bis))} auf dem ${esc(kk.name)}.</p>
+      <div class="me-wahl"><button data-a="ke-ausgleich">Vom Eingangskonto ausgleichen</button><button data-a="ke-lassen">So lassen</button></div>
+      <p class="hinweistext">Ausgleichen = Übertrag von ${R.euro(-kr.rest)} aufs ${esc(kk.name)}. „Frei“ im ${esc(jetzt)} sinkt um den Betrag. So lassen = es fehlt im neuen Monat auf dem Konsumkonto.</p>
+      <div class="knopfreihe"><button class="knopf leise breit" data-a="schliessen">Später</button></div>`, 'Konsum Monatsende');
+    const spar = R.sparratenNormal(z.daten);
+    return sheet(`<h2>Konsum ${esc(name)}</h2>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)">${R.euroRund(kr.rest)} <span style="font-size:var(--t-titel-karte);color:var(--gedaempft)">übrig</span></div>
+      <p class="hinweistext">So viel war am ${esc(kurzDatum(kr.bis))} noch auf dem ${esc(kk.name)}.</p>
+      <div class="feld"><label for="ke-betrag">Betrag, der wegkommt</label><input id="ke-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(eb.entwurf.betragText)}"></div>
+      <div class="label">Was passiert damit?</div>
+      <div class="me-wahl">
+        <button data-a="ke-lassen">Bleibt drauf</button>
+        <button data-a="ke-zurueck">Zurück aufs Eingangskonto</button>
+        ${spar.map((sp) => `<button data-a="ke-spar" data-wert="${esc(sp.id)}">Aufs ${esc(sp.name)}</button>`).join('')}
+      </div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <p class="hinweistext">Zurück aufs Eingangskonto: „Frei“ im ${esc(jetzt)} steigt. Aufs Sparkonto: „Frei“ bleibt gleich, das Geld wandert nur von einem deiner Konten zum anderen. Ein Teil geht auch: Betrag ändern, der Rest bleibt drauf.</p>
+      <div class="knopfreihe"><button class="knopf leise breit" data-a="schliessen">Später</button></div>`, 'Konsum Monatsende');
+  },
   'tag-wahl': (eb, i) => {
     const unter = z.ebenen[i - 1];
     const tage = Array.from({ length: 31 }, (_, k) => wahlKnopf('tag-gewaehlt', k + 1, String(k + 1), unter.entwurf.tag === k + 1)).join('');
@@ -1734,6 +1860,7 @@ const EBENEN = {
         <div class="emoji-wahl">${EMOJIS.map((x) => `<button class="emoji-knopf" data-a="bu-emoji" data-wert="${x}" aria-pressed="${b.emoji === x}" aria-label="Emoji ${x}">${x}</button>`).join('')}</div>
         <div class="feld"><label for="bu-betrag">Budget pro Monat</label><input id="bu-betrag" class="eingabe" inputmode="decimal" data-feld="budgetText" value="${esc(b.budgetText)}" placeholder="0 € = ohne Budget"></div>
         ${eb.id ? `<div class="klein">Im ${esc(monatsName(heuteYm()))} schon ausgegeben: ${rausSatz(ausgegeben)}</div>` : ''}
+        ${R.konsumKonto(z.daten) ? `<button class="schalter" role="switch" aria-checked="${!!b.konsum}" data-a="bu-konsum"><span class="t">Vom ${esc(R.konsumKonto(z.daten).name)} bezahlt<br><span class="klein">zählt dann nicht in „Frei“</span></span><span class="spur"></span></button>` : ''}
       </section>
       <section class="karte">
         <div class="label">Knöpfe im Widget (bis zu 3)</div>
@@ -1858,11 +1985,17 @@ const EBENEN = {
   sparkonto: (eb) => {
     const sp = eb.entwurf;
     const extern = sp.art === 'extern';
-    const namen = KONTO_NAMEN[extern ? 'extern' : 'sparen'].map((n) => `<button class="chip" data-a="sp-name" data-wert="${esc(n)}" aria-pressed="${sp.name === n}">${esc(n)}</button>`).join('');
+    const konsum = sp.art === 'konsum';
+    const kk = R.konsumKonto(z.daten);
+    // v31: nur ein Konsumkonto
+    const konsumWahl = !kk || kk.id === eb.id;
+    const namen = KONTO_NAMEN[konsum ? 'konsum' : extern ? 'extern' : 'sparen'].map((n) => `<button class="chip" data-a="sp-name" data-wert="${esc(n)}" aria-pressed="${sp.name === n}">${esc(n)}</button>`).join('');
+    const text = konsum ? 'Vom Eingangskonto geht jeden Monat ein fester Betrag hierher. Davon bezahlst du Tanken, Essen und Co. Diese Ausgaben zählen dann nicht mehr in „Frei“ – dort zählt nur der Übertrag. Welche Kategorien dazugehören, wählst du auf der Seite „Konsum“.'
+      : extern ? 'Zum Beispiel ein Gemeinschafts- oder Haushaltskonto: Das Geld wird dort ausgegeben. Es zählt wie eine Ausgabe, einen Stand verfolgt die App nicht.' : 'Sparen ist keine Ausgabe: Das Geld bleibt deins, der Stand wächst. Es wird nur von „Frei“ abgezogen.';
     return sheet(`<h2>${eb.id ? esc(sp.name) : 'Konto anlegen'}</h2>
       <div class="label">Was ist das für ein Konto?</div>
-      <div class="wahl zwei-sp">${wahlKnopf('sp-art', 'sparen', 'Sparen', !extern)}${wahlKnopf('sp-art', 'extern', 'Anderes Konto', extern)}</div>
-      <p class="hinweistext">${extern ? 'Zum Beispiel ein Gemeinschafts- oder Haushaltskonto: Das Geld wird dort ausgegeben. Es zählt wie eine Ausgabe, einen Stand verfolgt die App nicht.' : 'Sparen ist keine Ausgabe: Das Geld bleibt deins, der Stand wächst. Es wird nur von „Frei“ abgezogen.'}</p>
+      <div class="wahl ${konsumWahl ? 'drei' : 'zwei-sp'}">${wahlKnopf('sp-art', 'sparen', 'Sparen', !extern && !konsum)}${konsumWahl ? wahlKnopf('sp-art', 'konsum', 'Konsum', konsum) : ''}${wahlKnopf('sp-art', 'extern', 'Anderes Konto', extern)}</div>
+      <p class="hinweistext">${text}</p>
       <div class="feld"><label for="sp-name">Name</label><input id="sp-name" class="eingabe" data-feld="name" value="${esc(sp.name)}" placeholder="eigener Name"></div>
       <div class="chips">${namen}</div>
       <div class="zwei">
@@ -1870,7 +2003,9 @@ const EBENEN = {
         <div class="feld"><label for="sp-tag">Am Tag</label><input id="sp-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(sp.tagText)}"></div>
       </div>
       ${sp.unbekannt ? offenKasten(sp, true) : OFFEN_LINK}
-      ${extern ? '' : `<div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}"></div>
+      ${konsum ? `<div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}" placeholder="was jetzt drauf ist"></div>
+      <p class="hinweistext">Ab jetzt rechnet die App selbst: + jeder Übertrag, − jede Konsum-Ausgabe. Stimmt der Stand nicht mehr, hier den echten eintragen.</p>` : ''}
+      ${extern || konsum ? '' : `<div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}"></div>
       <p class="hinweistext">Der Stand wächst mit jedem Übertrag. Stimmt er nicht mehr, hier den echten Stand eintragen.</p>
       <div class="zwei">
         <div class="feld"><label for="sp-ziel">Sparziel (€, optional)</label><input id="sp-ziel" class="eingabe" inputmode="decimal" data-feld="zielText" data-ziel="1" value="${esc(sp.zielText || '')}" placeholder="z. B. 5000"></div>
@@ -2463,9 +2598,10 @@ const AKTION = {
   // Budgets
   budget: (el) => {
     const k = R.kategorie(z.daten, el.dataset.id); if (!k) return;
-    oeffne({ art: 'budget', id: k.id, entwurf: { name: k.name, emoji: k.emoji || '', budgetText: R.euro(k.budget || 0, false), schritte: [...(k.schritte || [5, 10])], frage: k.frage || 'Wo?', chips: [...(k.chips || [])] } });
+    oeffne({ art: 'budget', id: k.id, entwurf: { konsum: R.istKonsum(z.daten, k), name: k.name, emoji: k.emoji || '', budgetText: R.euro(k.budget || 0, false), schritte: [...(k.schritte || [5, 10])], frage: k.frage || 'Wo?', chips: [...(k.chips || [])] } });
   },
-  'budget-neu': () => oeffne({ art: 'budget', id: null, entwurf: { name: '', budgetText: '', schritte: [-5, 5, 10], frage: 'Wo?', chips: [] } }),
+  'bu-konsum': () => { const e = oben().entwurf; e.konsum = !e.konsum; haptik('tick'); renderEbenen(); },
+  'budget-neu': () => oeffne({ art: 'budget', id: null, entwurf: { konsum: !!R.konsumKonto(z.daten), name: '', budgetText: '', schritte: [-5, 5, 10], frage: 'Wo?', chips: [] } }),
   'bu-schritt': (el) => {
     const e = oben().entwurf; const w = Number(el.dataset.wert);
     if (e.schritte.includes(w)) e.schritte = e.schritte.filter((x) => x !== w);
@@ -2487,8 +2623,10 @@ const AKTION = {
     const werte = { name: e.name.trim(), emoji: (e.emoji || '').trim(), budget, schritte: e.schritte, frage: e.frage, chips: e.chips };
     z.ebenen.pop();
     await aendern((d) => {
-      const k = d.kategorien.find((x) => x.id === eb.id);
-      if (k) Object.assign(k, werte); else d.kategorien.push(Object.assign({ id: D.neueId('kat'), art: 'budget', symbol: 'sonstiges' }, werte));
+      let k = d.kategorien.find((x) => x.id === eb.id);
+      if (k) Object.assign(k, werte); else { k = Object.assign({ id: D.neueId('kat'), art: 'budget', symbol: 'sonstiges' }, werte); d.kategorien.push(k); }
+      const kk = R.konsumKonto(d);
+      if (kk && e.konsum) k.kontoId = kk.id; else if (kk && k.kontoId === kk.id) delete k.kontoId;
     }, { text: `${werte.name} gespeichert` });
   },
   'bu-loeschen': () => {
@@ -2616,13 +2754,40 @@ const AKTION = {
     }, { text: ist !== null ? `Gehalt ${monatsName(eb.monat)}: ${R.euroRund(ist)} eingetragen` : 'Gehalt gespeichert' });
   },
 
+  // Konsumkonto (v31)
+  'konsum-ende': () => { const kr = R.konsumRest(z.daten, heute()); if (!kr) return; oeffne({ art: 'konsumende', entwurf: { betragText: R.euro(Math.abs(kr.rest), false) } }); },
+  'ke-lassen': async () => {
+    const kr = R.konsumRest(z.daten, heute()); z.ebenen.pop(); if (!kr) { renderEbenen(); return; }
+    await aendern((d) => konsumAbschliessen(d, kr.monat), { text: kr.rest > 0 ? `${R.euroRund(kr.rest)} bleiben auf dem Konsumkonto` : 'Konsum: so gelassen', rueckgaengig: (d) => konsumWiederOffen(d, kr.monat) });
+  },
+  'ke-zurueck': () => konsumRestWeg(null),
+  'ke-spar': (el) => konsumRestWeg(el.dataset.wert),
+  'ke-ausgleich': async () => {
+    const kr = R.konsumRest(z.daten, heute()); const kk = R.konsumKonto(z.daten); z.ebenen.pop(); if (!kr || !kk) { renderEbenen(); return; }
+    const id = D.neueId('ue'); const betrag = Math.round(-kr.rest * 100) / 100;
+    await aendern((d) => { if (!Array.isArray(d.uebertraege)) d.uebertraege = []; d.uebertraege.push({ id, datum: heute(), betrag, kontoId: kk.id, angelegt: new Date().toISOString() }); konsumAbschliessen(d, kr.monat); },
+      { text: `${R.euro(betrag)} aufs ${kk.name} übertragen`, rueckgaengig: (d) => { d.uebertraege = d.uebertraege.filter((x) => x.id !== id); konsumWiederOffen(d, kr.monat); } });
+  },
+  'konsum-kat': async (el) => {
+    const kk = R.konsumKonto(z.daten); if (!kk) return;
+    const id = el.dataset.wert; const k = R.kategorie(z.daten, id); const an = !R.istKonsum(z.daten, k, kk);
+    haptik('tick');
+    await aendern((d) => { const x = d.kategorien.find((y) => y.id === id); if (an) x.kontoId = kk.id; else delete x.kontoId; },
+      { text: an ? `${k.name} zahlst du jetzt vom ${kk.name}` : `${k.name} zählt wieder in „Frei“`, rueckgaengig: (d) => { const x = d.kategorien.find((y) => y.id === id); if (an) delete x.kontoId; else x.kontoId = kk.id; } });
+  },
+
   // Sparkonto
   sparkonto: (el) => {
     const sp = z.daten.sparraten.find((x) => x.id === el.dataset.id);
-    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { ...offenEntwurf(sp), art: R.kontoArt(sp), name: sp.name, betragText: sp.offen ? '' : R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute(), z.daten), false), zielText: Number(sp.ziel) > 0 ? R.euro(sp.ziel, false) : '', zielBis: sp.zielBis || '' } });
+    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { ...offenEntwurf(sp), art: R.kontoArt(sp), name: sp.name, betragText: sp.offen ? '' : R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.kontoArt(sp) === 'extern' ? '' : R.euro(R.kontoArt(sp) === 'konsum' ? R.konsumStand(z.daten, heute()) : R.sparStand(sp, heute(), z.daten), false), zielText: Number(sp.ziel) > 0 ? R.euro(sp.ziel, false) : '', zielBis: sp.zielBis || '' } });
     else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: R.sparratenNormal(z.daten).length ? '' : 'Sparkonto', betragText: '', tagText: '1', standText: '0', zielText: '', zielBis: '' } });
   },
-  'sp-art': (el) => { oben().entwurf.art = el.dataset.wert; renderEbenen(); },
+  'sp-art': (el) => {
+    const e = oben().entwurf; const vorher = e.art; e.art = el.dataset.wert;
+    if (e.art === 'konsum' && (!e.name.trim() || KONTO_NAMEN[vorher === 'konsum' ? 'konsum' : vorher === 'extern' ? 'extern' : 'sparen'].includes(e.name) || e.name === 'Sparkonto')) e.name = 'Konsumkonto';
+    if (e.art === 'konsum' && vorher === 'extern') e.standText = '';
+    renderEbenen();
+  },
   'sp-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
   'sp-speichern': async () => {
     const eb = oben(); const e = eb.entwurf;
@@ -2630,27 +2795,38 @@ const AKTION = {
     if (o && o.fehler) { eb.fehler = o.fehler; renderEbenen(); return; }
     const betrag = o ? o.betrag : e.betragText.trim() ? zahl(e.betragText) : 0; const tag = zahl(e.tagText); const stand = e.art === 'extern' ? 0 : zahl(e.standText || '0');
     if (!e.name.trim()) { eb.fehler = 'Bitte einen Namen eintragen.'; renderEbenen(); return; }
+    if (e.art === 'konsum' && !String(e.standText || '').trim()) { eb.fehler = 'Bitte eintragen, was heute auf dem Konto ist.'; renderEbenen(); return; }
     if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte eine Rate ab 0 € eintragen.'; renderEbenen(); return; }
     if (isNaN(tag) || tag < 1 || tag > 31) { eb.fehler = 'Der Tag muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
     if (isNaN(stand)) { eb.fehler = 'Der Stand ist keine Zahl.'; renderEbenen(); return; }
-    const ziel = e.art === 'extern' || !String(e.zielText || '').trim() ? null : zahl(e.zielText);
+    const ziel = e.art === 'extern' || e.art === 'konsum' || !String(e.zielText || '').trim() ? null : zahl(e.zielText);
     if (ziel !== null && (isNaN(ziel) || ziel <= 0)) { eb.fehler = 'Das Sparziel muss über 0 € liegen (oder leer lassen).'; renderEbenen(); return; }
     z.ebenen.pop();
     const neuId = eb.id || D.neueId('spar');
     const unten = z.ebenen[z.ebenen.length - 1];
     if (unten && unten.wartetAufKonto) { unten.entwurf.kontoId = neuId; unten.wartetAufKonto = false; unten.fehler = null; }
+    const neuKonsum = e.art === 'konsum' && !R.konsumKonto(z.daten);
+    let zugeordnet = 0;
     await aendern((d) => {
-      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString(), art: e.art === 'extern' ? 'extern' : undefined, ziel, zielBis: ziel && e.zielBis ? e.zielBis : null };
+      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString(), art: e.art === 'extern' || e.art === 'konsum' ? e.art : undefined, ziel, zielBis: ziel && e.zielBis ? e.zielBis : null };
       const sp = d.sparraten.find((x) => x.id === eb.id);
       if (o) werte.offen = o.offen;
-      if (sp) { Object.assign(sp, werte); if (!o) delete sp.offen; } else d.sparraten.push(Object.assign({ id: neuId }, werte));
-    }, { text: o ? `${e.name.trim()}: Übertrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}` : `${e.name.trim()} gespeichert` });
+      if (sp) { Object.assign(sp, werte); if (!o) delete sp.offen; if (!werte.art) delete sp.art; } else d.sparraten.push(Object.assign({ id: neuId }, werte));
+      // v31: neues Konsumkonto → alle Budgets ohne eigenes Konto laufen darüber, Kachel „Konsum“ nach vorn
+      if (neuKonsum) {
+        for (const k of d.kategorien) if (k.art === 'budget' && !k.kontoId) { k.kontoId = neuId; zugeordnet++; }
+        const l = Array.isArray(d.einstellungen.kacheln) ? d.einstellungen.kacheln : STANDARD_KACHELN.map((x) => Object.assign({}, x));
+        if (!l.some((x) => x.id === 'konsum')) l.unshift({ id: 'konsum', breit: true });
+        d.einstellungen.kacheln = l;
+      }
+    }, { text: o ? `${e.name.trim()}: Übertrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}` : neuKonsum ? `${e.name.trim()} eingerichtet` : `${e.name.trim()} gespeichert` });
+    if (neuKonsum) zeigeToast(`${e.name.trim()} eingerichtet · ${zugeordnet === 1 ? '1 Kategorie läuft' : zugeordnet + ' Kategorien laufen'} darüber. Ändern: Seite „Konsum“.`);
   },
   'sp-loeschen': async () => {
     const id = oben().id; const sp = z.daten.sparraten.find((x) => x.id === id);
     z.ebenen.pop();
-    const weg = (z.daten.uebertraege || []).filter((u) => u.kontoId === id);
-    await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.id !== id); d.uebertraege = (d.uebertraege || []).filter((u) => u.kontoId !== id); }, { text: `${sp.name} gelöscht`, rueckgaengig: (d) => { d.sparraten.push(sp); d.uebertraege = (d.uebertraege || []).concat(weg); } });
+    const weg = (z.daten.uebertraege || []).filter((u) => u.kontoId === id || u.vonKontoId === id);
+    await aendern((d) => { d.sparraten = d.sparraten.filter((x) => x.id !== id); d.uebertraege = (d.uebertraege || []).filter((u) => u.kontoId !== id && u.vonKontoId !== id); }, { text: `${sp.name} gelöscht`, rueckgaengig: (d) => { d.sparraten.push(sp); d.uebertraege = (d.uebertraege || []).concat(weg); } });
   },
 
   // Rücklagenkonto
