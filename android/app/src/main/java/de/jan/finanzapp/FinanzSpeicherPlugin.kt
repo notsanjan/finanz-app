@@ -136,7 +136,7 @@ class FinanzSpeicherPlugin : Plugin() {
         if (Build.VERSION.SDK_INT < 33) return false
         return try {
             val q = context.packageManager.getInstallSourceInfo(context.packageName)
-            q.packageSource != PackageManager.PACKAGE_SOURCE_STORE
+            q.packageSource != android.content.pm.PackageInstaller.PACKAGE_SOURCE_STORE
         } catch (e: Exception) { true }
     }
 
