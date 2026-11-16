@@ -121,6 +121,7 @@ export function einfuehrungHtml(eb, h) {
       </section>`).join('');
     inhalt = `<h2 class="ef-titel">➕ Weitere Einnahmen</h2>
       <p class="hinweistext">Kommt neben dem Gehalt noch etwas rein? „Fest“ zählt zu „Frei“, „nur geplant“ erst, wenn es da ist. Nichts davon? Einfach „Weiter“.</p>
+      <p class="hinweistext ef-unregel">Unregelmäßig, z. B. Selbstständigkeit nur ab und zu? Hier weglassen und jedes Mal eintragen, wenn Geld kommt: ＋ → „+ Einnahme“. Eigene Namen merkt sich die App dort.</p>
       <div class="chips">${EINNAHMEN.filter((n) => !(eb.ausgeblendet || []).includes('ein:' + n)).map((n) => {
         const da = eb.einnahmen.some((e) => e.name === n);
         const knopf = `<button class="chip ef-chip" data-a="ef-ein-dazu" data-wert="${esc(n)}" aria-pressed="${da}">${da ? '✓' : ICON.plus} ${esc(n)}</button>`;

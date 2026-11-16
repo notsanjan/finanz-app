@@ -7,11 +7,10 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v31';
+export const APP_VERSION = 'finanz-v32';
 const NEU_IN_VERSION = [
-  'Konsumkonto: Unter Konten ein Konto als „Konsum“ einrichten (fester Übertrag vom Eingangskonto). Tanken, Essen und Co. werden dann von dort bezahlt und zählen nicht mehr in „Frei“ – dort zählt nur der Übertrag',
-  'Neue Kachel „Konsum“: was noch auf dem Konsumkonto ist, wie viel pro Tag bis zum nächsten Übertrag, was du im Monat ausgegeben hast',
-  'Am Monatsende fragt die App, was mit dem Rest auf dem Konsumkonto passiert: bleibt drauf, zurück aufs Eingangskonto oder aufs Sparkonto'
+  'Einnahmen: Eigene Namen (z. B. „Lehrgang“) merkt sich die App und zeigt sie beim nächsten Mal als Knopf ganz vorne. ✕ am Knopf entfernt ihn wieder',
+  'Einrichtung: Hinweis für unregelmäßige Einnahmen – hier weglassen und eintragen, wenn Geld kommt (＋ → „+ Einnahme“)'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -809,6 +808,13 @@ function wunschZeile(w, pruefung, s) {
 
 // ---------- Weitere Einnahmen ----------
 const EINNAHME_VORSCHLAEGE = ['💼 Nebenjob', '🧑‍💼 Selbstständigkeit', '🎁 Geschenk', '🤝 Spende', '🏷️ Verkauf', '↩️ Rückerstattung', '⭐ Bonus'];
+// v32: eigene Namen von Einnahmen merken (zuletzt benutzt zuerst, höchstens 8)
+const eigeneEinnahmeNamen = () => z.daten.einstellungen.einnahmeNamen || [];
+function einnahmeNameMerken(d, name) {
+  if (!name || name === 'Einnahme' || EINNAHME_VORSCHLAEGE.includes(name)) return true;
+  d.einstellungen.einnahmeNamen = [name].concat((d.einstellungen.einnahmeNamen || []).filter((x) => x !== name)).slice(0, 8);
+  return true;
+}
 function weitereEinnahmen() { const g = gehalt(); return (z.daten.einnahmen || []).filter((e) => e !== g); }
 function betragText(e) {
   const b = e.betrag;
@@ -1666,8 +1672,9 @@ const EBENEN = {
     const kat = R.kategorie(z.daten, e.kategorieId);
     const kats = budgetKats().map((k) => `<button class="chip" data-a="et-kat" data-wert="${esc(k.id)}" aria-pressed="${e.kategorieId === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('');
     const orte = aus && kat && (kat.chips || []).length ? `<div class="label">${esc(kat.frage || 'Wo?')} (optional)</div><div class="chips">${kat.chips.map((c) => `<button class="chip" data-a="et-ort" data-wert="${esc(c)}" aria-pressed="${e.ort === c}">${esc(c)}</button>`).join('')}</div>` : '';
-    const namen = !aus ? `<div class="label">Was?</div><div class="chips">${EINNAHME_VORSCHLAEGE.map((v) => `<button class="chip" data-a="et-name" data-wert="${esc(v)}" aria-pressed="${e.name === v}">${esc(v)}</button>`).join('')}</div>
-      <input class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="oder selbst eintragen" aria-label="Name der Einnahme">` : '';
+    const eigene = eigeneEinnahmeNamen().map((v) => `<span class="chip-paar"><button class="chip ef-chip" data-a="et-name" data-wert="${esc(v)}" aria-pressed="${e.name === v}">${esc(v)}</button><button class="chip-x" data-a="et-name-weg" data-wert="${esc(v)}" aria-label="${esc(v)} nicht mehr vorschlagen">✕</button></span>`).join('');
+    const namen = !aus ? `<div class="label">Was?</div><div class="chips">${eigene}${EINNAHME_VORSCHLAEGE.map((v) => `<button class="chip" data-a="et-name" data-wert="${esc(v)}" aria-pressed="${e.name === v}">${esc(v)}</button>`).join('')}</div>
+      <input class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="oder selbst eintragen – wird gemerkt" aria-label="Name der Einnahme">` : '';
     return sheet(`${eintragenWahl(e.art)}
       ${e.unbekannt ? offenKasten(e, aus) : `<div class="betrag-gross ${aus ? 'minus' : 'plus'}"><span>${aus ? '−' : '+'}</span><input id="et-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" placeholder="0" aria-label="Betrag in Euro"><span>€</span></div>${OFFEN_LINK}`}
       ${aus ? `<div class="label">Kategorie</div><div class="chips">${kats || '<span class="klein">Noch keine Budgets angelegt.</span>'}</div>${orte}${e.unbekannt ? '' : teilenHtml(e)}` : namen}
@@ -2293,6 +2300,12 @@ const AKTION = {
   'et-kat': (el) => { haptik('tick'); oben().entwurf.kategorieId = el.dataset.wert; if (oben().art === 'eintragen') oben().entwurf.ort = ''; renderEbenen(); },
   'et-ort': (el) => { const e = oben().entwurf; e.ort = e.ort === el.dataset.wert ? '' : el.dataset.wert; renderEbenen(); },
   'et-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
+  'et-name-weg': async (el) => {
+    const n = el.dataset.wert; const i = eigeneEinnahmeNamen().indexOf(n);
+    const e = oben().entwurf; if (e.name === n) e.name = '';
+    await aendern((d) => { d.einstellungen.einnahmeNamen = (d.einstellungen.einnahmeNamen || []).filter((x) => x !== n); },
+      { text: `„${n}“ wird nicht mehr vorgeschlagen`, rueckgaengig: (d) => { const l = (d.einstellungen.einnahmeNamen || []).filter((x) => x !== n); l.splice(Math.max(0, i), 0, n); d.einstellungen.einnahmeNamen = l; } });
+  },
   'et-ziel': (el) => { oben().entwurf.kontoId = el.dataset.wert; oben().fehler = null; renderEbenen(); },
   'et-oft': (el) => { const e = oben().entwurf; e.oft = el.dataset.wert; const k = alleKonten().find((x) => x.id === e.kontoId); if (e.oft === 'monatlich' && k) e.tagText = String(k.tag || 1); renderEbenen(); },
   'et-konto-neu': () => { oben().wartetAufKonto = true; AKTION.sparkonto({ dataset: {} }); },
@@ -2408,11 +2421,11 @@ const AKTION = {
       const name = (e.name || '').trim() || 'Einnahme';
       const id = D.neueId('ein');
       if (o) {
-        await aendern((d) => d.einnahmen.push(Object.assign({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [] }, offeneEinnahmeWerte(o.offen))),
+        await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push(Object.assign({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [] }, offeneEinnahmeWerte(o.offen))),
           { text: `${name}: Betrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
         return;
       }
-      await aendern((d) => d.einnahmen.push({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [{ datum: e.datum, betrag }] }), { text: `${name}: + ${R.euro(betrag)} eingetragen`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
+      await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [{ datum: e.datum, betrag }] }), { text: `${name}: + ${R.euro(betrag)} eingetragen`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
     }
   },
   'kachel-dazu': async (el) => { const id = el.dataset.wert; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().concat([{ id, breit: !!(KACHEL_KATALOG[id] && KACHEL_KATALOG[id].breit) }]); }, { text: 'Kachel hinzugefügt' }); },
