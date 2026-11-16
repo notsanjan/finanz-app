@@ -119,9 +119,24 @@ object Logik {
     // ----- Fixkosten (wie rechnen.js) -----
     private fun schritt(f: JSONObject): Int = RHYTHMUS[f.optString("wieOft")] ?: 1
 
-    fun eigenerBetrag(f: JSONObject): Double {
-        val anteil = if (f.isNull("meinAnteil")) 100.0 else f.optDouble("meinAnteil", 100.0)
-        return f.optDouble("betrag", 0.0) * anteil / 100.0
+    // v27: Mit Monat gilt der Betrag, der in diesem Monat galt (`frueher: [{ bis, betrag, meinAnteil? }]`, wie rechnen.js)
+    fun eigenerBetrag(f: JSONObject, ym: String? = null): Double {
+        var anteil = if (f.isNull("meinAnteil")) 100.0 else f.optDouble("meinAnteil", 100.0)
+        var betrag = f.optDouble("betrag", 0.0)
+        val frueher = f.optJSONArray("frueher")
+        if (ym != null && frueher != null) {
+            var bestes = ""
+            for (i in 0 until frueher.length()) {
+                val o = frueher.optJSONObject(i) ?: continue
+                val bis = o.optString("bis", "")
+                if (bis.length == 7 && ym <= bis && (bestes.isEmpty() || bis < bestes)) {
+                    bestes = bis
+                    betrag = o.optDouble("betrag", betrag)
+                    if (!o.isNull("meinAnteil")) anteil = o.optDouble("meinAnteil", anteil)
+                }
+            }
+        }
+        return betrag * anteil / 100.0
     }
 
     fun abbuchungsMonate(f: JSONObject): List<Int> {
@@ -147,7 +162,7 @@ object Logik {
 
     fun fixkostenProMonat(d: JSONObject): Double {
         val ym = monatText()
-        return fixkostenListe(d).filter { laeuftIm(it, ym) }.sumOf { eigenerBetrag(it) / schritt(it) }
+        return fixkostenListe(d).filter { laeuftIm(it, ym) }.sumOf { eigenerBetrag(it, ym) / schritt(it) }
     }
 
     data class Abbuchung(val datum: String, val name: String, val betrag: Double, val monatlich: Boolean)
@@ -161,7 +176,7 @@ object Logik {
             for (f in alle) {
                 if (!wirdAbgebuchtIm(f, ym)) continue
                 val datum = ym + "-" + String.format(Locale.ROOT, "%02d", abbuchungsTag(f, ym))
-                if (datum >= heute) liste.add(Abbuchung(datum, f.optString("name"), eigenerBetrag(f), schritt(f) == 1))
+                if (datum >= heute) liste.add(Abbuchung(datum, f.optString("name"), eigenerBetrag(f, ym), schritt(f) == 1))
             }
             ym = ymPlus(ym, 1)
         }

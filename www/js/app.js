@@ -4,14 +4,16 @@ import * as R from './rechnen.js';
 import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 import * as DRK from './drk.js';
+import * as DI from './dienste.js';
 
-export const APP_VERSION = 'finanz-v26';
+export const APP_VERSION = 'finanz-v27';
 const NEU_IN_VERSION = [
-  'Behoben: „Abbrechen / Buchen“ lagen bei offener Tastatur halb über dem Inhalt – die Leiste ist jetzt deckend und sitzt ganz unten',
-  'Verlauf: Buchungen von heute lassen sich jetzt auch ändern (nicht nur rückgängig machen)',
-  'Meldungen erscheinen oben, wenn ein Fenster offen ist – sie verdecken „Buchen“ nicht mehr',
-  'Übertrag am selben Tag wie der eingetragene Kontostand zählt jetzt zum Stand; Monatsende prüft Vertipper',
-  'Gehaltsrechner: Zulagen in Teilzeit anteilig; kleinere Textfehler behoben'
+  'Auswertung: Was gibst du im Schnitt aus, passt das Budget, wo geht das Geld hin (Ausgaben → Auswertung)',
+  'Gehalt aus dem Dienstplan schätzen: Dienste antippen oder aus CaleConnect einlesen, Monatsübersicht (PDF) – ein- und ausschaltbar',
+  'Gehaltsrechner: an jeder Zeile steht die Stelle im Tarifvertrag oder Gesetz, dazu die Seite „Woher kommen die Zahlen?“',
+  'Verlauf: suchen und filtern · Buchung: Kategorie und Datum ändern · Budget-Kachel antippen = Ausgabe eintragen',
+  'Fixkosten: neuer Betrag „gilt ab“ · Sparziel pro Konto · geplante Ausgaben als Gesamtliste · „Gekauft“ fragt nach dem echten Preis',
+  'Geteilte Ausgaben pro Person abrechnen · Erinnerung an die Sicherung · Warnung vor dem engsten Monat – alle Hinweise einzeln abschaltbar'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -102,7 +104,7 @@ export async function start() {
   z.monat = heuteYm();
   bindeEreignisse();
   if (!z.daten) { z.daten = D.leereDaten(); z.ebenen.push({ art: 'start' }); }
-  else zeigeNeuigkeiten();
+  else { zeigeNeuigkeiten(); if (DI.schaetzWerteSetzen(z.daten, heuteYm())) D.speichern(z.daten); }
   render();
   await pruefeAuftrag();
   pruefeMonatsende();
@@ -162,6 +164,7 @@ function zeigeNeuigkeiten() {
 async function aendern(fn, toast) {
   try {
     fn(z.daten);
+    DI.schaetzWerteSetzen(z.daten, heuteYm());
     await D.speichern(z.daten);
   } catch (e) {
     zeigeToast('Nicht gespeichert: ' + (e && e.message ? e.message : 'unbekannter Fehler') + '. Bitte nochmal versuchen.', null, 'fehler');
@@ -241,13 +244,20 @@ function monatTeile(s = z.monat) {
     const zahlText = `${mo.anzahl === 1 ? '1 Betrag offen' : mo.anzahl + ' Beträge offen'}${mo.ohne ? ` · ${mo.ohne} ohne Schätzung` : ''}`;
     mitOffenem = `<button class="mit-offenem" data-a="offene" aria-label="Offene Beträge ansehen">${mo.betrifft ? `<span class="mo-zeile">Mit Offenem <b class="${mo.min < 0 ? 'minus-zahl' : ''}">${spanne(mo.min, mo.max)}</b></span>` : ''}<small>? ${zahlText}${mo.betrifft ? '' : ` · ändern „Frei“ im ${esc(monatsName(s))} nicht`} · ansehen ›</small></button>`;
   }
-  if (brocken) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
+  // v27: engster Monat der nächsten 12 (ohne Rücklagenkonto) – abschaltbar unter „Hinweise und Warnungen“
+  const eng = hinweisAn('eng') && !r.mitRuecklage && istHeute ? R.engsterMonat(z.daten, s) : null;
+  if (eng) {
+    const en = R.MONATE_LANG[R.ymTeile(eng.monat).monat - 1] + (R.ymTeile(eng.monat).jahr !== R.ymTeile(s).jahr ? ' ' + R.ymTeile(eng.monat).jahr : '');
+    const rat = eng.frei < 0 && eng.inMonaten > 0 ? ` Lege bis dahin ≈ ${R.euroRund(Math.ceil(-eng.frei / eng.inMonaten / 5) * 5)} im Monat zurück – oder richte ein Rücklagenkonto ein.` : ` Das sind ≈ ${R.euroRund(eng.weniger)} weniger als in einem gewöhnlichen Monat.`;
+    zusatz.push(`<div class="frei-hinweis ${eng.frei < 0 ? 'warn' : ''}" data-hinweis="eng">${eng.frei < 0 ? '⚠ ' : ''}Am engsten wird der ${esc(en)}: ${eng.frei < 0 ? `es fehlen ≈ ${R.euroRund(-eng.frei)}` : `nur ≈ ${R.euroRund(eng.frei)} frei`} (${esc(eng.posten.map((f) => f.name).join(', '))} ${R.euroRund(eng.summe)}).${rat}</div>`);
+  }
+  if (brocken && hinweisAn('eng') && (!eng || (eng.monat !== brocken.monat && brocken.monat === R.ymPlus(s, 1)))) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
   const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
 
   // Frei-Karte: große Zahl, darunter rein (grün) und raus (rot); die Zahl „Frei“ steht nur einmal
   const zeile = (punkt, text, betrag, art) => `<div class="auf-zeile"><span class="l">${punkt}${text}</span><span class="r ${art}">${betrag}</span></div>`;
   const ohnePunkt = '<i class="punkt-platz"></i>';
-  const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? 'am ' + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? ' · geschätzt' : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
+  const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? 'am ' + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? (gehaltWert.ausDiensten ? ' · aus Diensten geschätzt' : ' · geschätzt') : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
   const freiKarte = `<section class="karte ring frei-karte">
     <div class="label">${vorbei ? 'Übrig im' : 'Frei im'} ${esc(monatsName(s))}</div>
     <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}">${freiText}</div>
@@ -270,14 +280,14 @@ function monatTeile(s = z.monat) {
   const hatJaehrliche = z.daten.fixkosten.some((f) => f.wieOft !== 'monatlich');
   let ruecklageKarte = '';
   if (rk) {
-    const luecke = R.ruecklageLuecke(z.daten, heute());
+    const luecke = hinweisAn('ruecklage') ? R.ruecklageLuecke(z.daten, heute()) : null;
     ruecklageKarte = `<button class="karte spar ruecklage" data-a="ruecklage">
       <span class="symbol">${ICON.pfeil}</span>
       <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Aufs Rücklagenkonto · ${rausZ(rk.betrag)}</span><span class="klein">am ${rk.tag || 1}. · bezahlt alle jährlichen und vierteljährlichen Kosten</span>
         ${luecke ? `<span class="warn-text">Bis ${esc(Number(luecke.datum.slice(8)) + '. ' + R.MONATE_LANG[R.ymTeile(R.ymAus(luecke.datum)).monat - 1])} fehlen ≈ ${R.euroRund(luecke.fehlt)} (${esc(luecke.fixkosten.name)})</span>` : ''}</span>
       <span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.ruecklageStand(z.daten, stichtag))}</span></span>
     </button>`;
-  } else if (hatJaehrliche && !z.daten.einstellungen.ruecklageHinweisAus) {
+  } else if (hatJaehrliche && !z.daten.einstellungen.ruecklageHinweisAus && hinweisAn('ruecklage')) {
     ruecklageKarte = `<section class="karte hinweis-karte"><div class="hinweis-kopf"><b>Jährliche Kosten glätten?</b><button class="knopf klein leise rund" style="width:36px" data-a="ruecklage-hinweis-weg" aria-label="Hinweis schließen">${ICON.x}</button></div>
       <p class="hinweistext">Mit einem eigenen Rücklagenkonto (z. B. Unterkonto oder Tagesgeld) und einem Dauerauftrag von ≈ ${R.euroRund(R.empfohleneRuecklage(z.daten, s))} im Monat ist jeden Monat gleich viel frei. Versicherungen und Co. zahlt dann die Rücklage.</p>
       <button class="knopf akzent" data-a="ruecklage">Rücklagenkonto einrichten</button></section>`;
@@ -289,9 +299,11 @@ function monatTeile(s = z.monat) {
     const rate = Number(sp.betrag) || 0;
     const titel = sp.offen ? `Aufs ${esc(sp.name)} · ${offenZahl(sp)} ${offenMarke(sp.offen)}` : rate > 0 ? `Aufs ${esc(sp.name)} · ${rausZ(rate)}` : esc(sp.name);
     const unter = (rate > 0 || sp.offen ? `am ${sp.tag || 1}. · ` : 'kein fester Übertrag · ') + (extern ? 'das Geld wird dort ausgegeben' : 'keine Ausgabe, das Geld bleibt deins') + (extra > 0 ? ` · im ${monatsName(s)} + ${R.euroRund(extra)} extra` : '');
+    const zi = extern ? null : R.sparziel(sp, stichtag, z.daten);
+    const zielHtml = zi ? `<span class="ziel-zeile"><span class="mini ziel-mini"><span style="width:${(zi.anteil * 100).toFixed(1)}%"></span></span><span class="klein ${zi.zielBis && !zi.erreicht && !zi.reicht && hinweisAn('sparziel') ? 'warn-text' : ''}">${zi.erreicht ? '✓ Ziel erreicht' : `Ziel ${R.euroRund(zi.ziel)} · ${Math.floor(zi.anteil * 100)} %${zi.zielBis && !zi.reicht && hinweisAn('sparziel') ? ` · Rate reicht nicht bis ${R.MONATE_KURZ[R.ymTeile(zi.zielBis).monat - 1]} ${R.ymTeile(zi.zielBis).jahr}` : zi.zielBis ? ` · bis ${R.MONATE_KURZ[R.ymTeile(zi.zielBis).monat - 1]} ${R.ymTeile(zi.zielBis).jahr}` : ''}`}</span></span>` : '';
     return `<button class="karte spar ${extern ? 'extern' : ''}" data-a="sparkonto" data-id="${esc(sp.id)}">
       <span class="symbol">${ICON.pfeil}</span>
-      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">${titel}</span><span class="klein">${unter}</span></span>
+      <span class="mitte"><span style="font-size:var(--t-text);font-weight:600">${titel}</span><span class="klein">${unter}</span>${zielHtml}</span>
       ${extern ? '' : `<span class="stand"><span class="klein" style="font-size:var(--t-mini)">Stand</span><span style="font-size:var(--t-titel-karte);font-weight:500">${R.euroRund(R.sparStand(sp, stichtag, z.daten))}</span></span>`}
     </button>`;
   }).join('') : `<button class="karte spar" data-a="sparkonto"><span class="symbol">${ICON.pfeil}</span><span class="mitte"><span style="font-size:var(--t-text);font-weight:600">Sparkonto anlegen</span><span class="klein">Sparen ist keine Ausgabe, das Geld bleibt deins</span></span></button>`;
@@ -303,9 +315,12 @@ function monatTeile(s = z.monat) {
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
     <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Frei“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
-    <button class="knopf" data-a="einfuehrung-erneut">Einführung erneut durchgehen</button>
+    <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
+    <button class="knopf" data-a="dienste">📅 Dienste und Gehalt schätzen${DI.schaetzenAn(z.daten) ? ' · an' : ''}</button>
+    <button class="knopf" data-a="hinweise">🔔 Hinweise und Warnungen${(z.daten.einstellungen.hinweiseAus || []).length ? ' · ' + (z.daten.einstellungen.hinweiseAus || []).length + ' aus' : ''}</button>
     <button class="knopf" data-a="offene">? Offene Beträge${R.offeneListe(z.daten).length ? ' (' + R.offeneListe(z.daten).length + ')' : ''}</button>
+    <button class="knopf" data-a="einfuehrung-erneut">Einführung erneut durchgehen</button>
     <p class="hinweistext">Alle Daten liegen nur auf diesem Handy. Exportiere ab und zu eine Sicherung, z. B. vor dem Löschen der App.${z.daten.einstellungen.letzteSicherung ? ' Zuletzt: ' + esc(z.daten.einstellungen.letzteSicherung) + '.' : ''}</p>
     <div class="zwei"><button class="knopf" data-a="export">Exportieren</button><button class="knopf" data-a="import">Importieren</button></div>
     ${z.daten.beispiel ? '<button class="knopf leise" data-a="beispiel-weg">Beispieldaten entfernen</button>' : ''}
@@ -383,7 +398,7 @@ function monatAnsicht() {
     },
     konten: () => {
       const sp = R.sparratenNormal(z.daten);
-      const luecke = rk ? R.ruecklageLuecke(z.daten, heute()) : null;
+      const luecke = rk && hinweisAn('ruecklage') ? R.ruecklageLuecke(z.daten, heute()) : null;
       const wert = rk || sp.length
         ? [rk ? `Rücklage ${R.euroRund(R.ruecklageStand(z.daten, stichtag))}` : '', sp.length ? `Sparen ${R.euroRund(sp.reduce((a, x) => a + R.sparStand(x, stichtag, z.daten), 0))}` : ''].filter(Boolean).join('<br>')
         : '–';
@@ -400,7 +415,7 @@ function monatAnsicht() {
     },
     geplant: (k) => {
       const ws = s >= heuteYm() ? R.offeneWuensche(z.daten).filter((w) => w.monat === s || (s === heuteYm() && (!w.monat || w.monat < s))) : [];
-      const probleme = ws.filter((w) => pruefung[w.id] && pruefung[w.id].fehlt > 0);
+      const probleme = hinweisAn('geplant') ? ws.filter((w) => pruefung[w.id] && pruefung[w.id].fehlt > 0) : [];
       const wert = ws.length ? `<span class="minus-zahl">− ${R.euroRund(ws.reduce((a, w) => a + R.preisBis(w), 0))}</span>` : '<span>–</span>';
       const unter = probleme.length ? `${probleme.length} reicht nicht` : ws.length ? `${ws.length} ${ws.length === 1 ? 'Sache' : 'Sachen'} · Geld reicht` : 'nichts geplant';
       if (k.offen) {
@@ -428,11 +443,12 @@ function monatAnsicht() {
     const b = Number(kat.budget) || 0;
     const pct = b > 0 ? Math.min(100, aus / b * 100) : 0;
     const ueber = b > 0 && aus > b;
-    return `<button class="kachel" data-a="budget" data-id="${esc(kat.id)}" aria-label="${esc(kat.name)} bearbeiten">
+    // v27: Antippen = Ausgabe eintragen (das Budget selbst ändert man unter Ausgaben)
+    return `<button class="kachel" data-a="eintragen" data-kat="${esc(kat.id)}" aria-label="${esc(kat.name)}: Ausgabe eintragen">
       <span class="kachel-kopf"><span>${esc((kat.emoji ? kat.emoji + ' ' : '') + kat.name)}</span></span>
       <span class="kachel-wert ${leuchtet(kat.id) ? 'leuchtet' : ''}"><span class="minus-zahl">− ${R.euroRund(aus)}</span></span>
       ${b > 0 ? `<span class="mini kachel-mini"><span style="width:${pct.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>` : ''}
-      <span class="kachel-unter ${ueber ? 'warn' : ''}">${b > 0 ? (ueber ? `${R.euroRund(aus - b)} über Budget` : `noch ${R.euroRund(b - aus)} von ${R.euroRund(b)}`) : 'ohne Budget'}</span></button>`;
+      <span class="kachel-unter ${ueber ? 'warn' : ''}">${b > 0 ? (ueber ? `${R.euroRund(aus - b)} über Budget` : `noch ${R.euroRund(b - aus)} von ${R.euroRund(b)}`) : 'ohne Budget'}</span><span class="kachel-tipp-klein">antippen = eintragen</span></button>`;
   };
   const bearbeiten = !!z.bearbeiten;
   const kacheln = kachelListe().map((k) => {
@@ -448,8 +464,9 @@ function monatAnsicht() {
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
-  const gf = !bearbeiten && z.monat === heuteYm() ? gehaltFrageKarte() : '';
-  return t.nav + t.freiKarte + gf + vk + budgetLeiste(s) + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
+  const gf = !bearbeiten && z.monat === heuteYm() && hinweisAn('gehalt') ? gehaltFrageKarte() : '';
+  const sk = !bearbeiten && z.monat === heuteYm() ? sicherungKarte() : '';
+  return t.nav + t.freiKarte + gf + vk + sk + budgetLeiste(s) + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
     <button class="knopf leise einstellungen-knopf" data-a="bereich" data-wert="einstellungen">${KACHEL_ICON.zahnrad} Einstellungen und Sicherung</button>
     <div class="fab-platz"></div>`;
@@ -495,7 +512,7 @@ function aboListe(s) {
   return z.daten.fixkosten.filter((f) => f.abo).map((f) => {
     const laeuft = R.laeuftIm(f, s);
     const kat = R.kategorie(z.daten, f.kategorieId);
-    return { f, kat, laeuft, proMonat: R.monatsAnteil(f), endet: f.endetAm || null };
+    return { f, kat, laeuft, proMonat: R.monatsAnteil(f, s), endet: f.endetAm || null };
   }).sort((a, b) => b.proMonat - a.proMonat);
 }
 function abosHtml(s) {
@@ -608,7 +625,8 @@ function ausgabenHtml(r, s) {
   const fixMonat = r.gruppen.filter((g) => g.art !== 'budget').reduce((a, g) => a + g.posten.reduce((b, p) => b + p.anteil, 0), 0);
   const summe = proMonat ? `<div class="pro-monat-summe">Fixkosten zusammen <b>${rausZ(fixMonat, true, '≈ ')}</b> pro Monat · ${rausSatz(fixMonat * 12, true)} im Jahr</div>` : '';
   const titel = `<div class="abschnitt-kopf"><span class="label">Ausgaben${proMonat ? '' : ' im ' + esc(monatsName(s))}</span><span class="klein">Antippen zum Bearbeiten</span></div>`;
-  return `<div class="ausgaben">${titel}${wahl}${summe}${karten}${neu}</div>`;
+  const aw = `<button class="karte aw-start" data-a="auswertung"><span class="aw-symbol" aria-hidden="true">📊</span><span class="mitte"><b>Auswertung</b><span class="klein">Schnitt pro Monat, passt das Budget, wo geht das Geld hin</span></span>${PFEIL}</button>`;
+  return `<div class="ausgaben">${aw}${titel}${wahl}${summe}${karten}${neu}</div>`;
 }
 
 function jahrAnsicht() {
@@ -619,7 +637,7 @@ function jahrAnsicht() {
     const teile = m.teile.filter((t) => t.summe > 0).map((t) => `<span style="width:${(t.summe / max * 100).toFixed(1)}%;background:${t.kategorie.farbe}"></span>`).join('');
     const rk = !!R.ruecklage(z.daten);
     // Jahr kompakt (v21): pro Monat höchstens eine kurze Zeile mit Kennzeichen; Einzelheiten im Monat (antippen)
-    const zus = m.zusaetzlich.reduce((a, x) => a + R.eigenerBetrag(x.fixkosten), 0);
+    const zus = m.zusaetzlich.reduce((a, x) => a + x.betrag, 0);
     const wuensche = R.offeneWuensche(z.daten).filter((w) => w.monat === m.monat);
     const rein = weitereEinnahmen().filter((e) => e.wieOft === 'einmalig' && R.einnahmeAktivIm(e, m.monat));
     const marken = [
@@ -639,7 +657,12 @@ function jahrAnsicht() {
 }
 
 function verlaufAnsicht() {
-  const eintraege = R.verlaufMitStand(z.daten);
+  return `<p class="hinweistext">Jede Buchung zeigt den Stand vorher und nachher. Vertippt? Hier rückgängig machen oder ändern.</p>${vfKopf()}<div id="vf-liste">${verlaufListe()}</div>`;
+}
+function verlaufListe() {
+  const alle = R.verlaufMitStand(z.daten);
+  const filtert = vfAktiv();
+  const eintraege = filtert ? R.verlaufFiltern(alle, z.daten, z.vf) : alle;
   const tage = new Map();
   for (const e of eintraege) { const t = e.zeit.slice(0, 10); if (!tage.has(t)) tage.set(t, []); tage.get(t).push(e); }
   const h = heute();
@@ -652,7 +675,7 @@ function verlaufAnsicht() {
   };
   let teile = '';
   let anzahl = 0;
-  const grenze = z.verlaufAlle ? Infinity : 60;
+  const grenze = z.verlaufAlle || filtert ? Infinity : 60;
   for (const [t, liste] of tages(tage)) {
     if (anzahl >= grenze) break;
     anzahl += liste.length;
@@ -665,6 +688,11 @@ function verlaufAnsicht() {
       const geteilt = e.gesamt ? `<span class="geteilt">geteilt${e.teiltMit ? ' mit ' + esc(e.teiltMit) : ''} · gesamt ${R.euro(e.gesamt)} · ${e.zurueckErhalten ? '✓ zurückbekommen' : R.euro(Math.round((e.gesamt - e.betrag) * 100) / 100) + ' offen'}</span>` : '';
       return `<div class="eintrag"><div class="t"><b>${esc(kat ? kat.name : 'Unbekannt')} · ${betragHtml(e, rausZ(e.betrag))}</b><span>${esc(e.zeit.slice(11, 16))} · ${esc(e.ort || 'ohne Ort')} · ${R.euro(e.vorher, false)} → ${R.euro(e.nachher)}</span>${geteilt}</div>${knopf}</div>`;
     }).join('')}</section>`;
+  }
+  if (filtert) {
+    const summe = eintraege.reduce((a, e) => a + (Number(e.betrag) || 0), 0);
+    const kopf = `<div class="vf-ergebnis" role="status"><span>${eintraege.length === 1 ? '1 Buchung' : eintraege.length + ' Buchungen'} · ${rausZ(summe)}</span><button class="knopf klein leise" data-a="vf-leer">Filter löschen</button></div>`;
+    return kopf + (eintraege.length ? teile : '<section class="karte"><div class="leerzustand">Keine Buchung passt zu deiner Suche.</div></section>');
   }
   if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Tippe unten rechts auf ＋ oder buche über ein Widget auf dem Homescreen.</div><button class="knopf haupt" data-a="eintragen">${ICON.plus} Ausgabe eintragen</button></section>`;
   else if (!z.verlaufAlle && eintraege.length > anzahl) teile += '<button class="knopf leise" data-a="verlauf-alle">Ältere Buchungen anzeigen</button>';
@@ -688,7 +716,7 @@ function verlaufAnsicht() {
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
-          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(d2)}` });
+          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f, s)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(d2)}` });
         }
       }
     }
@@ -706,7 +734,7 @@ function verlaufAnsicht() {
     return k.monat ? `<button class="eintrag zeile ${z.blinkGehalt === k.monat ? 'blinken' : ''}" style="padding-left:0" data-a="gehalt" data-monat="${k.monat}">${inhalt}</button>` : `<div class="eintrag">${inhalt}</div>`;
   }).join('')}</section>` : '';
 
-  return `<p class="hinweistext">Jede Buchung zeigt den Stand vorher und nachher. Vertippt? Hier rückgängig machen oder den Betrag ändern.</p>${teile}${keineHtml}`;
+  return `${teile}${keineHtml}`;
 }
 function tages(m) { return [...m.entries()].sort((a, b) => (a[0] < b[0] ? 1 : -1)); }
 
@@ -722,7 +750,7 @@ function wunschStatus(w, r, s) {
   const teile = [];
   let art = 'gut';
   if (r.budgetUeber > 0) { teile.push(`Budget ${r.kategorie.name} reicht nicht, ≈ ${R.euroRund(r.budgetUeber)} kommen aus „Frei“`); art = 'hinweis'; }
-  if (r.fehlt > 0) { teile.push(`Reicht im ${mon(r.monat)} nicht, es fehlen ≈ ${R.euroRund(r.fehlt)}` + (r.fruehestens ? ` · frühestens im ${mon(r.fruehestens)}` : '')); art = 'warn'; }
+  if (r.fehlt > 0 && hinweisAn('geplant')) { teile.push(`Reicht im ${mon(r.monat)} nicht, es fehlen ≈ ${R.euroRund(r.fehlt)}` + (r.fruehestens ? ` · frühestens im ${mon(r.fruehestens)}` : '')); art = 'warn'; }
   if (!teile.length) teile.push(`Passt in den ${mon(r.monat)}`);
   return { text: teile.join(' · '), art };
 }
@@ -730,18 +758,21 @@ function wunschStatus(w, r, s) {
 function geplantHtml(s, pruefung) {
   const istHeute = s === heuteYm();
   const liste = R.offeneWuensche(z.daten).filter((w) => w.monat === s || (istHeute && (!w.monat || w.monat < s)));
-  const zeilen = liste.map((w) => {
-    const st = wunschStatus(w, pruefung[w.id], s);
-    const k = w.kategorieId ? R.kategorie(z.daten, w.kategorieId) : null;
-    const wann = w.monat ? (w.monat < s ? `geplant für ${R.MONATE_KURZ[R.ymTeile(w.monat).monat - 1]}` : '') : 'Monat noch offen';
-    const quelle = k ? `aus Budget ${mitEmoji(k)}${k.name}` : 'aus „Frei“';
-    return `<button class="posten" data-a="wunsch" data-id="${esc(w.id)}" aria-label="${esc(w.name)} bearbeiten"><span class="t"><span class="n">${esc((w.emoji ? w.emoji + ' ' : '') + w.name)}</span><small>${esc([wann, quelle].filter(Boolean).join(' · '))}</small>${st.text ? `<small class="status ${st.art}">${esc(st.text)}</small>` : ''}</span><span class="b"><span class="minus-zahl">− ${esc(R.preisText(w))}</span></span>${PFEIL}</button>`;
-  }).join('');
+  const zeilen = liste.map((w) => wunschZeile(w, pruefung, s)).join('');
+  const alle = R.offeneWuensche(z.daten).length;
   return `<section class="karte geplant-karte">
     <div class="geplant-kopf"><span class="t"><b>Geplant</b><small>potenzielle Ausgaben, noch nicht fest</small></span>${liste.length ? `<span class="kat-summe">${rausZ(liste.reduce((a, w) => a + R.preisBis(w), 0), true)}</span>` : ''}</div>
     ${zeilen}
     <button class="knopf akzent" data-a="wunsch-neu" data-monat="${s}">${ICON.plus} Potenzielle Ausgabe planen</button>
+    ${alle ? `<button class="knopf leise" data-a="geplant-alle">Alle geplanten Ausgaben (${alle}) – auch spätere Monate</button>` : ''}
   </section>`;
+}
+function wunschZeile(w, pruefung, s) {
+  const st = wunschStatus(w, pruefung[w.id], s);
+  const k = w.kategorieId ? R.kategorie(z.daten, w.kategorieId) : null;
+  const wann = w.monat ? (w.monat < s ? `geplant für ${R.MONATE_KURZ[R.ymTeile(w.monat).monat - 1]}` : '') : 'Monat noch offen';
+  const quelle = k ? `aus Budget ${mitEmoji(k)}${k.name}` : 'aus „Frei“';
+  return `<button class="posten" data-a="wunsch" data-id="${esc(w.id)}" aria-label="${esc(w.name)} bearbeiten"><span class="t"><span class="n">${esc((w.emoji ? w.emoji + ' ' : '') + w.name)}</span><small>${esc([wann, quelle].filter(Boolean).join(' · '))}</small>${st.text ? `<small class="status ${st.art}">${esc(st.text)}</small>` : ''}</span><span class="b"><span class="minus-zahl">− ${esc(R.preisText(w))}</span></span>${PFEIL}</button>`;
 }
 
 // ---------- Weitere Einnahmen ----------
@@ -758,12 +789,14 @@ function einnahmenHtml(s) {
   return gehaltKarte + rueckzahlungenHtml() + weitereEinnahmenHtml(s);
 }
 function rueckzahlungenHtml() {
-  const l = offeneRueckzahlungen();
-  if (!l.length) return '';
-  const summe = l.reduce((a, b) => a + (b.gesamt - b.betrag), 0);
+  // v27: pro Person zusammengefasst, mit „Alles bekommen“
+  const personen = R.personenAbrechnung(z.daten);
+  if (!personen.length) return '';
+  const summe = personen.reduce((a, p) => a + p.summe, 0);
+  const zeile = (b) => { const kat = R.kategorie(z.daten, b.kategorieId); return `<div class="posten rueck-zeile"><span class="t"><span class="n">${esc(b.ort || (kat ? kat.name : 'Ausgabe'))} · ${reinZ(Math.round((b.gesamt - b.betrag) * 100) / 100)}</span><small>${esc(Number(b.zeit.slice(8, 10)) + '.' + Number(b.zeit.slice(5, 7)) + '. · gesamt ' + R.euro(b.gesamt))}</small></span><button class="knopf klein leise" data-a="rueck-erhalten" data-id="${esc(b.id)}" aria-label="Diese Rückzahlung bekommen">✓</button></div>`; };
   return `<section class="karte geplant-karte einnahmen-karte">
     <div class="geplant-kopf"><span class="t"><b>Bekommst du noch zurück</b><small>aus geteilten Ausgaben · zählt nicht als Einnahme</small></span><span class="kat-summe plus-zahl">+ ${R.euro(Math.round(summe * 100) / 100)}</span></div>
-    ${l.map((b) => { const kat = R.kategorie(z.daten, b.kategorieId); return `<div class="posten rueck-zeile"><span class="t"><span class="n">${esc(b.teiltMit || 'Jemand')} · ${reinZ(Math.round((b.gesamt - b.betrag) * 100) / 100)}</span><small>${esc((b.ort || (kat ? kat.name : '')) + ' · ' + Number(b.zeit.slice(8, 10)) + '.' + Number(b.zeit.slice(5, 7)) + '. · gesamt ' + R.euro(b.gesamt))}</small></span><button class="knopf klein akzent" data-a="rueck-erhalten" data-id="${esc(b.id)}">✓ Bekommen</button></div>`; }).join('')}
+    ${personen.map((p) => `<div class="person-kopf"><span class="t"><b>${esc(p.name)}</b><small>${p.buchungen.length === 1 ? '1 Ausgabe' : p.buchungen.length + ' Ausgaben'} · ${reinZ(p.summe)}</small></span><button class="knopf klein akzent" data-a="rueck-alle" data-name="${esc(p.name)}">✓ Alles bekommen</button></div>${p.buchungen.map(zeile).join('')}`).join('')}
   </section>`;
 }
 function weitereEinnahmenHtml(s) {
@@ -882,6 +915,7 @@ function offenesGehalt() {
 }
 function lernHinweis(g) {
   const st = R.gehaltStatistik(g, 3);
+  if (DI.schaetzenAn(z.daten)) return null; // v27: mit Dienst-Schätzung rechnet die App jeden Monat einzeln
   if (st.anzahl < 3 || Math.abs(st.schnitt - R.schaetzung(g)) < 1) return null;
   return st;
 }
@@ -999,42 +1033,31 @@ const wahlKnopf = (aktion, wert, text, an, extra = '') => `<button data-a="${akt
 
 // ---------- DRK-Gehaltsrechner (v24) ----------
 const grZahl = (t) => { const n = zahl(t); return isNaN(n) ? 0 : n; };
-// Felder, die „unbekannt“ sein dürfen (v25): [Name, true = erhöht das Netto]
-const GR_OFFEN = { zulageText: ['Weitere Zulagen', true], besitzText: ['Besitzstand', true], nachtText: ['Nachtstunden', true], sonntagText: ['Sonntagsstunden', true], feiertagText: ['Feiertagsstunden', true], abzugText: ['Weitere Abzüge', false] };
+// Felder, die „unbekannt“ sein dürfen (v25) und die Umrechnung Text → Zahl liegen seit v27 in drk.js
+const GR_OFFEN = DRK.OFFENE_FELDER;
 const grOffene = (e) => Object.keys(GR_OFFEN).filter((f) => e[f + 'Offen']);
-// modus: 'aus' = offene Felder zählen 0 · 'min' = ungünstig (wenig Zuschläge, hohe Abzüge) · 'max' = günstig
-function grWert(e, f, modus) {
-  if (!e[f + 'Offen']) return grZahl(e[f]);
-  const lies = (t) => (String(t == null ? '' : t).trim() === '' ? null : zahl(t));
-  const sp = R.offenSpanne({ von: lies(e[f + 'Von']), bis: lies(e[f + 'Bis']) });
-  if (!sp.hat || modus === 'aus') return 0;
-  return (modus === 'max') === GR_OFFEN[f][1] ? sp.bis : sp.von;
-}
-function grEingaben(e, modus = String(e.offenZaehlt) === '0' ? 'aus' : 'min') {
-  const w = (f) => grWert(e, f, modus);
-  return { eg: e.eg, stufe: Number(e.stufe) || 1, vz: grZahl(e.vz) || 38.5, tz: grZahl(e.tz) || 100, schicht: !!e.schicht, praxis: !!e.praxis,
-    zulage: w('zulageText'), besitz: w('besitzText'), nacht: w('nachtText'), sonntag: w('sonntagText'), feiertag: w('feiertagText'),
-    stkl: Number(e.stkl) || 1, kinder: grZahl(e.kinder), ab23: e.ab23 !== false, zkf: grZahl(e.zkfText), kvz: grZahl(e.kvzText),
-    kirche: Number(e.kirche) || 0, sachsen: !!e.sachsen, freibetrag: grZahl(e.freibetragText), abzug: w('abzugText') };
-}
+const grEingaben = (e, modus) => DRK.eingaben(e, modus);
 function grErgebnisHtml(eb) {
-  const r = DRK.gehaltRechnen(grEingaben(eb.entwurf), eb.monat);
-  const zeile = (l, w, klasse = '') => `<div class="gr-zeile ${klasse}"><span>${l}</span><b>${w}</b></div>`;
+  const rw = DRK.rechenweg(grEingaben(eb.entwurf), eb.monat);
+  const r = rw.r;
+  // v27: unter jeder Zeile steht, wo die Regel zu finden ist
+  const fund = (name) => { const x = rw.zeilen.find((y) => y.name === name || y.name.startsWith(name)); return x && x.fund ? `<small class="gr-fund">${esc(x.fund)}</small>` : ''; };
+  const zeile = (l, w, klasse = '', f = '') => `<div class="gr-zeile ${klasse}"><span>${l}${f}</span><b>${w}</b></div>`;
   const prozent = (x) => String(Math.round(x * 10000) / 100).replace('.', ',') + ' %';
   const ab = (b) => b > 0 ? rausZ(b) : R.euro(0);
   return `<div class="label">Ergebnis ${esc(monatsName(eb.monat))}</div>
-    ${zeile(`Tabellenentgelt E ${esc(eb.entwurf.eg)} Stufe ${r.stufe}${grZahl(eb.entwurf.tz) && grZahl(eb.entwurf.tz) < 100 ? ` · ${esc(eb.entwurf.tz)} %` : ''}`, R.euro(r.tabellenentgelt))}
-    ${r.zulagen.map(([n, b]) => zeile(esc(n), R.euro(b))).join('')}
-    ${r.zuschlaege.map((x) => zeile(`${esc(x.name)} · ${String(x.stunden).replace('.', ',')} Std.`, R.euro(x.betrag))).join('')}
+    ${zeile(`Tabellenentgelt E ${esc(eb.entwurf.eg)} Stufe ${r.stufe}${grZahl(eb.entwurf.tz) && grZahl(eb.entwurf.tz) < 100 ? ` · ${esc(eb.entwurf.tz)} %` : ''}`, R.euro(r.tabellenentgelt), '', fund('Tabellenentgelt'))}
+    ${r.zulagen.map(([n, b]) => zeile(esc(n), R.euro(b), '', fund(n))).join('')}
+    ${r.zuschlaege.map((x) => zeile(`${esc(x.name)} · ${String(x.stunden).replace('.', ',')} Std.`, R.euro(x.betrag), '', fund(x.name))).join('')}
     ${zeile('Brutto', R.euro(r.brutto), 'summe')}
     ${r.steuerfrei > 0 ? `<p class="hinweistext gr-mini">Davon steuerfrei (§ 3b EStG): ${R.euro(r.steuerfrei)}${r.svfrei < r.steuerfrei ? ` · beitragsfrei nur ${R.euro(r.svfrei)}` : ' · auch beitragsfrei'}</p>` : ''}
-    ${zeile('Lohnsteuer', ab(r.lohnsteuer))}
-    ${r.soli > 0 ? zeile('Solidaritätszuschlag', ab(r.soli)) : ''}
-    ${r.kirchensteuer > 0 ? zeile('Kirchensteuer', ab(r.kirchensteuer)) : ''}
-    ${zeile(`Krankenversicherung · ${prozent(r.satz.kv)}`, ab(r.kv))}
-    ${zeile(`Pflegeversicherung · ${prozent(r.satz.pv)}${r.pvz ? ' (kinderlos)' : ''}`, ab(r.pv))}
-    ${zeile('Rentenversicherung · 9,3 %', ab(r.rv))}
-    ${zeile('Arbeitslosenversicherung · 1,3 %', ab(r.av))}
+    ${zeile('Lohnsteuer', ab(r.lohnsteuer), '', fund('Lohnsteuer'))}
+    ${r.soli > 0 ? zeile('Solidaritätszuschlag', ab(r.soli), '', fund('Solidaritätszuschlag')) : ''}
+    ${r.kirchensteuer > 0 ? zeile('Kirchensteuer', ab(r.kirchensteuer), '', fund('Kirchensteuer')) : ''}
+    ${zeile(`Krankenversicherung · ${prozent(r.satz.kv)}`, ab(r.kv), '', fund('Krankenversicherung'))}
+    ${zeile(`Pflegeversicherung · ${prozent(r.satz.pv)}${r.pvz ? ' (kinderlos)' : ''}`, ab(r.pv), '', fund('Pflegeversicherung'))}
+    ${zeile('Rentenversicherung · 9,3 %', ab(r.rv), '', fund('Rentenversicherung'))}
+    ${zeile('Arbeitslosenversicherung · 1,3 %', ab(r.av), '', fund('Arbeitslosenversicherung'))}
     ${r.abzug > 0 ? zeile('Weitere Abzüge', ab(r.abzug)) : ''}
     ${zeile('Netto', reinZ(r.netto, false, '≈ '), 'summe netto')}
     ${(() => {
@@ -1046,7 +1069,8 @@ function grErgebnisHtml(eb) {
         <div class="wahl zwei-sp"><button data-a="gr-wahl" data-feld="offenZaehlt" data-wert="1" aria-pressed="${an}">Mitrechnen</button><button data-a="gr-wahl" data-feld="offenZaehlt" data-wert="0" aria-pressed="${!an}">Nicht mitrechnen</button></div>
         <p class="hinweistext gr-mini">Unbekannt: ${esc(offene.map((f) => GR_OFFEN[f][0]).join(', '))}. ${an ? 'Das Netto oben rechnet vorsichtig: wenig Zuschläge, hohe Abzüge.' : 'Das Netto oben lässt diese Werte weg.'}</p></div>`;
     })()}
-    <div class="gr-jsz"><span class="t"><b>November: Jahressonderzahlung</b><small>90 % vom Monatsentgelt · ≈ ${R.euroRund(r.jsz)} brutto, netto ≈ <span class="plus-zahl">${R.euroRund(r.jszNetto)}</span></small></span>
+    <button class="knopf klein akzent gr-quellen-knopf" data-a="quellen">Woher kommen die Zahlen? Rechenweg ansehen</button>
+    <div class="gr-jsz"><span class="t"><b>November: Jahressonderzahlung</b><small>90 % vom Monatsentgelt (§ 23 Abs. 2 DRK-RTV) · ≈ ${R.euroRund(r.jsz)} brutto, netto ≈ <span class="plus-zahl">${R.euroRund(r.jszNetto)}</span></small></span>
       <button class="knopf klein akzent" data-a="gr-jsz" data-wert="${r.jszNetto}">Als Einnahme eintragen</button></div>`;
 }
 function grAktualisieren() {
@@ -1062,10 +1086,362 @@ function grAktualisieren() {
 }
 function grSaetze(eb, r) {
   const basis = r.basisStunde;
-  return `Nacht 5,50 € · Sonntag ${R.euro(Math.round(basis * 25) / 100)} · Feiertag ${R.euro(Math.round(basis * 35) / 100)} je Stunde. Grundlage: ${R.euro(basis)} je Stunde (niedrigste Stufe deiner Gruppe). Zuschläge kommen meist mit dem Gehalt des Folgemonats.`;
+  return `Nacht 5,50 € · Sonntag ${R.euro(Math.round(basis * 25) / 100)} · Feiertag ${R.euro(Math.round(basis * 35) / 100)} je Stunde. Grundlage: ${R.euro(basis)} je Stunde (niedrigste Stufe deiner Gruppe, § 14 Abs. 2). Ausgezahlt werden Zuschläge laut Tarif mit dem Gehalt des zweiten Folgemonats (§ 29 Abs. 1 Satz 3).`;
+}
+
+// ---------- v27: Hinweise und Warnungen (einzeln abschaltbar) ----------
+const HINWEISE = [
+  ['sicherung', 'An die Sicherung erinnern', 'nach 30 Tagen ohne Export'],
+  ['eng', 'Engster Monat und Zusatzkosten', 'ohne Rücklagenkonto: Monate, in denen jährliche Kosten abgebucht werden'],
+  ['ruecklage', 'Rücklagenkonto', 'wenn die Rücklage nicht reicht, und der Tipp zum Einrichten'],
+  ['geplant', 'Geplante Ausgaben', 'wenn das Geld für etwas Geplantes nicht reicht'],
+  ['sparziel', 'Sparziel', 'wenn die Rate für ein Sparziel nicht reicht'],
+  ['gehalt', 'Gehalt da?', 'Frage nach dem Gehalt am Ankunftstag']
+];
+const hinweisAn = (id) => !((z.daten && z.daten.einstellungen.hinweiseAus) || []).includes(id);
+const std = (x) => String(Math.round((Number(x) || 0) * 100) / 100).replace('.', ',');
+const monatJahr = (s, kurz) => (kurz ? R.MONATE_KURZ : R.MONATE_LANG)[R.ymTeile(s).monat - 1] + ' ' + R.ymTeile(s).jahr;
+
+function sicherungKarte() {
+  if (!hinweisAn('sicherung')) return '';
+  const sp = z.daten.einstellungen.sicherungSpaeter;
+  if (sp && sp > heute()) return '';
+  const f = R.sicherungFaellig(z.daten, new Date());
+  if (!f) return '';
+  return `<section class="karte hinweis-karte sicherung-karte"><div class="hinweis-kopf"><b>${f.nie ? 'Noch keine Sicherung gemacht' : `Letzte Sicherung vor ${f.tage} Tagen`}</b><button class="knopf klein leise rund" style="width:36px" data-a="sicherung-spaeter" aria-label="In 7 Tagen wieder erinnern">${ICON.x}</button></div>
+    <p class="hinweistext">Deine Daten liegen nur auf diesem Handy. Geht es verloren oder kaputt, sind sie ohne Sicherung weg. Die Datei landet im Ordner „Downloads“.</p>
+    <button class="knopf akzent" data-a="export">Jetzt sichern</button></section>`;
+}
+
+// ---------- v27: Verlauf durchsuchen ----------
+const vfAktiv = () => !!(z.vf && (z.vf.text.trim() || z.vf.kategorieId || z.vf.monat || z.vf.ort));
+function vfKopf() {
+  if (!z.vf) z.vf = { text: '', kategorieId: '', monat: '', ort: '', auf: false };
+  const f = z.vf;
+  if (!z.daten.buchungen.length) return '';
+  const anzahl = [f.kategorieId, f.monat, f.ort].filter(Boolean).length;
+  let filter = '';
+  if (f.auf) {
+    const kats = budgetKats().filter((k) => z.daten.buchungen.some((b) => b.kategorieId === k.id));
+    const monate = [...new Set(z.daten.buchungen.map((b) => R.ymAus(b.zeit)))].sort().reverse();
+    const orte = new Map();
+    for (const b of z.daten.buchungen) if (b.ort && (!f.kategorieId || b.kategorieId === f.kategorieId)) orte.set(b.ort, (orte.get(b.ort) || 0) + 1);
+    const top = [...orte.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map((x) => x[0]);
+    if (f.ort && !top.includes(f.ort)) top.unshift(f.ort);
+    const chip = (feld, wert, text, an) => `<button class="chip" data-a="vf-wahl" data-feld="${feld}" data-wert="${esc(wert)}" aria-pressed="${!!an}">${esc(text)}</button>`;
+    filter = `<div class="vf-filter">
+      <div class="label">Kategorie</div><div class="chips">${kats.map((k) => chip('kategorieId', k.id, mitEmoji(k) + k.name, f.kategorieId === k.id)).join('')}</div>
+      <div class="label">Monat</div><div class="chips">${monate.slice(0, 12).map((m) => chip('monat', m, monatJahr(m, true), f.monat === m)).join('')}</div>
+      ${top.length ? `<div class="label">Ort / Wofür</div><div class="chips">${top.map((o) => chip('ort', o, o, f.ort === o)).join('')}</div>` : ''}</div>`;
+  }
+  return `<div class="vf-kopf"><input id="vf-text" class="eingabe" type="search" enterkeyhint="search" autocomplete="off" placeholder="Suchen: Ort, Kategorie, Betrag" aria-label="Verlauf durchsuchen" value="${esc(f.text)}"><button class="knopf ${anzahl ? 'akzent' : ''}" data-a="vf-auf" aria-expanded="${!!f.auf}">Filter${anzahl ? ' · ' + anzahl : ''}</button></div>${filter}`;
+}
+
+// ---------- v27: Fixkosten „gilt ab“ ----------
+function giltAbHtml(eb) {
+  const f = eb.entwurf;
+  if (!eb.id || f.unbekannt || eb.warOffen) return '';
+  const betrag = zahl(f.betragText); const anteil = fkAnteil(f);
+  if (isNaN(betrag) || betrag <= 0 || anteil == null) return '';
+  if (Math.abs(betrag - eb.altBetrag) <= 0.004 && Math.abs(anteil - eb.altAnteil) <= 0.004) return '';
+  const h = heuteYm(), n = R.ymPlus(h, 1), w = f.giltAb || 'jetzt';
+  const alt = R.euro(Math.round(eb.altBetrag * eb.altAnteil) / 100);
+  const satz = w === 'immer' ? 'Auch vergangene Monate rechnen dann mit dem neuen Betrag.'
+    : `Bis ${monatJahr(R.ymPlus(w === 'naechster' ? n : h, -1), true)} bleibt es bei ${alt}. Vergangene Monate ändern sich nicht.`;
+  return `<div class="giltab"><div class="label">Neuer Betrag gilt ab</div>
+    <div class="wahl drei">${wahlKnopf('fk-giltab', 'jetzt', R.MONATE_KURZ[R.ymTeile(h).monat - 1] + ' (jetzt)', w === 'jetzt')}${wahlKnopf('fk-giltab', 'naechster', R.MONATE_KURZ[R.ymTeile(n).monat - 1], w === 'naechster')}${wahlKnopf('fk-giltab', 'immer', 'schon immer', w === 'immer')}</div>
+    <p class="hinweistext">${esc(satz)}</p></div>`;
+}
+
+// ---------- v27: Sparziel ----------
+function sparzielEntwurf(e) {
+  const ziel = zahl(e.zielText);
+  if (isNaN(ziel) || ziel <= 0) return null;
+  const betrag = e.unbekannt ? 0 : zahl(e.betragText);
+  return R.sparziel({ ziel, zielBis: e.zielBis || null, betrag: isNaN(betrag) ? 0 : betrag, tag: zahl(e.tagText) || 1, stand: zahl(e.standText) || 0, standDatum: heute() }, heute(), null);
+}
+function sparzielSatz(zi) {
+  if (!zi) return 'Mit Ziel und Datum rechnet die App aus, wie viel du im Monat zurücklegen musst.';
+  if (zi.erreicht) return `Ziel erreicht: ${R.euroRund(zi.stand)} von ${R.euroRund(zi.ziel)}.`;
+  let t = `Es fehlen noch ${R.euroRund(zi.fehlt)}.`;
+  if (zi.zielBis) {
+    if (zi.vorbei) t += ` Der Zielmonat ${monatJahr(zi.zielBis)} ist vorbei.`;
+    else if (zi.reicht) t += ` Mit ${R.euro(zi.rate)} im Monat schaffst du es bis ${monatJahr(zi.zielBis)}${zi.fertigIm && zi.fertigIm < zi.zielBis ? ` – schon im ${monatJahr(zi.fertigIm)}` : ''}.`;
+    else t += ` Bis ${monatJahr(zi.zielBis)} sind ${R.euro(zi.noetig)} im Monat nötig${zi.rate > 0 ? ` – ${R.euro(Math.round((zi.noetig - zi.rate) * 100) / 100)} mehr als jetzt. Mit der jetzigen Rate bist du erst im ${monatJahr(zi.fertigIm)} am Ziel` : ''}.`;
+  } else if (zi.fertigIm) t += ` Mit ${R.euro(zi.rate)} im Monat bist du im ${monatJahr(zi.fertigIm)} am Ziel.`;
+  else t += ' Ohne festen Übertrag gibt es kein Datum.';
+  return t;
+}
+
+// ---------- v27: Auswertung ----------
+function auswertungHtml(eb) {
+  const a = R.auswertung(z.daten, heute(), eb.n);
+  const tag = Number(heute().slice(8));
+  const hatMonate = a.monate.length > 0;
+  // Balken: eine Reihe (Ausgaben aus den Budgets), Höhe = Summe; der laufende Monat ist schraffiert und heißt „bisher“
+  const max = Math.max(1, ...a.verlauf.map((m) => m.summe));
+  const gewaehlt = eb.monat && a.verlauf.some((m) => m.monat === eb.monat) ? eb.monat : a.verlauf[a.verlauf.length - 1].monat;
+  const eng = a.verlauf.length > 7;
+  const balken = a.verlauf.map((m) => `<button class="aw-balken ${m.laeuft ? 'laeuft' : ''}" data-a="aw-monat" data-wert="${m.monat}" aria-pressed="${gewaehlt === m.monat}" aria-label="${esc(monatJahr(m.monat))}: ${R.euroRund(m.summe)}${m.laeuft ? ' bisher' : ''}">
+      <span class="aw-wert">${eng && gewaehlt !== m.monat ? '' : Math.round(m.summe).toLocaleString('de-DE')}</span>
+      <span class="aw-saeule"><i style="height:${Math.max(m.summe > 0 ? 2 : 0, m.summe / max * 100).toFixed(1)}%"></i></span>
+      <span class="aw-monat">${esc(m.name)}</span></button>`).join('');
+  const gm = a.verlauf.find((m) => m.monat === gewaehlt);
+  const teileGm = budgetKats().map((k) => ({ k, x: R.ausgegebenIm(z.daten, gewaehlt, k.id) })).filter((x) => x.x > 0).sort((p, q) => q.x - p.x);
+  const detail = `<div class="aw-detail" aria-live="polite"><b>${esc(monatJahr(gewaehlt))}${gm.laeuft ? ' (bisher)' : ''}: ${rausZ(gm.summe)}</b>${teileGm.length ? `<span>${teileGm.map((x) => `${esc(mitEmoji(x.k) + x.k.name)} ${R.euroRund(x.x)}`).join(' · ')}</span>` : '<span>keine Buchungen</span>'}</div>`;
+  // Vergleich mit dem Vormonat bis zum selben Tag
+  let vergleich = '';
+  if (a.summeVorBisTag != null) {
+    const diff = a.summeJetzt - a.summeVorBisTag;
+    const vmName = monatsName(a.vormonat);
+    vergleich = `<section class="karte"><div class="label">${esc(monatsName(heuteYm()))} bis zum ${tag}.</div>
+      <div class="gr-zeile"><span>Bisher ausgegeben</span><b>${rausZ(a.summeJetzt)}</b></div>
+      <div class="gr-zeile"><span>${esc(vmName)} bis zum ${tag}.</span><b>${rausZ(a.summeVorBisTag)}</b></div>
+      <p class="hinweistext">${Math.abs(diff) < 1 ? `Gleich viel wie im ${esc(vmName)}.` : diff > 0 ? `▲ ${R.euroRund(diff)} mehr als im ${esc(vmName)} zur selben Zeit.` : `▼ ${R.euroRund(-diff)} weniger als im ${esc(vmName)} zur selben Zeit.`}</p></section>`;
+  }
+  // Budgets: Schnitt gegen Budget
+  const URTEIL = { knapp: ['▲', 'zu knapp', 'warn'], luft: ['▽', 'Luft', 'gut'], passt: ['✓', 'passt', 'gut'], ohne: ['–', 'ohne Budget', ''], neu: ['…', 'noch zu neu', ''] };
+  const zeilen = a.kats.filter((k) => k.schnitt != null ? (k.schnitt > 0 || k.budget > 0) : (k.jetzt > 0 || k.budget > 0)).map((k) => {
+    const [zeichen, wort, art] = URTEIL[k.urteil];
+    const skala = Math.max(k.budget, k.schnitt || 0, k.max || 0, 1) * 1.08;
+    const vorschlag = Math.ceil((k.schnitt || 0) / 10) * 10;
+    const satz = k.urteil === 'knapp' ? `Im Schnitt ${R.euroRund(k.schnitt - k.budget)} drüber. Passender wären ≈ ${R.euroRund(vorschlag)}.`
+      : k.urteil === 'luft' ? (k.schnitt < 0.5 ? 'In diesem Zeitraum nichts ausgegeben.' : `Im Schnitt bleiben ${R.euroRund(k.budget - k.schnitt)} übrig. ≈ ${R.euroRund(vorschlag)} würden reichen.`)
+      : k.urteil === 'passt' ? 'Budget und Ausgaben liegen nah beieinander.'
+      : k.urteil === 'neu' ? `Im ${esc(monatsName(heuteYm()))} bisher ${R.euroRund(k.jetzt)}. Ein Urteil gibt es nach dem ersten ganzen Monat.` : 'Kein Budget festgelegt.';
+    return `<div class="aw-kat"><div class="aw-kat-kopf"><span class="n">${esc(mitEmoji(k.kategorie) + k.kategorie.name)}</span><span class="aw-urteil ${art}"><i aria-hidden="true">${zeichen}</i> ${wort}</span></div>
+      ${k.schnitt != null ? `<div class="aw-spur" role="img" aria-label="Schnitt ${R.euroRund(k.schnitt)}${k.budget ? ', Budget ' + R.euroRund(k.budget) : ''}"><i class="aw-schnitt" style="width:${(k.schnitt / skala * 100).toFixed(1)}%"></i>${k.budget > 0 ? `<i class="aw-budget" style="left:${(k.budget / skala * 100).toFixed(1)}%"></i>` : ''}</div>
+      <div class="aw-zahlen"><span>Ø <b>${R.euroRund(k.schnitt)}</b> im Monat${k.werte.length > 1 ? ` · ${R.euroRund(k.min)} bis ${R.euroRund(k.max)}` : ''}</span><span>${k.budget > 0 ? 'Budget ' + R.euroRund(k.budget) : ''}</span></div>` : ''}
+      <p class="hinweistext">${satz}</p>
+      ${k.urteil === 'knapp' || k.urteil === 'luft' ? `<button class="knopf klein" data-a="budget" data-id="${esc(k.kategorie.id)}">Budget ändern</button>` : ''}</div>`;
+  }).join('');
+  const orte = a.orte.slice(0, 8);
+  const maxOrt = Math.max(1, ...orte.map((o) => o.summe));
+  const orteHtml = orte.length ? `<section class="karte"><div class="label">Wo gibst du am meisten aus?</div>${orte.map((o) => `<div class="aw-ort"><div class="aw-ort-kopf"><span class="n">${esc(o.ort)}</span><b>${rausZ(o.summe, true)}</b></div><div class="aw-spur klein"><i class="aw-schnitt" style="width:${(o.summe / maxOrt * 100).toFixed(1)}%"></i></div><small>${o.anzahl === 1 ? '1 Buchung' : o.anzahl + ' Buchungen'} · Ø ${R.euro(Math.round(o.summe / o.anzahl * 100) / 100)}</small></div>`).join('')}
+      <p class="hinweistext">Gezählt sind Buchungen mit Ort oder „Wofür“ ${hatMonate ? `seit ${esc(monatJahr(a.monate[0], true))}` : `im ${esc(monatsName(heuteYm()))}`}.</p></section>` : '';
+  const zeitraum = hatMonate ? (a.monate.length === 1 ? `${monatJahr(a.monate[0], true)}` : `${monatJahr(a.monate[0], true)} bis ${monatJahr(a.monate[a.monate.length - 1], true)}`) : '';
+  return seite('Auswertung', `
+    <div class="ansicht-wahl drei" role="group" aria-label="Zeitraum">${[[3, '3 Monate'], [6, '6 Monate'], [12, '12 Monate']].map(([n, t]) => `<button data-a="aw-zeit" data-wert="${n}" aria-pressed="${eb.n === n}">${t}</button>`).join('')}</div>
+    <p class="hinweistext">${hatMonate ? `Schnitt aus ${a.monate.length === 1 ? 'einem ganzen Monat' : a.monate.length + ' ganzen Monaten'} (${esc(zeitraum)})${a.monate.length < eb.n ? ` – mehr gibt es seit deinem Start mit der App noch nicht` : ''}. Gezählt sind die Ausgaben aus den Budgets, keine Fixkosten.` : 'Für einen Schnitt braucht die App mindestens einen ganzen Monat. Bis dahin siehst du den laufenden Monat.'}</p>
+    <section class="karte"><div class="label">Ausgaben aus den Budgets pro Monat · in €</div>
+      <div class="aw-diagramm" style="--n:${a.verlauf.length}">${balken}</div>${detail}
+      <p class="hinweistext">Balken antippen zeigt den Monat. Schraffiert = läuft noch.</p></section>
+    ${vergleich}
+    ${zeilen ? `<section class="karte"><div class="label">Passt das Budget?</div>${zeilen}<p class="hinweistext">Balken = dein Schnitt, Strich = dein Budget. „Zu knapp“ heißt: im Schnitt mehr als 5 % drüber. „Luft“: mehr als ein Viertel bleibt übrig.</p></section>` : ''}
+    ${orteHtml}
+    ${!z.daten.buchungen.length ? '<section class="karte"><div class="leerzustand">Noch keine Buchungen. Trag Ausgaben über ＋ oder das Widget ein, dann füllt sich die Auswertung.</div></section>' : ''}`);
+}
+
+// ---------- v27: Dienste und Gehalt schätzen ----------
+const schichtarten = () => z.daten.einstellungen.schichtarten || [];
+function diensteHtml(eb) {
+  const s = eb.monat;
+  const e = z.daten.einstellungen;
+  const an = !!e.gehaltSchaetzen;
+  const hatRechner = !!e.gehaltsrechner;
+  const land = DI.land(z.daten), vz = DI.verzug(z.daten);
+  const ft = Object.assign({}, DI.feiertage(R.ymTeile(s).jahr, land));
+  const dienste = new Map((z.daten.dienste || []).filter((x) => x.d.slice(0, 7) === s).map((x) => [x.d, x]));
+  // Kalender Mo–So
+  const erster = new Date(s + '-01T12:00:00');
+  const leer = (erster.getDay() + 6) % 7;
+  let zellen = '<i></i>'.repeat(leer);
+  for (let t = 1; t <= R.tageImMonat(s); t++) {
+    const d = s + '-' + R.zweistellig(t);
+    const x = dienste.get(d);
+    const wt = new Date(d + 'T12:00:00').getDay();
+    const nacht = x && !x.frei && x.von && x.bis && x.bis <= x.von;
+    zellen += `<button class="ds-tag ${x ? (x.frei ? 'frei' : nacht ? 'nacht' : 'dienst') : ''} ${ft[d] ? 'feiertag' : wt === 0 ? 'sonntag' : ''} ${d === heute() ? 'heute' : ''}" data-a="ds-tag" data-wert="${d}" aria-label="${t}. ${esc(monatsName(s))}${ft[d] ? ', ' + esc(ft[d]) : ''}: ${x ? esc(x.k) + (x.von ? ` ${x.von}–${x.bis}` : x.frei ? ' ganztägig' : ' ohne Uhrzeit') : 'kein Dienst'}"><span class="t">${t}</span><span class="k">${x ? esc(x.k) : ''}</span></button>`;
+  }
+  const arten = schichtarten();
+  const pinsel = eb.pinsel || '';
+  const pinselHtml = `<div class="chips ds-pinsel">${arten.map((a) => `<button class="chip" data-a="ds-pinsel" data-wert="${esc(a.k)}" aria-pressed="${pinsel === a.k}">${esc(a.k)} <small>${a.frei ? 'ganztägig' : esc(a.von + '–' + a.bis)}</small></button>`).join('')}<button class="chip" data-a="ds-pinsel" data-wert="-" aria-pressed="${pinsel === '-'}">✕ Leeren</button><button class="chip" data-a="schichtart" data-wert="">${ICON.plus} Schichtart</button></div>`;
+  const st = DI.stundenAusDiensten(z.daten.dienste, s, land);
+  const ms = (z.daten.monatsstunden || {})[s];
+  const gilt = DI.stundenFuer(z.daten, s);
+  const zahlMonat = R.ymPlus(s, vz);
+  const rech = hatRechner ? DRK.gehaltRechnen(Object.assign(DRK.eingaben(e.gehaltsrechner), gilt.quelle === 'schnitt' ? {} : { nacht: gilt.nacht, nacht04: gilt.nacht04, sonntag: gilt.sonntag, feiertag: gilt.feiertag, vorfest: gilt.vorfest }), zahlMonat) : null;
+  const stundenZeile = (l, w, klasse = '') => `<div class="gr-zeile ${klasse}"><span>${l}</span><b>${w}</b></div>`;
+  const q = gilt.quelle === 'abrechnung' ? gilt : st;
+  const stunden = `<section class="karte" id="ds-stunden"><div class="label">Stunden mit Zuschlag im ${esc(monatsName(s))}</div>
+      ${st.anzahl || gilt.quelle === 'abrechnung' ? `
+      ${gilt.quelle === 'abrechnung' ? `<p class="hinweistext">✓ Aus der Monatsübersicht deines Arbeitgebers (abgerechnet${ms.stand ? ', Stand ' + esc(new Date(ms.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}).</p>` : stundenZeile(`${st.anzahl === 1 ? '1 Dienst' : st.anzahl + ' Dienste'}`, `${std(st.stunden)} Std.`)}
+      ${stundenZeile('Nacht (20–6 Uhr)<small class="gr-fund">§ 13 Abs. 6, § 14 Abs. 2 Satz 3 DRK-RTV</small>', `${std(q.nacht)} Std.`)}
+      ${stundenZeile('Sonntag<small class="gr-fund">§ 14 Abs. 2 Satz 2 b</small>', `${std(q.sonntag)} Std.`)}
+      ${stundenZeile('Feiertag<small class="gr-fund">§ 14 Abs. 2 Satz 2 c</small>', `${std(q.feiertag)} Std.`)}
+      ${q.vorfest > 0 ? stundenZeile('24./31.12. ab 14 Uhr<small class="gr-fund">§ 14 Abs. 2 Satz 2 d</small>', `${std(q.vorfest)} Std.`) : ''}
+      ${rech ? stundenZeile(`Zuschläge brutto · kommen mit dem Gehalt Ende ${esc(monatJahr(zahlMonat))}`, reinZ(rech.zuschlaegeSumme, false, '≈ '), 'summe') : ''}
+      ${st.ohneZeit ? `<p class="hinweistext warn-text">${st.ohneZeit === 1 ? '1 Dienst hat' : st.ohneZeit + ' Dienste haben'} keine Uhrzeit und ${st.ohneZeit === 1 ? 'zählt' : 'zählen'} nicht mit. Leg die Schichtart mit Uhrzeit an, dann den Tag neu antippen.</p>` : ''}
+      ${ms && !ms.fertig ? `<p class="hinweistext">Zwischenstand laut Monatsübersicht${ms.stand ? ' vom ' + esc(new Date(ms.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}: Nacht ${std(ms.nacht)} · Sonntag ${std(ms.sonntag)} · Feiertag ${std(ms.feiertag)} Std. Gerechnet wird mit den Diensten, bis der Monat abgerechnet ist.</p>` : ''}` : '<div class="leerzustand" style="padding:8px 0">Noch keine Dienste in diesem Monat.</div>'}
+      <button class="knopf klein" data-a="monatsstunden" data-monat="${s}">${ms ? 'Stunden laut Arbeitgeber ändern' : 'Stunden laut Arbeitgeber eintragen'}</button>
+    </section>`;
+  // Was kommt wann
+  let ausblick = '';
+  if (an && hatRechner) {
+    const g = gehalt();
+    const zeilen = [0, 1, 2, 3].map((i) => {
+      const m = R.ymPlus(heuteYm(), i); const x = DI.gehaltSchaetzung(z.daten, m); const ist = g && R.gehaltBestaetigt(g, m);
+      const w = x.stunden.quelle === 'abrechnung' ? `Monatsübersicht ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]}` : x.stunden.quelle === 'dienste' ? `Dienste ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]}` : `Durchschnitt (keine Dienste im ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]})`;
+      return `<div class="gr-zeile"><span>Ende ${esc(monatJahr(m, true))}<small class="gr-fund">Zuschläge ≈ ${R.euroRund(x.zuschlaege)} · ${esc(w)}${ist ? ' · Gehalt schon bestätigt' : ''}</small></span><b>${reinZ(x.netto, true, '≈ ')}</b></div>`;
+    }).join('');
+    ausblick = `<section class="karte" id="ds-ausblick"><div class="label">Geschätztes Gehalt (netto)</div>${zeilen}<p class="hinweistext">Diese Werte stehen im Monat als Gehalt, bis du den echten Betrag bestätigst.</p></section>`;
+  }
+  return seite('Dienste und Gehalt', `
+    <section class="karte">
+      <button class="schalter" role="switch" aria-checked="${an}" data-a="ds-schaetzen"><span class="t">Gehalt aus den Diensten schätzen<br><span class="klein">${an ? 'Jeder Monat bekommt seine eigene Schätzung' : 'Aus: es gilt deine feste Schätzung'}</span></span><span class="spur"></span></button>
+      ${!hatRechner ? `<p class="hinweistext">Dafür braucht die App einmal deine Angaben im Gehaltsrechner (Entgeltgruppe, Stufe, Steuerklasse …) – dort „Merken“ tippen.</p><button class="knopf akzent" data-a="gehaltsrechner">🧮 Gehaltsrechner öffnen</button>` : ''}
+      <div class="feld"><span class="label">Zuschläge kommen mit dem Gehalt …</span><div class="wahl drei">${[[2, '2 Monate später'], [1, '1 Monat später'], [0, 'im selben Monat']].map(([w, t]) => wahlKnopf('ds-verzug', w, t, vz === w)).join('')}</div></div>
+      <p class="hinweistext">Tarif: am Zahltag des zweiten Folgemonats (§ 29 Abs. 1 Satz 3 DRK-RTV). Zuschläge aus September kommen also Ende November. Schau auf deiner Abrechnung nach, ob dein Arbeitgeber das so macht.</p>
+    </section>
+    <div class="monatswahl ds-monat">
+      <button class="knopf rund" data-a="ds-monat" data-wert="-1" aria-label="Vorheriger Monat">${ICON.links}</button>
+      <h3 class="monatstitel">${esc(monatsName(s))} <span>${R.ymTeile(s).jahr}</span></h3>
+      <button class="knopf rund" data-a="ds-monat" data-wert="1" aria-label="Nächster Monat">${ICON.rechts}</button>
+    </div>
+    <section class="karte">
+      <div class="ds-kopf">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map((t) => `<span>${t}</span>`).join('')}</div>
+      <div class="ds-kalender">${zellen}</div>
+      <div class="label">Schichtart wählen, dann Tage antippen</div>
+      ${pinselHtml}
+      <p class="hinweistext">${arten.length ? 'Nochmal antippen entfernt den Dienst. Uhrzeit einer Schichtart ändern: unten auf das Kürzel mit dem Stift tippen.' : 'Leg zuerst deine Schichtarten an, z. B. R1T 07:00–19:00 und R1N 19:00–07:00.'} Sonn- und Feiertage sind markiert.</p>
+      ${arten.length ? `<div class="chips">${arten.map((a) => `<button class="chip" data-a="schichtart" data-wert="${esc(a.k)}">${ICON.stift} ${esc(a.k)}</button>`).join('')}</div>` : ''}
+    </section>
+    ${stunden}
+    ${ausblick}
+    <section class="karte">
+      <div class="label">Einlesen statt antippen</div>
+      <button class="knopf" data-a="ds-datei">Dienste aus CaleConnect einlesen (.json)</button>
+      <button class="knopf" data-a="ds-pdf">Monatsübersicht einlesen (PDF)</button>
+      <p class="hinweistext">CaleConnect: Menü → Backup → Speichern, dann hier die Datei wählen. Die Monatsübersicht deines Arbeitgebers bringt nach Monatsende die abgerechneten Stunden – genauer geht es nicht.</p>
+      <div class="feld"><label for="ds-land">Feiertage von</label><select id="ds-land" class="eingabe" data-a-wechsel="ds-land">${Object.entries(DI.LAENDER).map(([k, n]) => `<option value="${k}" ${land === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
+    </section>
+    <button class="knopf leise" data-a="quellen">Woher kommen die Zahlen? Rechenweg und Fundstellen</button>`);
+}
+
+async function pdfZeilen(datei) {
+  const pdfjs = await import('../vendor/pdfjs/pdf.min.js');
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await datei.arrayBuffer()) }).promise;
+  const zeilen = [];
+  for (let n = 1; n <= doc.numPages; n++) {
+    const seite = await doc.getPage(n);
+    const tc = await seite.getTextContent();
+    const stuecke = tc.items.filter((i) => i.str && i.str.trim()).map((i) => ({ x: i.transform[4], y: i.transform[5], t: i.str }));
+    stuecke.sort((a, b) => b.y - a.y || a.x - b.x);
+    let reihe = [], y = null;
+    const fertig = () => { if (reihe.length) zeilen.push(reihe.sort((a, b) => a.x - b.x).map((i) => i.t).join(' ')); reihe = []; };
+    for (const i of stuecke) { if (y === null || Math.abs(i.y - y) > 3) { fertig(); y = i.y; } reihe.push(i); }
+    fertig();
+  }
+  return zeilen;
+}
+
+// ---------- v27: Woher kommen die Zahlen? ----------
+function quellenHtml(eb) {
+  const e = grEingaben(eb.entwurf);
+  const { zeilen } = DRK.rechenweg(e, eb.monat);
+  const teile = ['Brutto', 'Steuer', 'Versicherung', 'Netto', 'Jahressonderzahlung'];
+  const titel = { Brutto: 'Brutto', Steuer: 'Steuern', Versicherung: 'Versicherungen', Netto: 'Ergebnis', Jahressonderzahlung: 'Einmal im Jahr' };
+  const zeile = (x) => `<div class="qz ${x.summe ? 'summe' : ''} ${x.info ? 'info' : ''}"><div class="qz-kopf"><span class="n">${esc(x.name)}</span>${x.betrag == null ? '' : `<b>${x.betrag < 0 ? rausZ(-x.betrag) : R.euro(x.betrag)}</b>`}</div>
+      <div class="qz-weg">${esc(x.weg)}</div>${x.fund ? `<div class="qz-fund">Steht in: ${esc(x.fund)}</div>` : ''}${x.hinweis ? `<div class="qz-hinweis">${esc(x.hinweis)}</div>` : ''}</div>`;
+  const karten = teile.map((t) => { const l = zeilen.filter((x) => x.teil === t); return l.length ? `<section class="karte quellen-karte"><div class="label">${titel[t]}</div>${l.map(zeile).join('')}</section>` : ''; }).join('');
+  const q = DRK.QUELLEN;
+  return seite('Woher kommen die Zahlen?', `
+    <p class="hinweistext">Jede Zeile der Rechnung für ${esc(monatJahr(eb.monat))} mit Rechenweg und der Stelle, an der es steht. So kannst du jede Zahl selbst nachschlagen. Das ist keine Lohnabrechnung.</p>
+    ${karten}
+    <section class="karte quellen-karte"><div class="label">Wann kommt was?</div>
+      ${zeile({ name: 'Zahltag', betrag: null, weg: 'Letzter Tag des Monats für den laufenden Monat.', fund: '§ 29 Abs. 1 Satz 2 DRK-RTV' })}
+      ${zeile({ name: 'Zeitzuschläge', betrag: null, weg: 'Werden am Zahltag des zweiten Folgemonats fällig: Nacht- und Sonntagsstunden aus September kommen Ende November.', fund: '§ 29 Abs. 1 Satz 3 DRK-RTV' })}
+      ${zeile({ name: 'Zusammentreffen', betrag: null, weg: 'Treffen Sonntag, Feiertag und 24./31.12. zusammen, gibt es nur den höchsten Zuschlag. Der Nachtzuschlag kommt immer dazu.', fund: '§ 14 Abs. 2 Satz 4 DRK-RTV' })}
+      ${zeile({ name: 'Urlaub und Krankheit', betrag: null, weg: 'Zuschläge laufen als Durchschnitt der letzten drei vollen Monate weiter, bei Krankheit ohne Nachtzuschläge. Das rechnet die App nicht mit.', fund: '§ 24 Abs. 1 und 2 DRK-RTV' })}
+    </section>
+    <section class="karte quellen-karte"><div class="label">Die Texte dahinter</div>
+      ${Object.values(q).map((x) => `<div class="qz"><div class="qz-kopf"><span class="n">${esc(x.titel)}</span></div><div class="qz-weg">${esc(x.stand)}</div><div class="qz-fund">Zu finden: ${esc(x.wo)}</div></div>`).join('')}
+    </section>
+    <section class="karte quellen-karte"><div class="label">Annahmen und Grenzen</div>
+      <ul class="qz-liste">
+        <li>Jede Stunde im Dienst zählt voll, Pausen werden nicht abgezogen. Ein Dienst zählt zu dem Monat, in dem er beginnt.</li>
+        <li>Stundenanteil mit 38,5 Wochenstunden (Rettungsdienst, § 12 Abs. 1 Satz 2), auch wenn deine Arbeitszeit durch Arbeitsbereitschaft länger ist (§ 12 Abs. 6). Das ist eine Annahme – vergleiche den Stundensatz mit deiner Abrechnung.</li>
+        <li>Feiertage: die gesetzlichen Feiertage des gewählten Bundeslands, ohne Sonderfälle einzelner Gemeinden.</li>
+        <li>Nicht enthalten: Bereitschaftsdienst und Rufbereitschaft, Überstunden, vermögenswirksame Leistungen (§ 26), die Zusatzversorgung (§ 30 – bitte unter „Weitere Abzüge“ eintragen) und alles, was dein Arbeitgeber anders macht als der Tarifvertrag.</li>
+        <li>Steuer und Sozialversicherung gelten für 2026. Für 2027 rechnet die App vorerst mit denselben Werten.</li>
+      </ul>
+      <p class="hinweistext">Zuletzt am Tariftext geprüft: ${DRK.QUELLEN_STAND}. Ändert sich der Tarif, muss die App aktualisiert werden.</p>
+    </section>`);
 }
 
 const EBENEN = {
+  // ---------- v27 ----------
+  auswertung: (eb) => auswertungHtml(eb),
+  dienste: (eb) => diensteHtml(eb),
+  quellen: (eb) => quellenHtml(eb),
+  hinweise: () => seite('Hinweise und Warnungen', `
+    <p class="hinweistext">Was die App von sich aus meldet. Ausgeschaltet heißt: Die Zahlen stimmen weiter, nur der Hinweis erscheint nicht mehr.</p>
+    <section class="karte">${HINWEISE.map(([id, titel, unter]) => `<button class="schalter" role="switch" aria-checked="${hinweisAn(id)}" data-a="hw-um" data-wert="${id}"><span class="t">${titel}<br><span class="klein">${unter}</span></span><span class="spur"></span></button>`).join('')}</section>
+    <div class="zwei"><button class="knopf" data-a="hw-alle" data-wert="1">Alle an</button><button class="knopf" data-a="hw-alle" data-wert="0">Alle aus</button></div>
+    <p class="hinweistext">„Gehalt aus den Diensten schätzen“ schaltest du unter „Dienste und Gehalt schätzen“ ein und aus.</p>`),
+  'geplant-alle': () => {
+    const pruefung = R.wunschPruefung(z.daten, heuteYm());
+    const h = heuteYm();
+    const offen = R.offeneWuensche(z.daten);
+    const gruppen = new Map();
+    for (const w of offen) { const k = !w.monat ? 'ohne' : w.monat < h ? 'alt' : w.monat; if (!gruppen.has(k)) gruppen.set(k, []); gruppen.get(k).push(w); }
+    const reihenfolge = [...gruppen.keys()].sort((a, b) => (a === 'alt' ? -1 : b === 'alt' ? 1 : a === 'ohne' ? 1 : b === 'ohne' ? -1 : a < b ? -1 : 1));
+    const titel = (k) => (k === 'alt' ? 'Überfällig – war früher geplant' : k === 'ohne' ? 'Monat noch offen' : monatJahr(k));
+    const karten = reihenfolge.map((k) => { const l = gruppen.get(k); return `<section class="karte geplant-karte"><div class="geplant-kopf"><span class="t"><b>${esc(titel(k))}</b>${k !== 'alt' && k !== 'ohne' ? `<small>frei im Monat ≈ ${R.euroRund(R.monatsRechnung(z.daten, k).frei)}</small>` : ''}</span><span class="kat-summe">${rausZ(l.reduce((a, w) => a + R.preisBis(w), 0), true)}</span></div>${l.map((w) => wunschZeile(w, pruefung, k === 'alt' || k === 'ohne' ? h : k)).join('')}</section>`; }).join('');
+    const gekauft = (z.daten.wuensche || []).filter((w) => w.status === 'gekauft').sort((a, b) => ((a.gekauftAm || '') < (b.gekauftAm || '') ? 1 : -1)).slice(0, 8);
+    const summe = offen.reduce((a, w) => a + R.preisBis(w), 0);
+    return seite('Alle geplanten Ausgaben', `
+      ${offen.length ? `<section class="karte ring"><div class="label">Zusammen geplant</div><div class="grosszahl" style="font-size:var(--t-zahl-l)"><span class="minus-zahl">− ${R.euroRund(summe)}</span></div><div class="hinweistext">${offen.length === 1 ? '1 Sache' : offen.length + ' Sachen'} · gerechnet mit dem oberen Preis</div></section>` : '<section class="karte"><div class="leerzustand">Nichts geplant.</div></section>'}
+      ${karten}
+      <button class="knopf akzent" data-a="wunsch-neu" data-monat="">${ICON.plus} Potenzielle Ausgabe planen</button>
+      ${gekauft.length ? `<section class="karte liste"><div class="label">Zuletzt gekauft</div>${gekauft.map((w) => `<div class="posten grau"><span class="t"><span class="n">${esc(w.name)}</span><small>${w.gekauftAm ? 'gekauft am ' + esc(new Date(w.gekauftAm + 'T12:00:00').toLocaleDateString('de-DE')) : 'gekauft'}</small></span><span class="b">${rausZ(w.bezahlt != null ? w.bezahlt : R.preisBis(w))}</span></div>`).join('')}</section>` : ''}`);
+  },
+  gekauft: (eb) => sheet(`<h2>Was hat ${esc(eb.name)} gekostet?</h2>
+      <p class="hinweistext">Geplant waren ${R.euro(eb.von, false)}–${R.euro(eb.bis)}. Gebucht wird der Betrag, den du wirklich bezahlt hast.</p>
+      <div class="feld"><label for="gk-betrag">Bezahlt</label><input id="gk-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(eb.betragText)}" placeholder="z. B. ${esc(R.euro(eb.bis, false))}"></div>
+      <div class="chips">${[eb.von, Math.round((eb.von + eb.bis) / 2 * 100) / 100, eb.bis].filter((x, i, l) => l.indexOf(x) === i).map((x) => `<button class="chip" data-a="gk-wert" data-wert="${x}">${R.euro(x)}</button>`).join('')}</div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="gk-buchen">Buchen</button></div>`, 'Gekauft'),
+  schichtart: (eb) => {
+    const e = eb.entwurf;
+    return sheet(`<h2>${eb.alt ? 'Schichtart ' + esc(eb.alt) : 'Neue Schichtart'}</h2>
+      <div class="feld"><label for="sa-k">Kürzel (wie im Dienstplan)</label><input id="sa-k" class="eingabe" data-feld="k" value="${esc(e.k)}" placeholder="z. B. R1T" maxlength="12" autocapitalize="characters" autocomplete="off"></div>
+      <div class="wahl zwei-sp">${wahlKnopf('sa-frei', '0', 'Dienst mit Uhrzeit', !e.frei)}${wahlKnopf('sa-frei', '1', 'Ganztägig (Urlaub, krank)', !!e.frei)}</div>
+      ${e.frei ? '<p class="hinweistext">Ganztägige Einträge stehen nur zur Übersicht im Kalender. Zuschläge gibt es dafür nicht.</p>' : `<div class="zwei">
+        <div class="feld"><label for="sa-von">Beginn</label><input id="sa-von" class="eingabe" type="time" data-feld="von" value="${esc(e.von)}"></div>
+        <div class="feld"><label for="sa-bis">Ende</label><input id="sa-bis" class="eingabe" type="time" data-feld="bis" value="${esc(e.bis)}"></div></div>
+      <p class="hinweistext">Endet der Dienst am nächsten Morgen (z. B. 19:00–07:00), rechnet die App über Mitternacht.</p>`}
+      ${eb.alt ? '<p class="hinweistext">Neue Uhrzeiten gelten für Tage, die du ab jetzt antippst. Schon eingetragene Dienste behalten ihre Zeit.</p>' : ''}
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe">${eb.alt ? '<button class="knopf leise" data-a="sa-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="sa-speichern">Speichern</button></div>`, 'Schichtart');
+  },
+  monatsstunden: (eb) => {
+    const e = eb.entwurf;
+    const st = DI.stundenAusDiensten(z.daten.dienste, eb.monat, DI.land(z.daten));
+    const feld = (id, label, f, platz) => `<div class="feld"><label for="${id}">${label}</label><input id="${id}" class="eingabe" inputmode="decimal" data-feld="${f}" value="${esc(e[f] ?? '')}" placeholder="${esc(platz)}"></div>`;
+    return sheet(`<h2>Stunden laut Arbeitgeber · ${esc(monatJahr(eb.monat))}</h2>
+      <p class="hinweistext">Die Summen stehen unten auf deiner Monatsübersicht bei „Lohnarten“. Sie gelten vor den Diensten, sobald der Monat abgerechnet ist.</p>
+      <div class="zwei">${feld('ms-nacht', 'Nacht gesamt (Std.)', 'nacht', st.anzahl ? 'Dienste: ' + std(st.nacht) : 'z. B. 40')}${feld('ms-nacht04', 'davon 0–4 Uhr', 'nacht04', st.anzahl ? 'Dienste: ' + std(st.nacht04) : 'z. B. 16')}</div>
+      <div class="zwei">${feld('ms-sonntag', 'Sonntag (Std.)', 'sonntag', st.anzahl ? 'Dienste: ' + std(st.sonntag) : 'z. B. 12')}${feld('ms-feiertag', 'Feiertag (Std.)', 'feiertag', st.anzahl ? 'Dienste: ' + std(st.feiertag) : 'z. B. 0')}</div>
+      ${R.ymTeile(eb.monat).monat === 12 ? feld('ms-vorfest', '24./31.12. ab 14 Uhr (Std.)', 'vorfest', st.anzahl ? 'Dienste: ' + std(st.vorfest) : 'z. B. 0') : ''}
+      <button class="schalter" role="switch" aria-checked="${!!e.fertig}" data-a="ms-fertig"><span class="t">Monat ist abgerechnet<br><span class="klein">${e.fertig ? 'Diese Stunden gelten für die Schätzung' : 'Zwischenstand – gerechnet wird weiter mit den Diensten'}</span></span><span class="spur"></span></button>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe">${eb.vorhanden ? '<button class="knopf leise" data-a="ms-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="ms-speichern">Speichern</button></div>`, 'Stunden laut Arbeitgeber');
+  },
+  'dienste-import': (eb) => sheet(`<h2>Dienste einlesen</h2>
+      <p class="hinweistext"><b>${eb.dienste.length} Dienste</b> von ${esc(monatJahr(eb.monate[0]))} bis ${esc(monatJahr(eb.monate[eb.monate.length - 1]))} gefunden (${eb.monate.length === 1 ? '1 Monat' : eb.monate.length + ' Monate'}).</p>
+      <p class="hinweistext">Für diese Monate ersetzt die Datei, was hier schon steht. Andere Monate bleiben. Uhrzeiten kommen aus der Datei${eb.neueArten.length ? `; neu als Schichtart: ${esc(eb.neueArten.join(', '))}` : ''}.</p>
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="ds-import-ja">Einlesen</button></div>`, 'Dienste einlesen'),
+  'mue-import': (eb) => {
+    const r = eb.ergebnis;
+    const zeile = (x) => `<div class="gr-zeile"><span>${esc(x.nr + ' ' + x.name)}<small class="gr-fund">${x.art ? { nacht: 'zählt als Nacht', nacht04: 'zählt als Nacht 0–4 Uhr', sonntag: 'zählt als Sonntag', feiertag: 'zählt als Feiertag', vorfest: 'zählt als 24./31.12.' }[x.art] : 'wird nicht verwendet'}</small></span><b>${std(x.stunden)} Std.</b></div>`;
+    return sheet(`<h2>Monatsübersicht ${esc(monatJahr(r.monat))}</h2>
+      <p class="hinweistext">${r.fertig ? '✓ Der Monat ist vorbei – die Stunden gelten als abgerechnet und ersetzen die Rechnung aus den Diensten.' : `Zwischenstand${r.stand ? ' vom ' + esc(new Date(r.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}: Der Monat läuft noch. Die Stunden werden nur als Zwischenstand gemerkt, gerechnet wird mit den Diensten.`}</p>
+      ${r.lohnarten.length ? `<div class="label">Lohnarten</div>${r.lohnarten.map(zeile).join('')}` : '<p class="hinweistext">Noch keine Lohnarten in der Übersicht.</p>'}
+      <p class="hinweistext">${eb.fertig.length ? `${eb.fertig.length === 1 ? '1 Dienst' : eb.fertig.length + ' Dienste'} im ${esc(monatsName(r.monat))} werden in den Kalender übernommen und ersetzen, was dort für diesen Monat steht.` : 'Keine Dienste in der Übersicht.'}${eb.ohne.length ? ` ${eb.ohne.length === 1 ? '1 Dienst hat' : eb.ohne.length + ' Dienste haben'} noch keine Uhrzeit (${esc([...new Set(eb.ohne.map((x) => x.k))].join(', '))}) – dafür bitte die Schichtart anlegen.` : ''}</p>
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="mue-import-ja">Übernehmen</button></div>`, 'Monatsübersicht');
+  },
   start: () => sheet(`<h2>Willkommen</h2>
     <p class="hinweistext">Die App läuft komplett ohne Internet. Deine Daten bleiben auf diesem Handy.</p>
     <button class="knopf haupt" data-a="start-einrichten">Gemeinsam einrichten (ca. 5 Min.)</button>
@@ -1184,6 +1560,7 @@ const EBENEN = {
         <div data-geteilt>${geteiltFelder(f)}</div>
         <div class="feld"><label for="fk-konto">Abgebucht von Konto (optional)</label><input id="fk-konto" class="eingabe" data-feld="konto" value="${esc(f.konto || '')}" placeholder="z. B. Girokonto ••4417"></div>
         <div class="feld"><label for="fk-ende">Endet am (z. B. gekündigt zum)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
+        ${(f.frueher || []).length ? `<div class="frueher"><div class="label">Frühere Beträge</div>${[...f.frueher].sort((a, b) => (a.bis < b.bis ? -1 : 1)).map((x) => `<div class="gr-zeile"><span>bis ${esc(R.MONATE_KURZ[R.ymTeile(x.bis).monat - 1])} ${R.ymTeile(x.bis).jahr}</span><b>${R.euro(R.eigenerBetrag({ betrag: x.betrag, meinAnteil: x.meinAnteil == null ? f.meinAnteil : x.meinAnteil }))}</b></div>`).join('')}<button class="knopf klein leise" data-a="fk-frueher-weg">Frühere Beträge vergessen</button></div>` : ''}
         <div class="feld"><label for="fk-frist">Kündigungsfrist</label><select id="fk-frist" class="eingabe" data-feld="kuendigungsfrist">${[['', 'keine / weiß nicht'], ['2w', '2 Wochen'], ['1m', '1 Monat'], ['3m', '3 Monate']].map(([w, t]) => `<option value="${w}" ${(f.kuendigungsfrist || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       </section>` : '';
     return seite(eb.id ? (f.abo ? 'Abo bearbeiten' : 'Fixkosten bearbeiten') : (f.abo ? 'Neues Abo' : 'Neue Fixkosten'), `
@@ -1194,6 +1571,7 @@ const EBENEN = {
           <div class="feld"><span class="label">Kategorie</span><button class="eingabe" style="display:flex;align-items:center;gap:8px;text-align:left" data-a="fk-kategorie"><i class="punkt" style="background:${kat ? kat.farbe : '#888'}"></i>${esc(kat ? kat.name : 'wählen')}</button></div>
         </div>
         ${f.unbekannt ? offenKasten(f, true) : OFFEN_LINK}
+        <div data-giltab>${giltAbHtml(eb)}</div>
       </section>
       <section class="karte">
         <div class="label">Wie oft wird abgebucht?</div>
@@ -1273,7 +1651,14 @@ const EBENEN = {
     return sheet(`<h2>${esc(g.name)} im ${esc(monatsName(s))}</h2>
       <div class="feld"><label for="ge-ist">Was kam an?</label><input id="ge-ist" class="eingabe" inputmode="decimal" data-feld="istText" value="${esc(eb.istText)}" placeholder="z. B. ${esc(R.euro(w.schaetzung, false))}"></div>
       <p class="hinweistext">Geschätzt: <b>${R.euro(w.schaetzung)}</b>. Leer lassen = die Schätzung gilt (≈). Netto, so wie es auf dem Konto ankommt.</p>
-      <div class="feld"><label for="ge-schaetzung">Schätzung pro Monat</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
+      ${(() => {
+        const x = DI.gehaltSchaetzung(z.daten, s);
+        if (!x) return `<button class="knopf leise" data-a="dienste">📅 Gehalt aus den Diensten schätzen lassen</button>`;
+        const st = x.stunden; const mon = monatsName(st.monat);
+        const woher = st.quelle === 'abrechnung' ? `Monatsübersicht ${mon} (abgerechnet)` : st.quelle === 'dienste' ? `Dienste im ${mon}` : `Durchschnitt – für ${mon} sind keine Dienste eingetragen`;
+        return `<div class="lern-box schaetz-box"><span>Aus den Diensten: <b>≈ ${R.euroRund(x.netto)}</b> · Zuschläge ≈ ${R.euroRund(x.zuschlaege)} brutto<br><small>${esc(woher)}${st.quelle !== 'schnitt' ? ` · Nacht ${std(st.nacht)} · Sonntag ${std(st.sonntag)} · Feiertag ${std((st.feiertag || 0) + (st.vorfest || 0))} Std.` : ''}</small></span><button class="knopf klein akzent" data-a="dienste" data-monat="${st.monat}">Dienste</button></div>`;
+      })()}
+      <div class="feld"><label for="ge-schaetzung">${DI.schaetzenAn(z.daten) ? 'Feste Schätzung (gilt, wenn die Dienst-Schätzung aus ist)' : 'Schätzung pro Monat'}</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
       <button class="knopf leise gr-start" data-a="gehaltsrechner" data-monat="${s}">🧮 Schätzung mit dem DRK-Gehaltsrechner ausrechnen</button>
       ${(() => { const st = lernHinweis(g); return st && Math.abs(st.schnitt - zahl(eb.schaetzungText)) >= 1 ? `<div class="lern-box"><span>Deine letzten 3 Monate: <b>Ø ${R.euroRund(st.schnitt)}</b> (${R.euroRund(st.min)}–${R.euroRund(st.max)})</span><button class="knopf klein akzent" data-a="ge-schnitt">Als Schätzung übernehmen</button></div>` : ''; })()}
       <div class="feld"><span class="label">Kommt an</span><div class="wahl zwei-sp">${wahlKnopf('ge-ankunft', 'Monatsende', 'am Monatsende', g.kommtAn !== 'Tag')}${wahlKnopf('ge-ankunft', 'Tag', 'an einem Tag', g.kommtAn === 'Tag')}</div></div>
@@ -1337,6 +1722,7 @@ const EBENEN = {
         ${feldO('gr-nacht', 'Nacht (20–6 Uhr)', 'nachtText', 'z. B. 40')}
         ${feldO('gr-sonntag', 'Sonntag', 'sonntagText', 'z. B. 24')}
         ${feldO('gr-feiertag', 'Feiertag', 'feiertagText', 'z. B. 0')}
+        ${(() => { const ms = [-2, -1, 0, 1].map((i) => R.ymPlus(heuteYm(), i)).filter((m) => DI.stundenFuer(z.daten, m).quelle !== 'schnitt'); return ms.length ? `<div class="label">Aus deinen Diensten übernehmen</div><div class="chips">${ms.map((m) => `<button class="chip" data-a="gr-dienste" data-monat="${m}">${esc(monatJahr(m, true))}</button>`).join('')}</div>` : `<button class="knopf klein leise" data-a="dienste">📅 Stunden aus dem Dienstplan ausrechnen lassen</button>`; })()}
         <p class="hinweistext" id="gr-saetze">${grSaetze(eb, r)}</p>
       </section>
       <section class="karte gr-karte">
@@ -1351,10 +1737,7 @@ const EBENEN = {
         ${feldO('gr-abzug', 'Weitere Abzüge pro Monat (€, z. B. Zusatzversorgung)', 'abzugText', 'z. B. 0')}
       </section>
       <section class="karte gr-ergebnis" id="gr-ergebnis" aria-live="polite">${grErgebnisHtml(eb)}</section>
-      <details class="karte gr-quellen"><summary>So wird gerechnet (Quellen)</summary>
-        <p class="hinweistext">Entgelttabelle ab 01.10.2026 und E 9c ab 01.10.2027: 52. Änderungstarifvertrag zum DRK-RTV vom 10.07.2025 (Anlage A 1). Zeitzuschläge und Schichtzulage: § 14 DRK-RTV, durchgeschriebene Fassung Stand Juli 2025 – Nacht 5,50 €/Std. und Schichtzulage 115 € gelten ab 01.01.2026; Stundenanteil = Monatsbetrag ÷ (4,348 × Wochenstunden), § 29 Abs. 3. Jahressonderzahlung 90 % (§ 23 Abs. 2). Lohnsteuer: amtlicher Programmablaufplan 2026 des BMF (Schreiben vom 12.11.2025), centgenau gegen 207 Vergleichsfälle der BMF-Schnittstelle geprüft. Sozialversicherung 2026: RV 18,6 %, AV 2,6 %, KV 14,6 % + Zusatzbeitrag, PV 3,6 % (+0,6 % kinderlos); Grenzen 5.812,50 € (KV/PV) und 8.450 € (RV/AV) im Monat. Steuerfreie Zuschläge nach § 3b EStG (Grundlohn bis 50 €/Std., beitragsfrei bis 25 €/Std.).</p>
-        <p class="hinweistext">Nicht enthalten: Bereitschaftsdienst, Überstunden, Zusatzversorgung (bitte unter „Weitere Abzüge“), Abweichungen deines Arbeitgebers vom DRK-RTV. Die Jahressonderzahlung 2026 wurde noch aus Juli–September 2026 (alte Tabelle) berechnet und fällt daher etwas kleiner aus.</p>
-      </details>
+<button class="knopf leise" data-a="quellen">Woher kommen die Zahlen? Rechenweg und Fundstellen</button>
       <div class="knopfreihe"><button class="knopf leise" data-a="gr-merken">Merken</button><button class="knopf haupt breit" id="gr-uebernehmen" data-a="gr-uebernehmen" data-wert="${r.netto}">≈ ${R.euroRund(r.netto)} als Gehalt übernehmen</button></div>`);
   },
 
@@ -1374,7 +1757,12 @@ const EBENEN = {
       </div>
       ${sp.unbekannt ? offenKasten(sp, true) : OFFEN_LINK}
       ${extern ? '' : `<div class="feld"><label for="sp-stand">Stand heute</label><input id="sp-stand" class="eingabe" inputmode="decimal" data-feld="standText" value="${esc(sp.standText)}"></div>
-      <p class="hinweistext">Der Stand wächst mit jedem Übertrag. Stimmt er nicht mehr, hier den echten Stand eintragen.</p>`}
+      <p class="hinweistext">Der Stand wächst mit jedem Übertrag. Stimmt er nicht mehr, hier den echten Stand eintragen.</p>
+      <div class="zwei">
+        <div class="feld"><label for="sp-ziel">Sparziel (€, optional)</label><input id="sp-ziel" class="eingabe" inputmode="decimal" data-feld="zielText" data-ziel="1" value="${esc(sp.zielText || '')}" placeholder="z. B. 5000"></div>
+        <div class="feld"><label for="sp-zielbis">Bis wann? (optional)</label><input id="sp-zielbis" class="eingabe" type="month" data-feld="zielBis" data-ziel="1" min="${heuteYm()}" value="${esc(sp.zielBis || '')}"></div>
+      </div>
+      <p class="hinweistext" id="sz-hinweis" aria-live="polite">${esc(sparzielSatz(sparzielEntwurf(sp)))}</p>`}
       ${uebertragListe(eb.id)}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe">${eb.id ? '<button class="knopf leise" data-a="sp-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="sp-speichern">Speichern</button></div>`, 'Konto');
@@ -1383,12 +1771,15 @@ const EBENEN = {
   buchung: (eb) => {
     const b = z.daten.buchungen.find((x) => x.id === eb.id);
     if (!b) return '';
-    const kat = R.kategorie(z.daten, b.kategorieId);
+    const kat = R.kategorie(z.daten, eb.kategorieId || b.kategorieId);
     const chips = (kat && kat.chips ? kat.chips : []).map((c) => wahlKnopf('bh-ort', c, c, eb.ort === c, 'class="chip"')).join('');
     const d = new Date(b.zeit);
+    const kats = budgetKats().map((k) => `<button class="chip" data-a="bh-kat" data-wert="${esc(k.id)}" aria-pressed="${(eb.kategorieId || b.kategorieId) === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('');
     return sheet(`<h2>${esc(kat ? kat.name : '')} · ${esc(d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long' }))}, ${esc(b.zeit.slice(11, 16))}</h2>
       ${eb.unbekannt ? offenKasten(eb, true) : `<div class="feld"><label for="bh-betrag">${eb.geteilt ? 'Gesamtbetrag (was du bezahlt hast)' : 'Betrag'}</label><input id="bh-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" data-teilen="1" value="${esc(eb.betragText)}"></div>${OFFEN_LINK}`}
+      <div class="label">Kategorie</div><div class="chips" id="bh-kats">${kats}</div>
       ${chips ? `<div class="label">${esc(kat.frage || 'Wo?')}</div><div class="chips">${chips}${wahlKnopf('bh-ort', '', 'ohne', !eb.ort, 'class="chip"')}</div>` : ''}
+      <div class="feld"><label for="bh-datum">Datum</label><input id="bh-datum" class="eingabe" type="date" data-feld="datum" max="${heute()}" value="${esc(eb.datum || b.zeit.slice(0, 10))}"></div>
       ${eb.unbekannt ? '' : teilenHtml(eb)}
       ${b.gesamt ? `<button class="schalter" role="switch" aria-checked="${!!eb.zurueckErhalten}" data-a="bh-zurueck"><span class="t">Rückzahlung bekommen<br><span class="klein">${esc((eb.teiltMit || '').trim() || b.teiltMit || 'Die andere Person')} hat dir ${R.euro((teilRechnung(eb) && teilRechnung(eb).rest) || Math.round((b.gesamt - b.betrag) * 100) / 100)} zurückgezahlt</span></span><span class="spur"></span></button>` : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
@@ -1478,6 +1869,130 @@ function oeffne(eb) { z.ebenen.push(eb); renderEbenen(); }
 function kopie(x) { return JSON.parse(JSON.stringify(x)); }
 
 const AKTION = {
+  // ---------- v27 ----------
+  auswertung: () => oeffne({ art: 'auswertung', n: 3, monat: null }),
+  'aw-zeit': (el) => { const eb = oben(); eb.n = Number(el.dataset.wert); eb.monat = null; haptik('tick'); renderEbenen(); },
+  'aw-monat': (el) => { oben().monat = el.dataset.wert; haptik('tick'); renderEbenen(); },
+  hinweise: () => oeffne({ art: 'hinweise' }),
+  'hw-um': async (el) => {
+    const id = el.dataset.wert; const an = hinweisAn(id); const name = (HINWEISE.find((x) => x[0] === id) || [])[1];
+    await aendern((d) => { const l = new Set(d.einstellungen.hinweiseAus || []); if (an) l.add(id); else l.delete(id); d.einstellungen.hinweiseAus = [...l]; }, { text: `${name}: ${an ? 'aus' : 'an'}`, haptik: 'tick' });
+  },
+  'hw-alle': async (el) => { const an = el.dataset.wert === '1'; await aendern((d) => { d.einstellungen.hinweiseAus = an ? [] : HINWEISE.map((x) => x[0]); }, { text: an ? 'Alle Hinweise an' : 'Alle Hinweise aus', haptik: 'tick' }); },
+  'sicherung-spaeter': async () => { const d7 = R.datumText(new Date(Date.now() + 7 * 864e5)); await aendern((d) => { d.einstellungen.sicherungSpaeter = d7; }, { text: 'Erinnere in 7 Tagen wieder', haptik: false }); },
+  'geplant-alle': () => oeffne({ art: 'geplant-alle' }),
+  'vf-auf': () => { z.vf.auf = !z.vf.auf; render(); },
+  'vf-wahl': (el) => { const f = el.dataset.feld; z.vf[f] = z.vf[f] === el.dataset.wert ? '' : el.dataset.wert; if (f === 'kategorieId') z.vf.ort = ''; haptik('tick'); render(); },
+  'vf-leer': () => { z.vf = { text: '', kategorieId: '', monat: '', ort: '', auf: false }; render(); },
+  'fk-giltab': (el) => { oben().entwurf.giltAb = el.dataset.wert; haptik('tick'); const a = document.querySelector('[data-giltab]'); if (a) a.innerHTML = giltAbHtml(oben()); },
+  'fk-frueher-weg': () => { oben().entwurf.frueher = []; renderEbenen(); zeigeToast('Frühere Beträge werden beim Speichern vergessen', null, 'info'); },
+  quellen: () => {
+    const eb = oben();
+    const entwurf = eb && eb.art === 'gehaltsrechner' ? Object.assign({}, eb.entwurf) : Object.assign({}, DRK.STANDARD, z.daten.einstellungen.gehaltsrechner || {});
+    oeffne({ art: 'quellen', monat: (eb && eb.art === 'gehaltsrechner' && eb.monat) || heuteYm(), entwurf });
+  },
+  'gr-dienste': (el) => {
+    const eb = oben(); const st = DI.stundenFuer(z.daten, el.dataset.monat);
+    if (st.quelle === 'schnitt') return;
+    Object.assign(eb.entwurf, { nachtText: std(st.nacht), sonntagText: std(st.sonntag), feiertagText: std((st.feiertag || 0) + (st.vorfest || 0)), nachtTextOffen: false, sonntagTextOffen: false, feiertagTextOffen: false });
+    haptik('tick'); renderEbenen();
+    zeigeToast(`Stunden aus ${st.quelle === 'abrechnung' ? 'der Monatsübersicht' : 'den Diensten'} ${monatsName(st.monat)} eingesetzt`, null, 'info');
+  },
+
+  // Dienste
+  dienste: (el) => {
+    if (oben() && oben().art === 'gehalt') z.ebenen.pop();
+    const m = el && el.dataset && el.dataset.monat;
+    oeffne({ art: 'dienste', monat: m || heuteYm(), pinsel: (schichtarten()[0] || {}).k || '' });
+  },
+  'ds-monat': (el) => { const eb = oben(); eb.monat = R.ymPlus(eb.monat, Number(el.dataset.wert)); renderEbenen(); },
+  'ds-pinsel': (el) => { oben().pinsel = el.dataset.wert; haptik('tick'); renderEbenen(); },
+  'ds-tag': async (el) => {
+    const eb = oben(); const d = el.dataset.wert;
+    const da = (z.daten.dienste || []).find((x) => x.d === d);
+    if (!eb.pinsel) { zeigeToast(schichtarten().length ? 'Erst oben eine Schichtart wählen' : 'Leg zuerst eine Schichtart an', null, 'info'); if (!schichtarten().length) AKTION.schichtart({ dataset: { wert: '' } }); return; }
+    const a = schichtarten().find((x) => x.k === eb.pinsel);
+    const weg = eb.pinsel === '-' || (da && a && da.k === a.k);
+    if (eb.pinsel === '-' && !da) return;
+    haptik('tick');
+    await aendern((dd) => {
+      dd.dienste = (dd.dienste || []).filter((x) => x.d !== d);
+      if (!weg && a) dd.dienste.push(a.frei ? { d, k: a.k, frei: true } : { d, k: a.k, von: a.von, bis: a.bis });
+      dd.dienste.sort((x, y) => (x.d < y.d ? -1 : 1));
+    }, false);
+  },
+  'ds-schaetzen': async () => {
+    const an = !z.daten.einstellungen.gehaltSchaetzen;
+    if (an && !z.daten.einstellungen.gehaltsrechner) { zeigeToast('Erst im Gehaltsrechner deine Angaben eintragen und „Merken“ tippen', null, 'info'); return; }
+    await aendern((d) => { d.einstellungen.gehaltSchaetzen = an; }, { text: an ? 'Gehalt wird aus den Diensten geschätzt' : 'Dienst-Schätzung aus – es gilt deine feste Schätzung', rueckgaengig: (d) => { d.einstellungen.gehaltSchaetzen = !an; } });
+  },
+  'ds-verzug': async (el) => { const v = Number(el.dataset.wert); await aendern((d) => { d.einstellungen.zuschlagVerzug = v; }, { text: v === 2 ? 'Zuschläge: 2 Monate später (Tarif)' : v === 1 ? 'Zuschläge: 1 Monat später' : 'Zuschläge: im selben Monat', haptik: 'tick' }); },
+  'ds-land': async (el) => { const v = el.value; await aendern((d) => { d.einstellungen.bundesland = v; }, { text: `Feiertage: ${DI.LAENDER[v]}`, haptik: 'tick' }); },
+  'ds-datei': () => document.getElementById('dienste-datei').click(),
+  'ds-pdf': () => document.getElementById('mue-datei').click(),
+  'ds-import-ja': async () => {
+    const eb = oben(); const vorher = { dienste: kopie(z.daten.dienste || []), arten: kopie(schichtarten()) };
+    z.ebenen.pop();
+    await aendern((d) => { d.dienste = DI.diensteZusammen(d.dienste, eb.dienste); d.einstellungen.schichtarten = eb.arten; },
+      { text: `${eb.dienste.length} Dienste eingelesen`, rueckgaengig: (d) => { d.dienste = vorher.dienste; d.einstellungen.schichtarten = vorher.arten; } });
+    const o = oben(); if (o && o.art === 'dienste') { if (!o.pinsel) o.pinsel = (schichtarten()[0] || {}).k || ''; renderEbenen(); }
+  },
+  'mue-import-ja': async () => {
+    const eb = oben(); const r = eb.ergebnis;
+    const vorher = { dienste: kopie(z.daten.dienste || []), ms: kopie(z.daten.monatsstunden || {}), arten: kopie(schichtarten()) };
+    z.ebenen.pop();
+    await aendern((d) => {
+      if (!d.monatsstunden) d.monatsstunden = {};
+      if (r.lohnarten.length || r.fertig) d.monatsstunden[r.monat] = Object.assign({}, r.stunden, { stand: r.stand, fertig: r.fertig, quelle: 'pdf' });
+      if (eb.fertig.length) { d.dienste = DI.diensteZusammen(d.dienste, eb.fertig); d.einstellungen.schichtarten = eb.arten; }
+    }, { text: `Monatsübersicht ${monatsName(r.monat)} übernommen${r.fertig ? ' (abgerechnet)' : ' (Zwischenstand)'}`, rueckgaengig: (d) => { d.dienste = vorher.dienste; d.monatsstunden = vorher.ms; d.einstellungen.schichtarten = vorher.arten; } });
+    const o = oben(); if (o && o.art === 'dienste') { o.monat = r.monat; if (!o.pinsel) o.pinsel = (schichtarten()[0] || {}).k || ''; renderEbenen(); }
+  },
+  schichtart: (el) => {
+    const a = schichtarten().find((x) => x.k === el.dataset.wert);
+    oeffne({ art: 'schichtart', alt: a ? a.k : null, entwurf: a ? { k: a.k, von: a.von || '07:00', bis: a.bis || '19:00', frei: !!a.frei } : { k: '', von: '07:00', bis: '19:00', frei: false } });
+  },
+  'sa-frei': (el) => { oben().entwurf.frei = el.dataset.wert === '1'; renderEbenen(); },
+  'sa-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf; const k = String(e.k || '').trim();
+    if (!k) { eb.fehler = 'Bitte ein Kürzel eintragen, z. B. R1T.'; renderEbenen(); return; }
+    if (k === '-') { eb.fehler = 'Dieses Kürzel ist vergeben.'; renderEbenen(); return; }
+    if (schichtarten().some((x) => x.k === k && x.k !== eb.alt)) { eb.fehler = `${k} gibt es schon.`; renderEbenen(); return; }
+    if (!e.frei && (!/^\d{2}:\d{2}$/.test(e.von || '') || !/^\d{2}:\d{2}$/.test(e.bis || ''))) { eb.fehler = 'Bitte Beginn und Ende eintragen.'; renderEbenen(); return; }
+    if (!e.frei && e.von === e.bis) { eb.fehler = 'Beginn und Ende sind gleich.'; renderEbenen(); return; }
+    const neu = e.frei ? { k, frei: true } : { k, von: e.von, bis: e.bis };
+    z.ebenen.pop();
+    await aendern((d) => { const l = (d.einstellungen.schichtarten || []).slice(); const i = l.findIndex((x) => x.k === eb.alt); if (i >= 0) l[i] = neu; else l.push(neu); d.einstellungen.schichtarten = l; }, { text: `Schichtart ${k} gespeichert` });
+    const o = oben(); if (o && o.art === 'dienste') { o.pinsel = k; renderEbenen(); }
+  },
+  'sa-loeschen': async () => {
+    const eb = oben(); const alt = schichtarten().slice();
+    z.ebenen.pop();
+    await aendern((d) => { d.einstellungen.schichtarten = (d.einstellungen.schichtarten || []).filter((x) => x.k !== eb.alt); }, { text: `Schichtart ${eb.alt} gelöscht · eingetragene Dienste bleiben`, rueckgaengig: (d) => { d.einstellungen.schichtarten = alt; } });
+    const o = oben(); if (o && o.art === 'dienste' && o.pinsel === eb.alt) { o.pinsel = (schichtarten()[0] || {}).k || ''; renderEbenen(); }
+  },
+  monatsstunden: (el) => {
+    const m = el.dataset.monat; const ms = (z.daten.monatsstunden || {})[m];
+    const t = (x) => (x == null || x === 0 ? (ms ? '0' : '') : std(x));
+    const vorbei = m < heuteYm();
+    oeffne({ art: 'monatsstunden', monat: m, vorhanden: !!ms, entwurf: ms ? { nacht: t(ms.nacht), nacht04: t(ms.nacht04), sonntag: t(ms.sonntag), feiertag: t(ms.feiertag), vorfest: t(ms.vorfest), fertig: !!ms.fertig } : { nacht: '', nacht04: '', sonntag: '', feiertag: '', vorfest: '', fertig: vorbei } });
+  },
+  'ms-fertig': () => { oben().entwurf.fertig = !oben().entwurf.fertig; renderEbenen(); },
+  'ms-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf;
+    const w = {};
+    for (const f of ['nacht', 'nacht04', 'sonntag', 'feiertag', 'vorfest']) { const n = String(e[f] || '').trim() === '' ? 0 : zahl(e[f]); if (isNaN(n) || n < 0 || n > 744) { eb.fehler = 'Bitte Stunden als Zahl eintragen (z. B. 40 oder 12,5).'; renderEbenen(); return; } w[f] = n; }
+    if (w.nacht04 > w.nacht) { eb.fehler = '„davon 0–4 Uhr“ kann nicht mehr sein als die Nachtstunden gesamt.'; renderEbenen(); return; }
+    const alt = kopie(z.daten.monatsstunden || {});
+    z.ebenen.pop();
+    await aendern((d) => { if (!d.monatsstunden) d.monatsstunden = {}; d.monatsstunden[eb.monat] = Object.assign(w, { fertig: !!e.fertig, stand: heute(), quelle: 'hand' }); },
+      { text: `Stunden ${monatsName(eb.monat)} gespeichert${e.fertig ? ' (abgerechnet)' : ' (Zwischenstand)'}`, rueckgaengig: (d) => { d.monatsstunden = alt; } });
+  },
+  'ms-loeschen': async () => {
+    const eb = oben(); const alt = kopie(z.daten.monatsstunden || {});
+    z.ebenen.pop();
+    await aendern((d) => { delete d.monatsstunden[eb.monat]; }, { text: `Stunden ${monatsName(eb.monat)} gelöscht · es gelten wieder die Dienste`, rueckgaengig: (d) => { d.monatsstunden = alt; } });
+  },
   ansicht: (el) => { z.bearbeiten = false; z.ansicht = el.dataset.wert; window.scrollTo(0, 0); render(); },
   monat: (el) => { z.monat = R.ymPlus(z.monat, Number(el.dataset.wert)); render(); },
   heute: () => { z.monat = heuteYm(); render(); },
@@ -1730,7 +2245,7 @@ const AKTION = {
     const entwurf = Object.assign(kopie(f), { betragText: f.offen ? '' : R.euro(f.betrag, false), meinText: !f.offen && anteilF < 100 ? R.euro(Math.round(R.eigenerBetrag(f) * 100) / 100, false) : '' }, offenEntwurf(f));
     delete entwurf.offen;
     if (!entwurf.monat) entwurf.monat = R.ymTeile(heuteYm()).monat;
-    oeffne({ art: 'fixkosten', id: f.id, entwurf, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist || f.konto || f.teiltMit) });
+    oeffne({ art: 'fixkosten', id: f.id, entwurf, altBetrag: Number(f.betrag) || 0, altAnteil: anteilF, warOffen: !!f.offen, mehr: !!(f.abo || (f.meinAnteil != null && f.meinAnteil !== 100) || f.endetAm || f.kuendigungsfrist || f.konto || f.teiltMit) });
   },
   'fixkosten-neu': (el) => oeffne({ art: 'fixkosten', id: null, entwurf: { name: '', betragText: '', wieOft: 'monatlich', tag: 1, monat: R.ymTeile(heuteYm()).monat, kategorieId: el.dataset.kat || (fixKats()[0] || {}).id, abo: false, meinAnteil: 100, meinText: '', endetAm: null, kuendigungsfrist: null } }),
   'fk-rhythmus': (el) => { oben().entwurf.wieOft = el.dataset.wert; renderEbenen(); },
@@ -1782,12 +2297,21 @@ const AKTION = {
     const fertig = { id: eb.id || D.neueId('fk'), name: f.name.trim(), betrag, wieOft: f.wieOft, tag: f.tag, monat: f.wieOft === 'monatlich' ? null : f.monat, kategorieId: f.kategorieId, abo: !!f.abo, meinAnteil: anteil, endetAm: f.endetAm || null, kuendigungsfrist: f.kuendigungsfrist || null,
       teiltMit: anteil < 100 ? (f.teiltMit || '').trim() || null : null, erstattungTag: anteil < 100 && etag ? Math.round(etag) : null, konto: (f.konto || '').trim() || null };
     z.ebenen.pop();
+    // v27: „gilt ab“ – alte Monate behalten den alten Betrag, außer bei „schon immer“
+    const geaendert = !!eb.id && !o && !eb.warOffen && (Math.abs(betrag - eb.altBetrag) > 0.004 || Math.abs(anteil - eb.altAnteil) > 0.004);
+    const ab = !geaendert || f.giltAb === 'immer' ? null : f.giltAb === 'naechster' ? R.ymPlus(heuteYm(), 1) : heuteYm();
     await aendern((d) => {
       const i = d.fixkosten.findIndex((x) => x.id === fertig.id);
-      const neu = i >= 0 ? Object.assign({}, d.fixkosten[i], fertig) : fertig;
+      let neu = fertig;
+      if (i >= 0) {
+        const alt = Object.assign({}, d.fixkosten[i]);
+        if (Array.isArray(f.frueher)) alt.frueher = f.frueher;
+        neu = R.betragAendern(alt, fertig, ab);
+        if (neu.frueher && !neu.frueher.length) delete neu.frueher;
+      }
       if (o) neu.offen = o.offen; else delete neu.offen;
       if (i >= 0) d.fixkosten[i] = neu; else d.fixkosten.push(neu);
-    }, { text: o ? `${fertig.name}: Betrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}` : `${fertig.name} gespeichert` });
+    }, { text: o ? `${fertig.name}: Betrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}` : `${fertig.name} gespeichert${ab ? ` · neuer Betrag ab ${monatsName(ab)}` : geaendert ? ' · gilt für alle Monate' : ''}` });
   },
   'fk-loeschen': async () => {
     const id = oben().id; const f = z.daten.fixkosten.find((x) => x.id === id); const i = z.daten.fixkosten.indexOf(f);
@@ -1839,7 +2363,7 @@ const AKTION = {
   // Gehalt
   gehalt: (el) => { z.blinkGehalt = null; oeffne(gehaltEbene(el.dataset.monat || z.monat)); },
   'ge-stimmt': async (el) => {
-    const s = el.dataset.monat; const g = gehalt(); const betrag = R.schaetzung(g);
+    const s = el.dataset.monat; const g = gehalt(); const betrag = R.einnahmeIm(g, s).schaetzung;
     await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag }); },
       { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} bestätigt`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== s); } });
   },
@@ -1954,8 +2478,8 @@ const AKTION = {
   // Sparkonto
   sparkonto: (el) => {
     const sp = z.daten.sparraten.find((x) => x.id === el.dataset.id);
-    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { ...offenEntwurf(sp), art: R.kontoArt(sp), name: sp.name, betragText: sp.offen ? '' : R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute(), z.daten), false) } });
-    else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: R.sparratenNormal(z.daten).length ? '' : 'Sparkonto', betragText: '', tagText: '1', standText: '0' } });
+    if (sp) oeffne({ art: 'sparkonto', id: sp.id, entwurf: { ...offenEntwurf(sp), art: R.kontoArt(sp), name: sp.name, betragText: sp.offen ? '' : R.euro(sp.betrag, false), tagText: String(sp.tag || 1), standText: R.euro(R.sparStand(sp, heute(), z.daten), false), zielText: Number(sp.ziel) > 0 ? R.euro(sp.ziel, false) : '', zielBis: sp.zielBis || '' } });
+    else oeffne({ art: 'sparkonto', id: null, entwurf: { art: 'sparen', name: R.sparratenNormal(z.daten).length ? '' : 'Sparkonto', betragText: '', tagText: '1', standText: '0', zielText: '', zielBis: '' } });
   },
   'sp-art': (el) => { oben().entwurf.art = el.dataset.wert; renderEbenen(); },
   'sp-name': (el) => { oben().entwurf.name = el.dataset.wert; renderEbenen(); },
@@ -1968,15 +2492,17 @@ const AKTION = {
     if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte eine Rate ab 0 € eintragen.'; renderEbenen(); return; }
     if (isNaN(tag) || tag < 1 || tag > 31) { eb.fehler = 'Der Tag muss zwischen 1 und 31 liegen.'; renderEbenen(); return; }
     if (isNaN(stand)) { eb.fehler = 'Der Stand ist keine Zahl.'; renderEbenen(); return; }
+    const ziel = e.art === 'extern' || !String(e.zielText || '').trim() ? null : zahl(e.zielText);
+    if (ziel !== null && (isNaN(ziel) || ziel <= 0)) { eb.fehler = 'Das Sparziel muss über 0 € liegen (oder leer lassen).'; renderEbenen(); return; }
     z.ebenen.pop();
     const neuId = eb.id || D.neueId('spar');
     const unten = z.ebenen[z.ebenen.length - 1];
     if (unten && unten.wartetAufKonto) { unten.entwurf.kontoId = neuId; unten.wartetAufKonto = false; unten.fehler = null; }
     await aendern((d) => {
-      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString(), art: e.art === 'extern' ? 'extern' : undefined };
+      const werte = { name: e.name.trim(), betrag, tag: Math.round(tag), stand, standDatum: heute(), standZeit: new Date().toISOString(), art: e.art === 'extern' ? 'extern' : undefined, ziel, zielBis: ziel && e.zielBis ? e.zielBis : null };
       const sp = d.sparraten.find((x) => x.id === eb.id);
       if (o) werte.offen = o.offen;
-      if (sp) { Object.assign(sp, werte); if (!o) delete sp.offen; } else d.sparraten.push(Object.assign({ id: neuId, ziel: null }, werte));
+      if (sp) { Object.assign(sp, werte); if (!o) delete sp.offen; } else d.sparraten.push(Object.assign({ id: neuId }, werte));
     }, { text: o ? `${e.name.trim()}: Übertrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}` : `${e.name.trim()} gespeichert` });
   },
   'sp-loeschen': async () => {
@@ -2096,22 +2622,24 @@ const AKTION = {
     const preis = preisAusText(eb.entwurf.preisText);
     const betrag = typeof preis === 'object' ? preis.bis : preis;
     if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte zuerst den Preis eintragen.'; renderEbenen(); return; }
+    // v27: bei „von–bis“ erst nach dem echten Preis fragen
+    if (typeof preis === 'object') { oeffne({ art: 'gekauft', id: w.id, name: w.name, von: preis.von, bis: preis.bis, betragText: '' }); setTimeout(() => { const f = document.getElementById('gk-betrag'); if (f) f.focus(); }, 60); return; }
     z.ebenen.pop();
-    const buchungId = D.neueId('b');
-    await aendern((d) => {
-      let katId = w.kategorieId;
-      if (!katId || !R.kategorie(d, katId)) {
-        let k = d.kategorien.find((x) => x.id === 'sonstiges' && x.art === 'budget');
-        if (!k) { k = { id: 'sonstiges', name: 'Sonstiges', emoji: '🧾', art: 'budget', budget: 0, symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: [] }; d.kategorien.push(k); }
-        katId = k.id;
-      }
-      d.buchungen.push({ id: buchungId, zeit: R.zeitText(new Date()), kategorieId: katId, betrag, ort: w.name, quelle: 'geplant' });
-      const x = d.wuensche.find((y) => y.id === w.id); x.status = 'gekauft'; x.gekauftAm = heute();
-    }, { text: `${w.name} gekauft: ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((b) => b.id !== buchungId); d.wuensche.find((y) => y.id === w.id).status = 'geplant'; } });
+    await wunschKaufen(w, betrag);
+  },
+  'gk-wert': (el) => { const eb = oben(); eb.betragText = R.euro(Number(el.dataset.wert), false); eb.fehler = null; renderEbenen(); },
+  'gk-buchen': async () => {
+    const eb = oben(); const w = z.daten.wuensche.find((x) => x.id === eb.id);
+    const betrag = zahl(eb.betragText);
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte eintragen, was es gekostet hat.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    if (oben() && oben().art === 'wunsch') z.ebenen.pop();
+    await wunschKaufen(w, betrag);
   },
 
   // Buchungen
-  buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne(Object.assign({ art: 'buchung', id: b.id, betragText: b.offen ? '' : R.euro(b.gesamt || b.betrag, false), ort: b.ort || '', zurueckErhalten: !!b.zurueckErhalten }, teilEntwurf(b), offenEntwurf(b))); },
+  buchung: (el) => { const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (b) oeffne(Object.assign({ art: 'buchung', id: b.id, betragText: b.offen ? '' : R.euro(b.gesamt || b.betrag, false), ort: b.ort || '', kategorieId: b.kategorieId, datum: b.zeit.slice(0, 10), zurueckErhalten: !!b.zurueckErhalten }, teilEntwurf(b), offenEntwurf(b))); },
+  'bh-kat': (el) => { const eb = oben(); eb.kategorieId = el.dataset.wert; const k = R.kategorie(z.daten, eb.kategorieId); if (eb.ort && !((k && k.chips) || []).includes(eb.ort) && ((R.kategorie(z.daten, (z.daten.buchungen.find((x) => x.id === eb.id) || {}).kategorieId) || {}).chips || []).includes(eb.ort)) eb.ort = ''; haptik('tick'); renderEbenen(); },
   'bh-zurueck': () => { oben().zurueckErhalten = !oben().zurueckErhalten; renderEbenen(); },
   'tl-an': (el) => { const t = oben().entwurf || oben(); const vorher = !!t.geteilt; t.geteilt = el.dataset.wert === '1'; if (!t.anteil) t.anteil = '1/2'; if (t.geteilt && !vorher) t.teilAuf = Date.now(); renderEbenen(); if (t.geteilt && !vorher) { const box = document.querySelector('.teil-box'); if (box) box.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } },
   'tl-anteil': (el) => { haptik('tick'); const t = oben().entwurf || oben(); t.anteil = el.dataset.wert; renderEbenen(); },
@@ -2119,6 +2647,12 @@ const AKTION = {
     const b = z.daten.buchungen.find((x) => x.id === el.dataset.id); if (!b) return;
     await aendern((d) => { const x = d.buchungen.find((y) => y.id === b.id); if (x) x.zurueckErhalten = true; },
       { text: `${R.euro(Math.round((b.gesamt - b.betrag) * 100) / 100)} von ${b.teiltMit || 'der anderen Person'} bekommen`, rueckgaengig: (d) => { const x = d.buchungen.find((y) => y.id === b.id); if (x) x.zurueckErhalten = false; } });
+  },
+  'rueck-alle': async (el) => {
+    const p = R.personenAbrechnung(z.daten).find((x) => x.name === el.dataset.name); if (!p) return;
+    const ids = p.buchungen.map((b) => b.id);
+    await aendern((d) => { for (const b of d.buchungen) if (ids.includes(b.id)) b.zurueckErhalten = true; },
+      { text: `${R.euro(p.summe)} von ${p.name === 'Ohne Namen' ? 'der anderen Person' : p.name} bekommen (${ids.length === 1 ? '1 Ausgabe' : ids.length + ' Ausgaben'})`, rueckgaengig: (d) => { for (const b of d.buchungen) if (ids.includes(b.id)) b.zurueckErhalten = false; } });
   },
   'bh-ort': (el) => { oben().ort = el.dataset.wert; renderEbenen(); },
   'bh-speichern': async () => {
@@ -2129,14 +2663,21 @@ const AKTION = {
     if (!o && (isNaN(betrag) || betrag <= 0)) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
     const tr = o ? null : teilRechnung(eb);
     if (tr && tr.fehler) { eb.fehler = tr.fehler; renderEbenen(); return; }
+    if (!eb.datum) { eb.fehler = 'Bitte ein Datum wählen.'; renderEbenen(); return; }
+    if (eb.datum > heute()) { eb.fehler = 'Das Datum liegt in der Zukunft. Für später: „Potenzielle Ausgabe planen“.'; renderEbenen(); return; }
+    const alt = z.daten.buchungen.find((x) => x.id === eb.id);
+    const neuKat = eb.kategorieId && R.kategorie(z.daten, eb.kategorieId) ? eb.kategorieId : alt.kategorieId;
+    const verschoben = [neuKat !== alt.kategorieId ? `jetzt ${R.kategorie(z.daten, neuKat).name}` : '', eb.datum !== alt.zeit.slice(0, 10) ? `am ${Number(eb.datum.slice(8))}.${Number(eb.datum.slice(5, 7))}.` : ''].filter(Boolean).join(', ');
     z.ebenen.pop();
     await aendern((d) => {
       const b = d.buchungen.find((x) => x.id === eb.id); if (!b) return;
       b.ort = eb.ort || null;
+      b.kategorieId = neuKat;
+      if (eb.datum !== b.zeit.slice(0, 10)) b.zeit = eb.datum + (b.zeit.slice(10) || 'T12:00:00');
       if (tr) Object.assign(b, { betrag: tr.mein, gesamt: tr.gesamt, teiltMit: (eb.teiltMit || '').trim() || null, zurueckErhalten: !!eb.zurueckErhalten });
       else { b.betrag = betrag; delete b.gesamt; delete b.teiltMit; delete b.zurueckErhalten; }
       if (o) b.offen = o.offen; else delete b.offen;
-    }, { text: o ? `Buchung: Betrag offen (${R.offenText(o.offen)})` : 'Buchung geändert' });
+    }, { text: o ? `Buchung: Betrag offen (${R.offenText(o.offen)})` : 'Buchung geändert' + (verschoben ? ` · ${verschoben}` : '') });
   },
   'buchung-weg': async (el) => {
     const id = el.dataset.id; const b = z.daten.buchungen.find((x) => x.id === id); if (!b) return;
@@ -2150,6 +2691,7 @@ const AKTION = {
     const jetzt = new Date();
     const name = `finanz-sicherung-${R.datumText(jetzt)}-${R.zweistellig(jetzt.getHours())}${R.zweistellig(jetzt.getMinutes())}.json`;
     z.daten.einstellungen.letzteSicherung = jetzt.toLocaleDateString('de-DE') + ' ' + R.zweistellig(jetzt.getHours()) + ':' + R.zweistellig(jetzt.getMinutes());
+    z.daten.einstellungen.letzteSicherungZeit = jetzt.toISOString(); delete z.daten.einstellungen.sicherungSpaeter;
     try {
       await D.speichern(z.daten);
       const pfad = await D.exportieren(z.daten, name);
@@ -2327,6 +2869,20 @@ function setzePfad(obj, pfad, wert) {
 }
 function oben0() { const s = document.querySelector('.seite:last-of-type'); if (s) s.scrollTop = 0; }
 
+async function wunschKaufen(w, betrag) {
+  const buchungId = D.neueId('b');
+  await aendern((d) => {
+    let katId = w.kategorieId;
+    if (!katId || !R.kategorie(d, katId)) {
+      let k = d.kategorien.find((x) => x.id === 'sonstiges' && x.art === 'budget');
+      if (!k) { k = { id: 'sonstiges', name: 'Sonstiges', emoji: '🧾', art: 'budget', budget: 0, symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: [] }; d.kategorien.push(k); }
+      katId = k.id;
+    }
+    d.buchungen.push({ id: buchungId, zeit: R.zeitText(new Date()), kategorieId: katId, betrag, ort: w.name, quelle: 'geplant' });
+    const x = d.wuensche.find((y) => y.id === w.id); x.status = 'gekauft'; x.gekauftAm = heute(); x.bezahlt = betrag;
+  }, { text: `${w.name} gekauft: ${R.euro(betrag)} gebucht`, rueckgaengig: (d) => { d.buchungen = d.buchungen.filter((b) => b.id !== buchungId); const x = d.wuensche.find((y) => y.id === w.id); x.status = 'geplant'; delete x.bezahlt; } });
+}
+
 function gehaltEbene(s) {
   const g = gehalt();
   const ist = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
@@ -2351,6 +2907,7 @@ function bindeEreignisse() {
     f(el, ev);
   });
   document.addEventListener('input', (ev) => {
+    if (ev.target.id === 'vf-text') { z.vf.text = ev.target.value; const l = document.getElementById('vf-liste'); if (l) l.innerHTML = verlaufListe(); return; }
     const el = ev.target.closest('[data-feld]');
     const eb = oben();
     if (!el || !eb) return;
@@ -2361,6 +2918,8 @@ function bindeEreignisse() {
     const oh = document.getElementById('of-hinweis');
     if (oh && el.dataset.offen !== undefined) oh.textContent = offenHinweis(eb.entwurf || eb, el.dataset.offen === '1');
     if (eb.art === 'gehaltsrechner') { if (el.dataset.ganz) renderEbenen(); else grAktualisieren(); }
+    const szh = document.getElementById('sz-hinweis');
+    if (szh && eb.art === 'sparkonto') szh.textContent = sparzielSatz(sparzielEntwurf(eb.entwurf));
     const th = document.getElementById('tl-hinweis');
     if (th && (el.dataset.teilen || el.dataset.feld === 'betragText')) th.textContent = teilHinweis(eb.entwurf || eb);
     if (eb.art === 'einfuehrung') {
@@ -2369,7 +2928,37 @@ function bindeEreignisse() {
       if (ah) ah.textContent = E.anteilHinweis(eb.listen[m[1]][Number(m[2])], zahl);
     }
   });
+  document.addEventListener('change', (ev) => {
+    const el = ev.target.closest('[data-a-wechsel]');
+    if (el && AKTION[el.dataset.aWechsel]) AKTION[el.dataset.aWechsel](el);
+  });
+  document.getElementById('dienste-datei').addEventListener('change', async (ev) => {
+    const datei = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!datei) return;
+    const r = DI.diensteAusDatei(await datei.text());
+    if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
+    const alt = schichtarten();
+    // Schichtarten nur aus den letzten 6 Monaten ableiten – alte Uhrzeiten sollen nicht versehentlich wieder auftauchen
+    const ab = R.ymPlus(heuteYm(), -6);
+    const arten = DI.schichtartenAus(r.dienste.filter((x) => x.d.slice(0, 7) >= ab), alt);
+    oeffne({ art: 'dienste-import', dienste: r.dienste, monate: r.monate, arten, neueArten: arten.filter((a) => !alt.some((x) => x.k === a.k)).map((a) => a.k) });
+  });
+  document.getElementById('mue-datei').addEventListener('change', async (ev) => {
+    const datei = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!datei) return;
+    let zeilen;
+    try { zeigeToast('Lese die Monatsübersicht …', null, 'info'); zeilen = await pdfZeilen(datei); }
+    catch (e) { zeigeToast('Die PDF-Datei lässt sich nicht lesen. Trag die Stunden bitte von Hand ein („Stunden laut Arbeitgeber“).', null, 'fehler'); haptik('fehler'); return; }
+    const r = DI.monatsuebersichtLesen(zeilen);
+    if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
+    const a = DI.diensteAusUebersicht(r.dienste, schichtarten());
+    z.toast = null;
+    oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten: DI.schichtartenAus(a.fertig.filter((x) => x.frei || (/:(00|15|30|45)$/.test(x.von) && /:(00|15|30|45)$/.test(x.bis))), schichtarten()) });
+  });
   document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.id === 'vf-text') { ev.target.blur(); return; }
     if (ev.key === 'Escape' && z.ebenen.length && oben().art !== 'start') schliessen();
   });
   document.getElementById('import-datei').addEventListener('change', async (ev) => {
@@ -2411,4 +3000,6 @@ function aktualisiereZusammenfassung() {
   // geteilte Kosten: Felder ein-/ausblenden, wenn der Anteil unter 100 % fällt (Eingaben bleiben im Entwurf)
   const gn = tmp.querySelector('[data-geteilt]'), ga = document.querySelector('[data-geteilt]');
   if (gn && ga && gn.innerHTML !== ga.innerHTML && !ga.contains(document.activeElement)) ga.innerHTML = gn.innerHTML;
+  const an = tmp.querySelector('[data-giltab]'), aa = document.querySelector('[data-giltab]');
+  if (an && aa && an.innerHTML !== aa.innerHTML) aa.innerHTML = an.innerHTML;
 }
