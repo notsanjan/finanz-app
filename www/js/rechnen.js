@@ -64,6 +64,30 @@ export function betragAendern(fk, werte, ab) {
   Object.assign(fk, werte);
   return fk;
 }
+// v33: Betrag im Lauf der Zeit – Abschnitte { von, bis, betrag (eigener Anteil), jetzt, geplant }; von/bis null = offen
+export function betragVerlauf(fk, h) {
+  const liste = [...(fk.frueher || [])].filter((x) => x && x.bis).sort((a, b) => (a.bis < b.bis ? -1 : 1));
+  const teile = [];
+  let von = null;
+  const anteil = (x) => (x.meinAnteil == null ? fk.meinAnteil : x.meinAnteil);
+  for (const x of liste) { teile.push({ von, bis: x.bis, betrag: eigenerBetrag({ betrag: x.betrag, meinAnteil: anteil(x) }), voll: Number(x.betrag) || 0 }); von = ymPlus(x.bis, 1); }
+  teile.push({ von, bis: null, betrag: eigenerBetrag({ betrag: fk.betrag, meinAnteil: fk.meinAnteil }), voll: Number(fk.betrag) || 0 });
+  return teile.map((t) => Object.assign(t, { jetzt: (!t.von || t.von <= h) && (!t.bis || t.bis >= h), geplant: !!t.von && t.von > h }));
+}
+// Nächste geplante Änderung ab Monat h: { ab, betrag } oder null
+export function geplanteAenderung(fk, h) {
+  const t = betragVerlauf(fk, h).find((x) => x.geplant);
+  return t ? { ab: t.von, betrag: t.betrag } : null;
+}
+// Geplante Änderungen verwerfen: der Betrag von Monat h gilt wieder dauerhaft
+export function geplanteVerwerfen(fk, h) {
+  const jetzt = betragIm(fk, h);
+  fk.betrag = Number(jetzt.betrag) || 0;
+  if (jetzt.meinAnteil != null) fk.meinAnteil = jetzt.meinAnteil;
+  fk.frueher = (fk.frueher || []).filter((x) => x && x.bis < h);
+  if (!fk.frueher.length) delete fk.frueher;
+  return fk;
+}
 
 // Monate (1–12), in denen abgebucht wird
 export function abbuchungsMonate(fk) {
@@ -87,6 +111,41 @@ export function wirdAbgebuchtIm(fk, s) {
 
 // Abbuchungstag im Monat s (31. im Februar → letzter Tag)
 export function abbuchungsTag(fk, s) { return Math.min(fk.tag || 1, tageImMonat(s)); }
+
+// ---------- v33: Bankarbeitstage ----------
+// SEPA-Lastschriften werden nur an TARGET-Geschäftstagen gebucht: nicht am Wochenende, nicht an Neujahr,
+// Karfreitag, Ostermontag, 1. Mai, 25. und 26. Dezember (Deutsche Bundesbank, Merkblatt Feiertage).
+// Fällt der Tag darauf, wird am nächsten Geschäftstag abgebucht.
+function ostersonntag(j) {
+  const a = j % 19, b = Math.floor(j / 100), c = j % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const monat = Math.floor((h + l - 7 * m + 114) / 31), tag = ((h + l - 7 * m + 114) % 31) + 1;
+  return new Date(j, monat - 1, tag, 12);
+}
+const isoTag = (d) => d.getFullYear() + '-' + zweistellig(d.getMonth() + 1) + '-' + zweistellig(d.getDate());
+const targetCache = {};
+function targetFrei(jahr) {
+  if (!targetCache[jahr]) {
+    const o = ostersonntag(jahr); const plus = (n) => { const d = new Date(o); d.setDate(d.getDate() + n); return isoTag(d); };
+    targetCache[jahr] = new Set([jahr + '-01-01', plus(-2), plus(1), jahr + '-05-01', jahr + '-12-25', jahr + '-12-26']);
+  }
+  return targetCache[jahr];
+}
+export function istBankTag(datum) {
+  const d = new Date(datum + 'T12:00:00'); const w = d.getDay();
+  return w !== 0 && w !== 6 && !targetFrei(d.getFullYear()).has(datum);
+}
+// Tag, an dem wirklich abgebucht wird (gleich oder später)
+export function bankTag(datum) {
+  const d = new Date(datum + 'T12:00:00');
+  for (let i = 0; i < 10 && !istBankTag(isoTag(d)); i++) d.setDate(d.getDate() + 1);
+  return isoTag(d);
+}
+// Fälligkeit und echter Abbuchungstag einer Fixkoste im Monat s
+export function abbuchungIm(fk, s) {
+  const faellig = s + '-' + zweistellig(abbuchungsTag(fk, s));
+  return { faellig, gebucht: bankTag(faellig) };
+}
 
 // Monatsanteil, der in den anderen Monaten zurückgelegt wird
 export function monatsAnteil(fk, s) { return eigenerBetrag(fk, s) / (RHYTHMUS[fk.wieOft] || 1); }
@@ -262,7 +321,7 @@ export function sparratenExtern(daten) { return (daten.sparraten || []).filter((
 const istMonatlich = (f) => (RHYTHMUS[f.wieOft] || 1) === 1;
 
 export function empfohleneRuecklage(daten, s) {
-  const summe = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && laeuftIm(f, s)).reduce((a, f) => a + monatsAnteil(f), 0);
+  const summe = (daten.fixkosten || []).filter((f) => !istMonatlich(f) && laeuftIm(f, s)).reduce((a, f) => a + monatsAnteil(f, s), 0);
   return Math.ceil(summe / 5) * 5;
 }
 
@@ -276,7 +335,7 @@ function ruecklageBewegungen(daten, rk, von, bis, abStand = false) {
     for (const u of uebertraegeIm(daten, s, rk.id)) if ((u.datum > von || (abStand && uebertragNachStand(rk, u))) && u.datum <= bis) liste.push({ datum: u.datum, betrag: Number(u.betrag) || 0 });
     for (const f of daten.fixkosten || []) {
       if (istMonatlich(f) || !wirdAbgebuchtIm(f, s)) continue;
-      const d = s + '-' + zweistellig(abbuchungsTag(f, s));
+      const d = abbuchungIm(f, s).gebucht;
       if (d > von && d <= bis) liste.push({ datum: d, betrag: -eigenerBetrag(f, s), fixkosten: f });
     }
     s = ymPlus(s, 1);
@@ -495,12 +554,13 @@ export function jahresUeberblick(daten, abMonat, anzahl = 12) {
 // ---------- Nächste Abbuchungen (für das Fixkosten-Widget, gleiche Regel wie in Kotlin) ----------
 export function naechsteAbbuchungen(daten, heute) {
   const ergebnis = [];
-  let s = ymAus(heute);
-  for (let i = 0; i < 13; i++) {
+  // ab dem Vormonat: Ein Termin am Monatsende kann wegen des Wochenendes erst im neuen Monat abgebucht werden
+  let s = ymPlus(ymAus(heute), -1);
+  for (let i = 0; i < 14; i++) {
     for (const f of daten.fixkosten || []) {
       if (!wirdAbgebuchtIm(f, s)) continue;
-      const datum = s + '-' + zweistellig(abbuchungsTag(f, s));
-      if (datum >= heute) ergebnis.push({ datum, fixkosten: f, betrag: eigenerBetrag(f, s) });
+      const { faellig, gebucht } = abbuchungIm(f, s);
+      if (gebucht >= heute) ergebnis.push({ datum: gebucht, faellig, verschoben: gebucht !== faellig, fixkosten: f, betrag: eigenerBetrag(f, s) });
     }
     s = ymPlus(s, 1);
   }
@@ -508,7 +568,8 @@ export function naechsteAbbuchungen(daten, heute) {
 }
 
 export function fixkostenProMonat(daten) {
-  return (daten.fixkosten || []).filter((f) => laeuftIm(f, ymAus(datumText(new Date())))).reduce((a, f) => a + monatsAnteil(f), 0);
+  const h = ymAus(datumText(new Date()));
+  return (daten.fixkosten || []).filter((f) => laeuftIm(f, h)).reduce((a, f) => a + monatsAnteil(f, h), 0);
 }
 
 // ---------- Monatsende ----------

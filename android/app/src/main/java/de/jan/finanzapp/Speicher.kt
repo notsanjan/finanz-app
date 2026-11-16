@@ -155,6 +155,31 @@ object Logik {
 
     fun abbuchungsTag(f: JSONObject, ym: String) = min(f.optInt("tag", 1).coerceAtLeast(1), tageImMonat(ym))
 
+    // v33: SEPA-Lastschriften nur an TARGET-Geschäftstagen (gleiche Regel wie rechnen.js → bankTag)
+    private fun ostersonntag(j: Int): Calendar {
+        val a = j % 19; val b = j / 100; val c = j % 100; val d = b / 4; val e = b % 4; val f = (b + 8) / 25; val g = (b - f + 1) / 3
+        val h = (19 * a + b - d - g + 15) % 30; val i = c / 4; val k = c % 4; val l = (32 + 2 * e + 2 * i - h - k) % 7; val m = (a + 11 * h + 22 * l) / 451
+        val monat = (h + l - 7 * m + 114) / 31; val tag = ((h + l - 7 * m + 114) % 31) + 1
+        val cal = Calendar.getInstance(); cal.clear(); cal.set(j, monat - 1, tag, 12, 0); return cal
+    }
+    private fun isoTag(c: Calendar) = String.format(Locale.ROOT, "%04d-%02d-%02d", c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+    private fun targetFrei(j: Int): Set<String> {
+        val o = ostersonntag(j)
+        val kf = o.clone() as Calendar; kf.add(Calendar.DAY_OF_MONTH, -2)
+        val om = o.clone() as Calendar; om.add(Calendar.DAY_OF_MONTH, 1)
+        return setOf("$j-01-01", isoTag(kf), isoTag(om), "$j-05-01", "$j-12-25", "$j-12-26")
+    }
+    fun bankTag(datum: String): String {
+        val c = Calendar.getInstance(); c.clear()
+        c.set(datum.substring(0, 4).toInt(), datum.substring(5, 7).toInt() - 1, datum.substring(8, 10).toInt(), 12, 0)
+        for (n in 0 until 10) {
+            val w = c.get(Calendar.DAY_OF_WEEK)
+            if (w != Calendar.SATURDAY && w != Calendar.SUNDAY && !targetFrei(c.get(Calendar.YEAR)).contains(isoTag(c))) break
+            c.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        return isoTag(c)
+    }
+
     fun fixkostenListe(d: JSONObject): List<JSONObject> {
         val a = d.optJSONArray("fixkosten") ?: return emptyList()
         return (0 until a.length()).map { a.getJSONObject(it) }
@@ -169,13 +194,13 @@ object Logik {
 
     fun naechsteAbbuchungen(d: JSONObject): List<Abbuchung> {
         val heute = heuteText()
-        var ym = monatText()
+        var ym = ymPlus(monatText(), -1)
         val liste = mutableListOf<Abbuchung>()
         val alle = fixkostenListe(d)
-        for (i in 0 until 13) {
+        for (i in 0 until 14) {
             for (f in alle) {
                 if (!wirdAbgebuchtIm(f, ym)) continue
-                val datum = ym + "-" + String.format(Locale.ROOT, "%02d", abbuchungsTag(f, ym))
+                val datum = bankTag(ym + "-" + String.format(Locale.ROOT, "%02d", abbuchungsTag(f, ym)))
                 if (datum >= heute) liste.add(Abbuchung(datum, f.optString("name"), eigenerBetrag(f, ym), schritt(f) == 1))
             }
             ym = ymPlus(ym, 1)

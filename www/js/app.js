@@ -7,10 +7,12 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v32';
+export const APP_VERSION = 'finanz-v33';
 const NEU_IN_VERSION = [
-  'Einnahmen: Eigene Namen (z. B. „Lehrgang“) merkt sich die App und zeigt sie beim nächsten Mal als Knopf ganz vorne. ✕ am Knopf entfernt ihn wieder',
-  'Einrichtung: Hinweis für unregelmäßige Einnahmen – hier weglassen und eintragen, wenn Geld kommt (＋ → „+ Einnahme“)'
+  'Fixkosten: Eine Erhöhung lässt sich jetzt für einen späteren Monat planen („Neuer Betrag gilt ab“ → „Später“ → Monat wählen). Im Fenster steht der Verlauf: früher, jetzt, geplant',
+  'Einrichtung: Eigene Posten stehen oben bei den Knöpfen; schon eingetragene eigene Fixkosten erscheinen als „schon da · ändern“',
+  'Einrichtung: „Später weitermachen“ – die App merkt sich, wo du warst',
+  'Abbuchungen am Wochenende oder an Bank-Feiertagen (Neujahr, Karfreitag, Ostermontag, 1. Mai, Weihnachten) zeigt die App am nächsten Bankarbeitstag – auch im Fixkosten-Widget'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -101,8 +103,14 @@ export async function start() {
   z.monat = heuteYm();
   bindeEreignisse();
   if (!z.daten) { z.daten = D.leereDaten(); z.ebenen.push({ art: 'start' }); }
-  else { zeigeNeuigkeiten(); if (DI.schaetzWerteSetzen(z.daten, heuteYm())) D.speichern(z.daten); }
+  else {
+    zeigeNeuigkeiten(); if (DI.schaetzWerteSetzen(z.daten, heuteYm())) D.speichern(z.daten);
+    // v33: Erste Einrichtung zwischengespeichert → gleich dort weitermachen
+    const ent = z.daten.einstellungen.einrichtungEntwurf;
+    if (ent && ent.erstStart) z.ebenen = [efAusEntwurf(ent)];
+  }
   render();
+  document.addEventListener('visibilitychange', () => { if (document.hidden && z.ebenen.length && oben().art === 'einfuehrung') efMerken(oben(), false); });
   await pruefeAuftrag();
   pruefeMonatsende();
   D.beiAuftrag(() => pruefeAuftrag());
@@ -484,7 +492,7 @@ function monatAnsicht() {
     : `<button class="knopf klein rund leise" style="width:36px" data-a="bearbeiten-an" aria-label="Übersicht bearbeiten">${ICON.stift}</button>`}</div>`;
   const dazu = bearbeiten ? `<button class="kachel kachel-neu" data-a="kachel-katalog" aria-label="Kachel hinzufügen">${ICON.plus}<span>Kachel hinzufügen</span></button>` : '';
   const vk = (z.vorschlaege || []).length && !bearbeiten && z.monat === heuteYm() ? `<button class="karte vorschlag-karte" data-a="vorschlaege"><span class="vk-glocke">🔔</span><span class="mitte"><b>${z.vorschlaege.length === 1 ? '1 Zahlung erkannt' : z.vorschlaege.length + ' Zahlungen erkannt'} <span class="beta">BETA</span></b><span class="klein">Antippen zum Prüfen und Buchen</span></span>${ICON.rechts}</button>` : '';
-  const gf = (!bearbeiten && z.monat === heuteYm() && hinweisAn('gehalt') ? gehaltFrageKarte() : '') + (!bearbeiten && z.monat === heuteYm() ? konsumRestKarte() : '');
+  const gf = (!bearbeiten && z.monat === heuteYm() && hinweisAn('gehalt') ? gehaltFrageKarte() : '') + (!bearbeiten && z.monat === heuteYm() ? konsumRestKarte() + efFortsetzenKarte() : '');
   const sk = !bearbeiten && z.monat === heuteYm() ? sicherungKarte() : '';
   return t.nav + t.freiKarte + gf + vk + sk + budgetLeiste(s) + leiste + `<div class="kacheln ${bearbeiten ? 'im-bearbeiten' : ''}" id="kacheln">${kacheln}${dazu}</div>
     ${bearbeiten ? `<p class="kachel-tipp">${z.gewaehlt ? 'An den Punkten ziehen: links/rechts = breit oder schmal' + (AUFKLAPPBAR.has(z.gewaehlt) ? ', oben/unten = auf- oder zuklappen' : '') + '.' : 'Kachel antippen, um die Größe zu ändern.'} Lang drücken und ziehen verschiebt · ✕ entfernt</p>` : ''}
@@ -586,6 +594,14 @@ const PFEIL = '<svg class="pfeil" aria-hidden="true" width="18" height="18" view
 const STIFT_KLEIN = '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>';
 const mitEmoji = (k) => (k && k.emoji ? k.emoji + ' ' : '');
 
+// v33: „· ab Jan: 395 €“, wenn eine Änderung nach dem Monat s geplant ist
+// v33: Fällt der Termin aufs Wochenende oder einen Bank-Feiertag: „· gebucht Mo 3.“
+const WT = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+function bankText(f, s) {
+  const a = R.abbuchungIm(f, s); if (a.gebucht === a.faellig) return '';
+  return esc(` · gebucht ${WT[new Date(a.gebucht + 'T12:00:00').getDay()]} ${Number(a.gebucht.slice(8))}.${R.ymAus(a.gebucht) !== s ? ' ' + R.MONATE_KURZ[Number(a.gebucht.slice(5, 7)) - 1] : ''}`);
+}
+function planText(f, s) { const p = R.geplanteAenderung(f, s); return p ? esc(` · ab ${R.MONATE_KURZ[R.ymTeile(p.ab).monat - 1]}: ${R.euro(p.betrag)}`) : ''; }
 function ausgabenHtml(r, s) {
   const kurz = R.MONATE_KURZ[R.ymTeile(s).monat - 1];
   const proMonat = !!z.daten.einstellungen.ansichtProMonat;
@@ -596,9 +612,9 @@ function ausgabenHtml(r, s) {
     return R.MONATE_KURZ[m - 1];
   };
   const fixZeile = (p) => p.faellig
-    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}</small>${geteiltHtml(p.fixkosten)}</span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`
+    ? `<button class="posten" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${esc(p.wann)}${bankText(p.fixkosten, s)}${planText(p.fixkosten, s)}</small>${geteiltHtml(p.fixkosten)}</span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`
     : `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}</small></span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`;
-  const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}</small></span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`;
+  const rkZeile = (p) => `<button class="posten grau" data-a="fixkosten" data-id="${esc(p.fixkosten.id)}" aria-label="${esc(p.fixkosten.name)} bearbeiten"><span class="t"><span class="n">${esc(p.fixkosten.name)}</span><small>${p.faellig ? `diesen Monat am ${R.abbuchungsTag(p.fixkosten, s)}. · aus der Rücklage` : `im ${naechsteFaelligkeit(p.fixkosten)} · ${esc(R.RHYTHMUS_TEXT[p.fixkosten.wieOft] || '')}`}${p.faellig ? bankText(p.fixkosten, s) : ''}${planText(p.fixkosten, s)}</small></span><span class="b">${betragHtml(p.fixkosten, rausZ(p.betrag))}</span>${PFEIL}</button>`;
   const budgetZeile = (p) => {
     const pct = p.budget > 0 ? Math.min(100, p.ausgegeben / p.budget * 100) : 0;
     const ueber = p.budget > 0 && p.ausgegeben > p.budget;
@@ -746,7 +762,7 @@ function verlaufListe() {
       for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag${vonName(u)} aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
-          const d2 = s + '-' + R.zweistellig(R.abbuchungsTag(f, s));
+          const d2 = R.abbuchungIm(f, s).gebucht;
           if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f, s)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(d2)}` });
         }
       }
@@ -893,6 +909,28 @@ function eintragenWahl(art) {
   return `<div class="ansicht-wahl vier">${[['ausgabe', '− Ausgabe'], ['einnahme', '+ Einnahme'], ['uebertrag', '⇄ Übertrag'], ['abo', '↻ Abo']].map(([w, t]) => `<button data-a="et-art" data-wert="${w}" aria-pressed="${art === w}">${t}</button>`).join('')}</div>`;
 }
 function alleKonten() { return [R.ruecklage(z.daten), R.konsumKonto(z.daten)].concat(R.sparratenNormal(z.daten), R.sparratenExtern(z.daten)).filter(Boolean); }
+// ---------- v33: Einrichtung zwischenspeichern ----------
+const EF_FELDER = ['erstStart', 'schritt', 'gehalt', 'listen', 'einnahmen', 'ausgeblendet', 'kategorieWeg', 'ruecklage', 'sparen', 'budgets'];
+function efEntwurf(eb) { const o = { gespeichert: new Date().toISOString(), mitBasis: !!eb.basis }; for (const k of EF_FELDER) o[k] = kopie(eb[k]); return o; }
+function efAusEntwurf(ent) {
+  const basis = ent.mitBasis ? D.leereDaten() : null;
+  const eb = E.neueEinfuehrung(basis || z.daten, !!ent.erstStart);
+  for (const k of EF_FELDER) if (ent[k] !== undefined) eb[k] = kopie(ent[k]);
+  eb.schritt = Math.min(Math.max(0, Number(eb.schritt) || 0), E.SCHRITTE.length - 1);
+  if (basis) eb.basis = basis;
+  return eb;
+}
+async function efMerken(eb, laut) {
+  const ent = efEntwurf(eb);
+  if (laut) await aendern((d) => { d.einstellungen.einrichtungEntwurf = ent; }, { text: 'Zwischengespeichert · weiter über „Einrichtung fortsetzen“' });
+  else { z.daten.einstellungen.einrichtungEntwurf = ent; try { await D.speichern(z.daten); } catch (e) { /* still: beim nächsten Schritt wieder */ } }
+}
+function efFortsetzenKarte() {
+  const ent = z.daten.einstellungen.einrichtungEntwurf; if (!ent) return '';
+  const wann = ent.gespeichert ? new Date(ent.gespeichert).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' }) + ' ' + new Date(ent.gespeichert).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `<section class="karte gehalt-frage ef-fortsetzen"><div class="gf-kopf"><span class="gf-symbol" aria-hidden="true">🧭</span><span class="t"><b>Einrichtung angefangen</b><small>Schritt ${(Number(ent.schritt) || 0) + 1} von ${E.SCHRITTE.length - 1}${wann ? ' · gespeichert ' + esc(wann) : ''}</small></span></div>
+    <div class="zwei"><button class="knopf haupt" data-a="ef-fortsetzen">Fortsetzen</button><button class="knopf" data-a="ef-verwerfen">Verwerfen</button></div></section>`;
+}
 function konsumNamen() { return R.konsumKategorien(z.daten).map((k) => mitEmoji(k) + k.name).join(', '); }
 const kurzDatum = (d) => Number(d.slice(8, 10)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1];
 
@@ -1259,6 +1297,28 @@ function vfKopf() {
 }
 
 // ---------- v27: Fixkosten „gilt ab“ ----------
+function giltAbMonat(f) {
+  const h = heuteYm();
+  if (f.giltAb === 'immer') return null;
+  if (f.giltAb === 'naechster') return R.ymPlus(h, 1);
+  if (f.giltAb === 'spaeter') return f.giltAbMonat && f.giltAbMonat > R.ymPlus(h, 1) ? f.giltAbMonat : R.ymPlus(h, 2);
+  return h;
+}
+// v33: Betrag im Lauf der Zeit (früher, jetzt, geplant)
+function betragVerlaufHtml(eb) {
+  const gespeichert = eb.id && z.daten.fixkosten.find((x) => x.id === eb.id);
+  const fk = gespeichert && Object.assign({}, gespeichert, Array.isArray(eb.entwurf.frueher) ? { frueher: eb.entwurf.frueher } : {});
+  if (!fk || !(fk.frueher || []).length) return '';
+  const h = heuteYm();
+  const mj = (m) => monatJahr(m, true);
+  const zeilen = R.betragVerlauf(fk, h).map((t) => {
+    const wann = !t.von ? `bis ${mj(t.bis)}` : !t.bis ? `ab ${mj(t.von)}` : t.von === t.bis ? mj(t.von) : `${mj(t.von)} – ${mj(t.bis)}`;
+    return `<div class="bv-zeile ${t.jetzt ? 'jetzt' : ''} ${t.geplant ? 'geplant' : ''}"><span>${esc(wann)}${t.jetzt ? ' <small>jetzt</small>' : t.geplant ? ' <small>geplant</small>' : ''}</span><b>${rausZ(t.betrag)}</b></div>`;
+  }).join('');
+  const plan = R.geplanteAenderung(fk, h);
+  return `<div class="bv"><div class="label">Betrag im Lauf der Zeit</div>${zeilen}
+    <div class="bv-knoepfe">${plan ? '<button class="knopf klein leise" data-a="fk-plan-weg">Geplante Änderung löschen</button>' : ''}<button class="knopf klein leise" data-a="fk-frueher-weg">Verlauf vergessen</button></div></div>`;
+}
 function giltAbHtml(eb) {
   const f = eb.entwurf;
   if (!eb.id || f.unbekannt || eb.warOffen) return '';
@@ -1266,11 +1326,16 @@ function giltAbHtml(eb) {
   if (isNaN(betrag) || betrag <= 0 || anteil == null) return '';
   if (Math.abs(betrag - eb.altBetrag) <= 0.004 && Math.abs(anteil - eb.altAnteil) <= 0.004) return '';
   const h = heuteYm(), n = R.ymPlus(h, 1), w = f.giltAb || 'jetzt';
-  const alt = R.euro(Math.round(eb.altBetrag * eb.altAnteil) / 100);
+  const ab = giltAbMonat(f);
+  // v33: alter Betrag = der, der im Monat vor „ab“ gilt (bei geplanter Änderung nicht der künftige)
+  const fk = z.daten.fixkosten.find((x) => x.id === eb.id);
+  const alt = R.euro(Math.round((fk && ab ? R.eigenerBetrag(fk, R.ymPlus(ab, -1)) : eb.altBetrag * eb.altAnteil / 100) * 100) / 100);
   const satz = w === 'immer' ? 'Auch vergangene Monate rechnen dann mit dem neuen Betrag.'
-    : `Bis ${monatJahr(R.ymPlus(w === 'naechster' ? n : h, -1), true)} bleibt es bei ${alt}. Vergangene Monate ändern sich nicht.`;
+    : `Bis ${monatJahr(R.ymPlus(ab, -1), true)} bleibt es bei ${alt}.${w === 'spaeter' ? ' Bis dahin ändert sich nichts, die Erhöhung ist geplant.' : ' Vergangene Monate ändern sich nicht.'}`;
+  const monate = Array.from({ length: 23 }, (_, i) => R.ymPlus(h, i + 2));
   return `<div class="giltab"><div class="label">Neuer Betrag gilt ab</div>
-    <div class="wahl drei">${wahlKnopf('fk-giltab', 'jetzt', R.MONATE_KURZ[R.ymTeile(h).monat - 1] + ' (jetzt)', w === 'jetzt')}${wahlKnopf('fk-giltab', 'naechster', R.MONATE_KURZ[R.ymTeile(n).monat - 1], w === 'naechster')}${wahlKnopf('fk-giltab', 'immer', 'schon immer', w === 'immer')}</div>
+    <div class="wahl vier-gilt">${wahlKnopf('fk-giltab', 'jetzt', R.MONATE_KURZ[R.ymTeile(h).monat - 1] + ' (jetzt)', w === 'jetzt')}${wahlKnopf('fk-giltab', 'naechster', R.MONATE_KURZ[R.ymTeile(n).monat - 1], w === 'naechster')}${wahlKnopf('fk-giltab', 'spaeter', 'Später', w === 'spaeter')}${wahlKnopf('fk-giltab', 'immer', 'schon immer', w === 'immer')}</div>
+    ${w === 'spaeter' ? `<div class="feld"><label for="fk-ab">Ab Monat</label><select id="fk-ab" class="eingabe" data-feld="giltAbMonat" data-neu-zeichnen="1">${monate.map((m) => `<option value="${m}" ${ab === m ? 'selected' : ''}>${esc(monatJahr(m))}</option>`).join('')}</select></div>` : ''}
     <p class="hinweistext">${esc(satz)}</p></div>`;
 }
 
@@ -1776,18 +1841,18 @@ const EBENEN = {
         <div data-geteilt>${geteiltFelder(f)}</div>
         <div class="feld"><label for="fk-konto">Abgebucht von Konto (optional)</label><input id="fk-konto" class="eingabe" data-feld="konto" value="${esc(f.konto || '')}" placeholder="z. B. Girokonto ••4417"></div>
         <div class="feld"><label for="fk-ende">Endet am (z. B. gekündigt zum)</label><input id="fk-ende" class="eingabe" type="date" data-feld="endetAm" value="${esc(f.endetAm || '')}"></div>
-        ${(f.frueher || []).length ? `<div class="frueher"><div class="label">Frühere Beträge</div>${[...f.frueher].sort((a, b) => (a.bis < b.bis ? -1 : 1)).map((x) => `<div class="gr-zeile"><span>bis ${esc(R.MONATE_KURZ[R.ymTeile(x.bis).monat - 1])} ${R.ymTeile(x.bis).jahr}</span><b>${R.euro(R.eigenerBetrag({ betrag: x.betrag, meinAnteil: x.meinAnteil == null ? f.meinAnteil : x.meinAnteil }))}</b></div>`).join('')}<button class="knopf klein leise" data-a="fk-frueher-weg">Frühere Beträge vergessen</button></div>` : ''}
         <div class="feld"><label for="fk-frist">Kündigungsfrist</label><select id="fk-frist" class="eingabe" data-feld="kuendigungsfrist">${[['', 'keine / weiß nicht'], ['2w', '2 Wochen'], ['1m', '1 Monat'], ['3m', '3 Monate']].map(([w, t]) => `<option value="${w}" ${(f.kuendigungsfrist || '') === w ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       </section>` : '';
     return seite(eb.id ? (f.abo ? 'Abo bearbeiten' : 'Fixkosten bearbeiten') : (f.abo ? 'Neues Abo' : 'Neue Fixkosten'), `
       <section class="karte">
         <div class="feld"><label for="fk-name">Name</label><input id="fk-name" class="eingabe" data-feld="name" value="${esc(f.name)}" placeholder="${f.abo ? 'z. B. Netflix' : 'z. B. Kfz-Versicherung'}" autocomplete="off"></div>
         <div class="zwei">
-          <div class="feld"><label for="fk-betrag">Betrag</label>${f.unbekannt ? offenFeldAus : `<input id="fk-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" data-neu-zeichnen="1" value="${esc(f.betragText)}" placeholder="0 €">`}</div>
+          <div class="feld"><label for="fk-betrag">${(() => { const fk = eb.id && z.daten.fixkosten.find((x) => x.id === eb.id); const p = fk && R.geplanteAenderung(fk, heuteYm()); return p ? 'Betrag ab ' + esc(monatJahr(p.ab, true)) : 'Betrag'; })()}</label>${f.unbekannt ? offenFeldAus : `<input id="fk-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" data-neu-zeichnen="1" value="${esc(f.betragText)}" placeholder="0 €">`}</div>
           <div class="feld"><span class="label">Kategorie</span><button class="eingabe" style="display:flex;align-items:center;gap:8px;text-align:left" data-a="fk-kategorie"><i class="punkt" style="background:${kat ? kat.farbe : '#888'}"></i>${esc(kat ? kat.name : 'wählen')}</button></div>
         </div>
         ${f.unbekannt ? offenKasten(f, true) : OFFEN_LINK}
         <div data-giltab>${giltAbHtml(eb)}</div>
+        ${betragVerlaufHtml(eb)}
       </section>
       <section class="karte">
         <div class="label">Wie oft wird abgebucht?</div>
@@ -2141,7 +2206,14 @@ const AKTION = {
   'vf-wahl': (el) => { const f = el.dataset.feld; z.vf[f] = z.vf[f] === el.dataset.wert ? '' : el.dataset.wert; if (f === 'kategorieId') z.vf.ort = ''; haptik('tick'); render(); },
   'vf-leer': () => { z.vf = { text: '', kategorieId: '', monat: '', ort: '', auf: false }; render(); },
   'fk-giltab': (el) => { oben().entwurf.giltAb = el.dataset.wert; haptik('tick'); const a = document.querySelector('[data-giltab]'); if (a) a.innerHTML = giltAbHtml(oben()); },
-  'fk-frueher-weg': () => { oben().entwurf.frueher = []; renderEbenen(); zeigeToast('Frühere Beträge werden beim Speichern vergessen', null, 'info'); },
+  'fk-plan-weg': async () => {
+    const eb = oben(); const fk = z.daten.fixkosten.find((x) => x.id === eb.id); if (!fk) return;
+    const vorher = kopie(fk); const plan = R.geplanteAenderung(fk, heuteYm());
+    z.ebenen.pop();
+    await aendern((d) => { const x = d.fixkosten.find((y) => y.id === fk.id); R.geplanteVerwerfen(x, heuteYm()); },
+      { text: `${fk.name}: Änderung ab ${monatsName(plan.ab)} gelöscht`, rueckgaengig: (d) => { const k = d.fixkosten.findIndex((y) => y.id === vorher.id); if (k >= 0) d.fixkosten[k] = vorher; } });
+  },
+  'fk-frueher-weg': () => { oben().entwurf.frueher = []; renderEbenen(); zeigeToast('Der Verlauf wird beim Speichern vergessen', null, 'info'); },
   quellen: () => {
     const eb = oben();
     const entwurf = eb && eb.art === 'gehaltsrechner' ? Object.assign({}, eb.entwurf) : Object.assign({}, DRK.STANDARD, z.daten.einstellungen.gehaltsrechner || {});
@@ -2442,6 +2514,7 @@ const AKTION = {
   // Start
   'start-einrichten': () => { z.daten = D.leereDaten(); z.daten.einstellungen.gesehenVersion = APP_VERSION; oeffne(E.neueEinfuehrung(z.daten, true)); },
   'einfuehrung-erneut': () => {
+    if (z.daten.einstellungen.einrichtungEntwurf) { AKTION['ef-fortsetzen'](); return; }
     // Mit Beispieldaten: von vorne mit leeren Daten, am Ende ersetzen die Angaben das Beispiel
     if (z.daten.beispiel) { const leer = D.leereDaten(); oeffne(Object.assign(E.neueEinfuehrung(leer, true), { basis: leer })); }
     else oeffne(E.neueEinfuehrung(z.daten, false));
@@ -2497,6 +2570,18 @@ const AKTION = {
   'ef-ein-weg': (el) => { oben().einnahmen.splice(Number(el.dataset.i), 1); renderEbenen(); },
   'ef-budget-an': (el) => { const b = oben().budgets[Number(el.dataset.i)]; b.an = !b.an; renderEbenen(); },
   'ef-budget-neu': () => { oben().budgets.push({ id: null, name: '', emoji: '', an: true, text: '', neu: true }); renderEbenen(); },
+  'ef-merken': async () => { const eb = oben(); z.ebenen = []; z.ansicht = 'monat'; await efMerken(eb, true); },
+  'ef-fortsetzen': () => { const ent = z.daten.einstellungen.einrichtungEntwurf; if (ent) oeffne(efAusEntwurf(ent)); },
+  'ef-verwerfen': async () => {
+    const alt = z.daten.einstellungen.einrichtungEntwurf;
+    await aendern((d) => { delete d.einstellungen.einrichtungEntwurf; }, { text: 'Angefangene Einrichtung verworfen', rueckgaengig: (d) => { d.einstellungen.einrichtungEntwurf = alt; } });
+  },
+  'ef-eigen-chip': (el) => {
+    haptik('tick');
+    const liste = oben().listen[el.dataset.liste]; const p = liste[Number(el.dataset.i)];
+    p.gewaehlt = !p.gewaehlt; if (p.gewaehlt) { efAndereEinklappen(liste, p); p.zu = false; }
+    oben().fehler = null; renderEbenen();
+  },
   'ef-weiter': async () => {
     const eb = oben();
     const fehler = E.pruefeSchritt(eb, zahl);
@@ -2509,12 +2594,14 @@ const AKTION = {
         await aendern((d) => {
           const neu = E.anwenden(kopie(eb.basis), eb, zahl);
           neu.einstellungen = Object.assign({}, d.einstellungen, { ausgeblendet: neu.einstellungen.ausgeblendet, abgeschlossen: [] });
+          delete neu.einstellungen.einrichtungEntwurf;
           Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, neu);
         }, { text: 'Eingerichtet, Beispieldaten ersetzt.', rueckgaengig: (d) => { Object.keys(d).forEach((k) => delete d[k]); Object.assign(d, vorher); } });
-      } else await aendern((d) => E.anwenden(d, eb, zahl), { text: 'Eingerichtet. Alles lässt sich antippen und ändern.' });
+      } else await aendern((d) => { E.anwenden(d, eb, zahl); delete d.einstellungen.einrichtungEntwurf; }, { text: 'Eingerichtet. Alles lässt sich antippen und ändern.' });
       return;
     }
     eb.schritt += 1; renderEbenen(); oben0();
+    efMerken(eb, false);
   },
   'ef-zurueck': () => { const eb = oben(); if (eb.schritt > 0) { eb.schritt -= 1; eb.fehler = null; renderEbenen(); oben0(); } else schliessen(); },
   'ef-ueberspringen': () => { const eb = oben(); eb.schritt = E.SCHRITTE.length - 1; eb.fehler = null; renderEbenen(); oben0(); },
@@ -2588,7 +2675,7 @@ const AKTION = {
     z.ebenen.pop();
     // v27: „gilt ab“ – alte Monate behalten den alten Betrag, außer bei „schon immer“
     const geaendert = !!eb.id && !o && !eb.warOffen && (Math.abs(betrag - eb.altBetrag) > 0.004 || Math.abs(anteil - eb.altAnteil) > 0.004);
-    const ab = !geaendert || f.giltAb === 'immer' ? null : f.giltAb === 'naechster' ? R.ymPlus(heuteYm(), 1) : heuteYm();
+    const ab = !geaendert ? null : giltAbMonat(f);
     await aendern((d) => {
       const i = d.fixkosten.findIndex((x) => x.id === fertig.id);
       let neu = fertig;

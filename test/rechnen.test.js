@@ -38,8 +38,9 @@ test('Rücklage: Stand wächst um die Rate und sinkt bei Abbuchung; Lücke wird 
   const d = daten();
   const rk = R.ruecklage(d);
   assert.equal(R.ruecklageStand(d, '2026-11-01'), rk.stand);
-  // 15.11.: Rundfunk 55 aus der Rücklage
-  assert.equal(R.ruecklageStand(d, '2026-11-15'), rk.stand - 55);
+  // Rundfunk 55 aus der Rücklage, fällig am 15.11. (Sonntag) → gebucht Montag 16.11. (v33)
+  assert.equal(R.ruecklageStand(d, '2026-11-15'), rk.stand);
+  assert.equal(R.ruecklageStand(d, '2026-11-16'), rk.stand - 55);
   assert.equal(R.ruecklageStand(d, '2026-12-01'), rk.stand - 55 + 75);
   assert.equal(R.ruecklageLuecke(d, '2026-11-12'), null);
   rk.stand = 0;
@@ -123,7 +124,8 @@ test('Fixkosten mit Ende und Anteil', () => {
 test('Nächste Abbuchungen ab 12. Nov', () => {
   const n = R.naechsteAbbuchungen(daten(), '2026-11-12');
   assert.equal(n[0].datum, '2026-11-12'); // Netflix am 12.
-  assert.equal(n[1].datum, '2026-11-15');
+  assert.equal(n[1].datum, '2026-11-16'); // fällig 15. (Sonntag) → Montag (v33)
+  assert.equal(n[1].faellig, '2026-11-15');
 });
 
 test('Abnahme 7: Export/Import-Datei', () => {

@@ -35,7 +35,11 @@ export function neueEinfuehrung(daten, erstStart) {
     gehalt: { text: g && g.betrag ? String(g.betrag).replace('.', ',') : '', kommtAn: g && g.kommtAn === 'Tag' ? 'Tag' : 'Monatsende', tag: String((g && g.ankunftTag) || 1) },
     listen: Object.fromEntries(LISTEN.map((l) => [l.id, l.vorschlaege.map((x) => Object.assign({}, x, {
       gewaehlt: false, vorhandenId: (vorhanden(l.id, x.name) || {}).id || null, betragText: '', monat: x.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, geteilt: false, meinText: '', teiltMit: ''
-    }))])),
+    })).concat(
+      // v33: schon eingetragene eigene Fixkosten dieser Kategorie erscheinen auch oben („schon da · ändern“)
+      (daten.fixkosten || []).filter((f) => f.kategorieId === l.id && !l.vorschlaege.some((x) => x.name.toLowerCase() === f.name.toLowerCase())).map((f) => ({
+        name: f.name, wieOft: f.wieOft, tag: f.tag || 1, abo: !!f.abo, gewaehlt: false, vorhandenId: f.id, betragText: '', monat: f.monat || R.ymTeile(R.ymAus(R.datumText(new Date()))).monat, geteilt: false, meinText: '', teiltMit: ''
+      })))])),
     einnahmen: [],
     // Vorschläge, die der Nutzer nicht hat („✕“), und Kategorien, die weg sollen
     ausgeblendet: [...((daten.einstellungen && daten.einstellungen.ausgeblendet) || [])],
@@ -134,7 +138,8 @@ export function einfuehrungHtml(eb, h) {
     const posten = eb.listen[l.id];
     const weg = (eb.ausgeblendet || []);
     const chips = posten.map((p, i) => {
-      if (p.eigen) return '';
+      // v33: eigene Posten stehen auch oben als Knopf (antippen = an/aus, ✕ an der Karte entfernt)
+      if (p.eigen) return String(p.name || '').trim() ? `<button class="chip ef-chip" data-a="ef-eigen-chip" data-liste="${l.id}" data-i="${i}" aria-pressed="${p.gewaehlt}">${p.gewaehlt ? '✓ ' : ''}${esc(p.name)}</button>` : '';
       if (p.vorhandenId && !p.gewaehlt) return `<button class="chip ef-chip da" data-a="ef-vorhanden" data-liste="${l.id}" data-i="${i}" aria-label="${esc(p.name)} ist schon eingetragen, antippen zum Ändern">✓ ${esc(p.name)} <small>schon da · ändern</small></button>`;
       const key = 'liste:' + l.id + ':' + p.name;
       if (!p.gewaehlt && weg.includes(key)) return '';
@@ -233,8 +238,8 @@ export function einfuehrungHtml(eb, h) {
 
   const zurueckText = eb.schritt === 0 ? (eb.erstStart ? 'Zurück' : 'Abbrechen') : 'Zurück';
   const weiterText = art === 'fertig' ? '✓ Fertig – alles speichern' : 'Weiter';
-  const speicherHinweis = art === 'fertig' ? '<p class="ef-speicher">Erst mit „Fertig“ wird alles gespeichert.</p>'
-    : `<p class="ef-speicher">${eb.schritt > 0 ? '✓ Gemerkt · ' : ''}gespeichert wird am Ende mit „Fertig“</p>`;
+  const speicherHinweis = art === 'fertig' ? '<p class="ef-speicher">Erst mit „Fertig“ wird alles in die App übernommen.</p>'
+    : `<div class="ef-speicher ef-merken-zeile"><span>${eb.schritt > 0 ? '✓ Zwischengespeichert · ' : ''}übernommen wird mit „Fertig“</span><button class="knopf klein leise" data-a="ef-merken">Später weitermachen</button></div>`;
   return `<div class="seite" role="dialog" aria-modal="true" aria-label="Einführung"><div class="seite-innen">
     <div class="ef-kopf"><span class="klein">${art === 'fertig' ? 'Geschafft' : `Schritt ${eb.schritt + 1} von ${gesamt}`}</span>${art === 'fertig' ? '' : '<button class="knopf klein leise" data-a="ef-ueberspringen">Alles überspringen</button>'}</div>
     <div class="ef-fortschritt" role="progressbar" aria-valuenow="${Math.round(fortschritt)}" aria-valuemin="0" aria-valuemax="100"><span style="width:${fortschritt}%"></span></div>

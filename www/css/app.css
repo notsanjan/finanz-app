@@ -782,3 +782,16 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .konsum-frage { display: flex; flex-direction: row; align-items: center; gap: 12px; width: 100%; text-align: left; border: 1px solid color-mix(in srgb, var(--konsum) 50%, transparent); background: color-mix(in srgb, var(--konsum) 8%, transparent); color: var(--text); margin-top: 12px; }
 .konsum-frage .mitte { flex: 1; display: flex; flex-direction: column; gap: 2px; font-size: var(--t-text); min-width: 0; }
 .konsum-frage small { font-size: var(--t-klein); color: var(--gedaempft); }
+
+/* v33: „gilt ab“ mit vier Wahlen, Betrag im Lauf der Zeit */
+.wahl.vier-gilt { grid-template-columns: 1.3fr 1fr 1fr 1.3fr; }
+.wahl.vier-gilt button { font-size: var(--t-klein); padding: 0 4px; }
+.bv { display: flex; flex-direction: column; gap: 2px; margin-top: 12px; }
+.bv-zeile { display: flex; justify-content: space-between; align-items: center; gap: 10px; min-height: 36px; border-bottom: 1px solid var(--flaeche-1); font-size: var(--t-klein); color: var(--gedaempft); }
+.bv-zeile b { font-weight: 500; }
+.bv-zeile small { font-size: var(--t-mini); border-radius: var(--r-pille); padding: 1px 8px; margin-left: 6px; background: var(--flaeche-2); color: var(--text); }
+.bv-zeile.jetzt { color: var(--text); }
+.bv-zeile.jetzt small { background: var(--akzent-flaeche); }
+.bv-zeile.geplant small { background: rgba(223, 230, 176, .16); color: var(--hinweis); }
+.bv-knoepfe { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.ef-merken-zeile { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 10px; }
