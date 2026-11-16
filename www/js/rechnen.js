@@ -772,3 +772,11 @@ export function verlaufFiltern(eintraege, daten, filter = {}) {
     return heu.includes(t) || heu.includes(zahlText);
   });
 }
+
+// ---------- v34: Schulden (eigener Bereich, zählt nicht in „Frei“) ----------
+// daten.schulden = [{ id, name, betrag, datum, notiz?, bewegungen: [{ id, datum, betrag, art: 'zurueck' | 'dazu' }] }]
+export function schuldOffen(sch) {
+  return Math.round((sch.bewegungen || []).reduce((a, b) => a + (b.art === 'dazu' ? 1 : -1) * (Number(b.betrag) || 0), Number(sch.betrag) || 0) * 100) / 100;
+}
+export function schuldGesamt(sch) { return (Number(sch.betrag) || 0) + (sch.bewegungen || []).filter((b) => b.art === 'dazu').reduce((a, b) => a + (Number(b.betrag) || 0), 0); }
+export function schuldenOffen(daten) { return (daten.schulden || []).reduce((a, x) => a + Math.max(0, schuldOffen(x)), 0); }

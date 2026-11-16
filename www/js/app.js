@@ -7,12 +7,11 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v33';
+export const APP_VERSION = 'finanz-v34';
 const NEU_IN_VERSION = [
-  'Fixkosten: Eine Erhöhung lässt sich jetzt für einen späteren Monat planen („Neuer Betrag gilt ab“ → „Später“ → Monat wählen). Im Fenster steht der Verlauf: früher, jetzt, geplant',
-  'Einrichtung: Eigene Posten stehen oben bei den Knöpfen; schon eingetragene eigene Fixkosten erscheinen als „schon da · ändern“',
-  'Einrichtung: „Später weitermachen“ – die App merkt sich, wo du warst',
-  'Abbuchungen am Wochenende oder an Bank-Feiertagen (Neujahr, Karfreitag, Ostermontag, 1. Mai, Weihnachten) zeigt die App am nächsten Bankarbeitstag – auch im Fixkosten-Widget'
+  'Versicherungen: eigene Kachel und Seite mit allen Verträgen – pro Monat, im Jahr, nächste Abbuchung, Kündigungsfrist, geplante Erhöhungen',
+  'Schulden: eigener Bereich (Kachel „Schulden“ oder Einstellungen). Was du wem schuldest, Rückzahlungen, was noch offen ist – zählt nicht in „Frei“',
+  'Abrechnung und Monatsübersicht einlesen jetzt auch direkt im Gehalt-Fenster und in den Einstellungen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -106,6 +105,13 @@ export async function start() {
   else {
     zeigeNeuigkeiten(); if (DI.schaetzWerteSetzen(z.daten, heuteYm())) D.speichern(z.daten);
     // v33: Erste Einrichtung zwischengespeichert → gleich dort weitermachen
+    // v34: Kachel „Versicherungen“ einmal anbieten, wenn es Versicherungen gibt
+    if (!z.daten.einstellungen.kachelV34) {
+      z.daten.einstellungen.kachelV34 = true;
+      const l = Array.isArray(z.daten.einstellungen.kacheln) ? z.daten.einstellungen.kacheln : STANDARD_KACHELN.map((k) => Object.assign({}, k));
+      if (!l.some((k) => k.id === 'versicherungen') && z.daten.fixkosten.some(istVersicherung)) { l.push({ id: 'versicherungen', breit: true }); z.daten.einstellungen.kacheln = l; }
+      D.speichern(z.daten);
+    }
     const ent = z.daten.einstellungen.einrichtungEntwurf;
     if (ent && ent.erstStart) z.ebenen = [efAusEntwurf(ent)];
   }
@@ -329,6 +335,8 @@ function monatTeile(s = z.monat) {
     <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Frei“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
+    <div class="zwei"><button class="knopf" data-a="ds-abr">📄 Abrechnung einlesen</button><button class="knopf" data-a="ds-pdf">📄 Monatsübersicht</button></div>
+    <div class="zwei"><button class="knopf" data-a="bereich" data-wert="versicherungen">🛡️ Versicherungen</button><button class="knopf" data-a="bereich" data-wert="schulden">💸 Schulden</button></div>
     <button class="knopf" data-a="dienste">📅 Dienste und Gehalt schätzen${DI.schaetzenAn(z.daten) ? ' · an' : ''}</button>
     <button class="knopf" data-a="hinweise">🔔 Hinweise und Warnungen${(z.daten.einstellungen.hinweiseAus || []).length ? ' · ' + (z.daten.einstellungen.hinweiseAus || []).length + ' aus' : ''}</button>
     <button class="knopf" data-a="offene">? Offene Beträge${R.offeneListe(z.daten).length ? ' (' + R.offeneListe(z.daten).length + ')' : ''}</button>
@@ -349,6 +357,8 @@ const KACHEL_ICON = {
   einnahmen: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
   geplant: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4M9 15h6"/></svg>',
   konsum: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8h12l-1 12H7z"/><path d="M9 8a3 3 0 0 1 6 0"/></svg>',
+  versicherungen: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.4 8.2-8 9-4.6-.8-8-4-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg>',
+  schulden: '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eef2f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M8 12h8"/></svg>',
   zahnrad: '<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b7c1be" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'
 };
 
@@ -363,7 +373,7 @@ function kachelArt(id) {
   if (id.startsWith('budget:')) { const k = R.kategorie(z.daten, id.slice(7)); return k ? { titel: (k.emoji ? k.emoji + ' ' : '') + k.name, beschreibung: 'Budget mit Balken' } : null; }
   return KACHEL_KATALOG[id] || null;
 }
-const AUFKLAPPBAR = new Set(['ausgaben', 'geplant', 'abos', 'naechste']);
+const AUFKLAPPBAR = new Set(['ausgaben', 'geplant', 'abos', 'naechste', 'versicherungen', 'schulden']);
 const KACHEL_KATALOG = {
   konsum: { titel: 'Konsum', beschreibung: 'Was noch auf dem Konsumkonto ist, pro Tag bis zum nächsten Übertrag', breit: true },
   ausgaben: { titel: 'Ausgaben', beschreibung: 'Summe des Monats, aufklappbar: zuletzt gebucht' },
@@ -371,6 +381,8 @@ const KACHEL_KATALOG = {
   einnahmen: { titel: 'Einnahmen', beschreibung: 'Gehalt und weitere Einnahmen' },
   geplant: { titel: 'Geplante Ausgaben', beschreibung: 'Potenzielle Ausgaben mit Warnung, aufklappbar' },
   abos: { titel: 'Abos', beschreibung: 'Alle Abos, pro Monat und Jahr, aufklappbar', breit: true },
+  versicherungen: { titel: 'Versicherungen', beschreibung: 'Alle Versicherungen, pro Monat und Jahr, aufklappbar', breit: true },
+  schulden: { titel: 'Schulden', beschreibung: 'Was du wem schuldest – getrennt von „Frei“', breit: true },
   naechste: { titel: 'Nächste Abbuchungen', beschreibung: 'Die nächsten Fixkosten, aufklappbar', breit: true }
 };
 
@@ -452,6 +464,18 @@ function monatAnsicht() {
       }
       return kachel('geplant', 'Geplante Ausgaben', wert, unter, probleme.length ? 'warn' : ws.length ? 'gut' : '') + klappKnopf(k);
     },
+    versicherungen: (k) => {
+      const l = versListe(s).filter((x) => x.laeuft);
+      const monat = l.reduce((a, x) => a + x.proMonat, 0);
+      const zeilen = l.slice(0, 8).map((x) => `<button class="mini-zeile" data-a="fixkosten" data-id="${esc(x.f.id)}"><span>${esc(x.f.name)}</span>${x.f.offen ? offenZahl(x.f) : `<span class="minus-zahl">− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span>`}</button>`).join('');
+      return breiteKachel('versicherungen', 'Versicherungen', `<span class="minus-zahl">− ${R.euroRund(monat)}</span><small> pro Monat</small>`, `${l.length === 1 ? '1 Vertrag' : l.length + ' Verträge'} · ${rausSatz(monat * 12, true)} im Jahr`, k, zeilen || '<div class="mini-leer">Noch keine Versicherungen.</div>');
+    },
+    schulden: (k) => {
+      const l = (z.daten.schulden || []).filter((x) => R.schuldOffen(x) > 0.004);
+      const summe = R.schuldenOffen(z.daten);
+      const zeilen = l.map((x) => `<button class="mini-zeile" data-a="schuld" data-id="${esc(x.id)}"><span>${esc(x.name)}</span><span class="minus-zahl">− ${R.euro(R.schuldOffen(x))}</span></button>`).join('');
+      return breiteKachel('schulden', 'Schulden', l.length ? `<span class="minus-zahl">− ${R.euroRund(summe)}</span><small> offen</small>` : '<span>–</span>', l.length ? `bei ${l.length === 1 ? '1 Person' : l.length + ' Personen'} · zählt nicht in „Frei“` : 'keine offenen Schulden', k, zeilen || '<div class="mini-leer">Keine offenen Schulden.</div>');
+    },
     abos: (k) => {
       const abos = aboListe(s).filter((x) => x.laeuft);
       const monat = abos.reduce((a, x) => a + x.proMonat, 0);
@@ -515,7 +539,7 @@ function breiteKachel(typ, titel, wert, unter, k, zeilen, ziel) {
 // ---------- Schnell eintragen (＋ unten rechts) ----------
 const FAB_ICON = '<svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 function fabHtml(art) {
-  const ziel = { abos: ['abo-neu', 'Abo hinzufügen'], einnahmen: ['eintragen', 'Einnahme eintragen', 'einnahme'], konten: ['eintragen', 'Übertrag eintragen', 'uebertrag'] }[art] || ['eintragen', 'Ausgabe, Einnahme, Übertrag oder Abo eintragen', ''];
+  const ziel = { versicherungen: ['vers-neu', 'Versicherung hinzufügen'], schulden: ['schuld-neu', 'Schulden eintragen'], abos: ['abo-neu', 'Abo hinzufügen'], einnahmen: ['eintragen', 'Einnahme eintragen', 'einnahme'], konten: ['eintragen', 'Übertrag eintragen', 'uebertrag'] }[art] || ['eintragen', 'Ausgabe, Einnahme, Übertrag oder Abo eintragen', ''];
   return `<button class="fab" data-a="${ziel[0]}" ${ziel[2] ? `data-wert="${ziel[2]}"` : ''} aria-label="${ziel[1]}">${FAB_ICON}</button>`;
 }
 
@@ -535,6 +559,57 @@ function kontoZeilen(r) {
     html += knopf(art, l.length === 1 ? l[0].konto.name : `${titel} (${l.length} Konten)`, l.reduce((a, k) => a + k.betrag, 0), l.reduce((a, k) => a + k.extra, 0));
   }
   return html;
+}
+
+// ---------- v34: Versicherungen ----------
+function istVersicherung(f) { const k = R.kategorie(z.daten, f.kategorieId); return f.kategorieId === 'versicherungen' || !!(k && /versicher/i.test(k.name)); }
+function versListe(s) {
+  return z.daten.fixkosten.filter(istVersicherung).map((f) => ({ f, laeuft: R.laeuftIm(f, s), proMonat: R.monatsAnteil(f, s) })).sort((a, b) => b.proMonat - a.proMonat);
+}
+function versicherungenHtml(s) {
+  const alle = versListe(s);
+  const laufend = alle.filter((x) => x.laeuft), vorbei = alle.filter((x) => !x.laeuft);
+  const monat = laufend.reduce((a, x) => a + x.proMonat, 0);
+  const frist = { '2w': '2 Wochen', '1m': '1 Monat', '3m': '3 Monate' };
+  const zeile = (x) => {
+    const f = x.f;
+    const n = R.naechsteAbbuchungen({ fixkosten: [f] }, heute())[0];
+    const info = [R.rhythmusBeschreibung(f), n ? `nächste ${WT[new Date(n.datum + 'T12:00:00').getDay()]} ${Number(n.datum.slice(8))}. ${R.MONATE_KURZ[Number(n.datum.slice(5, 7)) - 1]}${n.datum.slice(0, 4) !== heute().slice(0, 4) ? ' ' + n.datum.slice(0, 4) : ''}` : '', f.kuendigungsfrist && frist[f.kuendigungsfrist] ? 'Kündigungsfrist ' + frist[f.kuendigungsfrist] : ''].filter(Boolean).join(' · ');
+    const einmal = f.wieOft !== 'monatlich' && n ? `<small class="pro">${rausSatz(n.betrag)} ${esc(R.RHYTHMUS_TEXT[f.wieOft] || '')}</small>` : `<small class="pro">pro Monat</small>`;
+    return `<button class="posten ${x.laeuft ? '' : 'grau'}" data-a="fixkosten" data-id="${esc(f.id)}" aria-label="${esc(f.name)} bearbeiten"><span class="t"><span class="n">${esc(f.name)}</span><small>${esc(info)}${planText(f, s)}</small>${geteiltHtml(f)}</span><span class="b">${f.offen ? betragHtml(f) : `<span class="minus-zahl">${f.wieOft === 'monatlich' ? '' : '≈ '}− ${R.euro(Math.round(x.proMonat * 100) / 100)}</span>${f.wieOft === 'monatlich' ? einmal : '<small class="pro">pro Monat</small>' + einmal}`}</span>${PFEIL}</button>`;
+  };
+  return `<section class="karte ring abo-kopf">
+      <div class="label">Versicherungen zusammen</div>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)"><span class="minus-zahl">− ${R.euroRund(monat)}</span><small style="font-size:var(--t-text);color:var(--gedaempft)"> pro Monat</small></div>
+      <div class="hinweistext">${rausSatz(monat * 12, true)} im Jahr · ${laufend.length === 1 ? '1 Vertrag' : laufend.length + ' Verträge'}${R.ruecklage(z.daten) ? ' · jährliche zahlt das Rücklagenkonto' : ''}</div>
+    </section>
+    <section class="karte liste">${laufend.length ? laufend.map(zeile).join('') : '<div class="leer-zeile" style="border:0">Noch keine Versicherungen. Mit ＋ unten rechts eine anlegen.</div>'}
+      ${vorbei.length ? `<div class="unterkopf">Beendet</div>${vorbei.map(zeile).join('')}` : ''}
+    </section>
+    <p class="hinweistext">Hier stehen alle Fixkosten der Kategorie „Versicherungen“. Antippen = ändern, Erhöhung planen, Kündigungsfrist eintragen.</p>`;
+}
+
+// ---------- v34: Schulden ----------
+function schuldenHtml() {
+  const alle = z.daten.schulden || [];
+  const offen = alle.filter((x) => R.schuldOffen(x) > 0.004), fertig = alle.filter((x) => R.schuldOffen(x) <= 0.004);
+  const summe = R.schuldenOffen(z.daten);
+  const r = R.monatsRechnung(z.daten, heuteYm());
+  const zeile = (x) => {
+    const o = R.schuldOffen(x), g = R.schuldGesamt(x);
+    const anteil = g > 0 ? Math.min(1, Math.max(0, (g - o) / g)) : 1;
+    const seit = x.datum ? 'seit ' + new Date(x.datum + 'T12:00:00').toLocaleDateString('de-DE', { month: 'short', year: 'numeric' }) : '';
+    return `<button class="posten" data-a="schuld" data-id="${esc(x.id)}" aria-label="${esc(x.name)} öffnen"><span class="t"><span class="n">${esc(x.name)}</span><small>${esc([o > 0.004 ? `${R.euro(g - o)} von ${R.euro(g)} zurückgezahlt` : `alles zurückgezahlt (${R.euro(g)})`, seit, x.notiz || ''].filter(Boolean).join(' · '))}</small><span class="mini schuld-mini"><span style="width:${(anteil * 100).toFixed(1)}%"></span></span></span><span class="b">${o > 0.004 ? `<span class="minus-zahl">− ${R.euro(o)}</span><small class="pro">offen</small>` : '<small class="pro">✓ erledigt</small>'}</span>${PFEIL}</button>`;
+  };
+  return `<section class="karte ring abo-kopf">
+      <div class="label">Schulden offen</div>
+      <div class="grosszahl" style="font-size:var(--t-zahl-xl)">${summe > 0 ? `<span class="minus-zahl">− ${R.euroRund(summe)}</span>` : '0 €'}</div>
+      <div class="hinweistext">${offen.length ? `bei ${offen.length === 1 ? '1 Person' : offen.length + ' Personen'} · ` : ''}Frei im ${esc(monatsName(heuteYm()))}: ${r.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(r.frei))} – zur Orientierung, ob gerade Geld zum Zurückzahlen da ist</div>
+    </section>
+    <section class="karte liste">${offen.length ? offen.map(zeile).join('') : '<div class="leer-zeile" style="border:0">Keine offenen Schulden. Mit ＋ unten rechts eintragen.</div>'}
+      ${fertig.length ? `<div class="unterkopf">Erledigt</div>${fertig.map(zeile).join('')}` : ''}
+    </section>
+    <p class="hinweistext">Schulden und Rückzahlungen stehen nur hier. Sie ändern „Frei“, Budgets und Konten nicht.</p>`;
 }
 
 // ---------- Abos ----------
@@ -571,7 +646,7 @@ function abosHtml(s) {
     <p class="hinweistext">Neues Abo: ＋ unten rechts. Gekündigt? Abo antippen → „Mehr“ → „Endet am“ eintragen. Ab dann zählt es nicht mehr.</p>`;
 }
 
-const BEREICH_TITEL = { konsum: 'Konsum', ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplante Ausgaben', abos: 'Abos', einstellungen: 'Einstellungen' };
+const BEREICH_TITEL = { versicherungen: 'Versicherungen', schulden: 'Schulden', konsum: 'Konsum', ausgaben: 'Ausgaben', konten: 'Konten', einnahmen: 'Einnahmen', geplant: 'Geplante Ausgaben', abos: 'Abos', einstellungen: 'Einstellungen' };
 function bereichHtml(eb) {
   const t = monatTeile(z.monat);
   const kopf = `<p class="hinweistext">${esc(monatsName(z.monat))} ${R.ymTeile(z.monat).jahr}</p>`;
@@ -581,6 +656,8 @@ function bereichHtml(eb) {
   else if (eb.typ === 'konten') inhalt = t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>';
   else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
   else if (eb.typ === 'abos') inhalt = abosHtml(z.monat);
+  else if (eb.typ === 'versicherungen') inhalt = versicherungenHtml(z.monat);
+  else if (eb.typ === 'schulden') inhalt = schuldenHtml();
   else if (eb.typ === 'geplant') inhalt = t.s >= heuteYm() ? t.geplantKarte : '<div class="leerzustand">Für vergangene Monate lässt sich nichts mehr planen.</div>';
   else inhalt = erkennungKarte() + t.sicherung;
   if (eb.typ === 'konten') {
@@ -1900,6 +1977,36 @@ const EBENEN = {
       <p class="hinweistext">Zurück aufs Eingangskonto: „Frei“ im ${esc(jetzt)} steigt. Aufs Sparkonto: „Frei“ bleibt gleich, das Geld wandert nur von einem deiner Konten zum anderen. Ein Teil geht auch: Betrag ändern, der Rest bleibt drauf.</p>
       <div class="knopfreihe"><button class="knopf leise breit" data-a="schliessen">Später</button></div>`, 'Konsum Monatsende');
   },
+  schuld: (eb) => {
+    const e = eb.entwurf;
+    const x = eb.id && (z.daten.schulden || []).find((y) => y.id === eb.id);
+    const verlauf = x ? [{ datum: x.datum, betrag: x.betrag, art: 'start' }].concat((x.bewegungen || []).map((b) => b)).sort((a, b) => ((a.datum || '') < (b.datum || '') ? -1 : 1)) : [];
+    const vz = verlauf.map((b) => `<div class="bv-zeile"><span>${b.datum ? esc(new Date(b.datum + 'T12:00:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' })) : '–'} · ${b.art === 'start' ? 'geliehen' : b.art === 'dazu' ? 'mehr geliehen' : 'zurückgezahlt'}</span><span class="r-knopf"><b class="${b.art === 'zurueck' ? 'plus-zahl' : 'minus-zahl'}">${b.art === 'zurueck' ? '+' : '−'} ${R.euro(b.betrag)}</b>${b.id ? `<button class="knopf klein rund leise" style="width:36px" data-a="schuld-bew-weg" data-wert="${esc(b.id)}" aria-label="Eintrag löschen">${ICON.x}</button>` : ''}</span></div>`).join('');
+    return sheet(`<h2>${x ? esc(x.name) : 'Schulden eintragen'}</h2>
+      ${x ? `<div class="grosszahl" style="font-size:var(--t-zahl-l)">${R.schuldOffen(x) > 0.004 ? `<span class="minus-zahl">− ${R.euro(R.schuldOffen(x))}</span> <span style="font-size:var(--t-titel-karte);color:var(--gedaempft)">offen</span>` : '✓ erledigt'}</div>
+        <div class="zwei"><button class="knopf haupt" data-a="schuld-zahlung" data-wert="zurueck">Zurückzahlen</button><button class="knopf" data-a="schuld-zahlung" data-wert="dazu">Mehr geliehen</button></div>
+        <div class="bv"><div class="label">Verlauf</div>${vz}</div>` : ''}
+      <div class="feld"><label for="sc-name">Bei wem?</label><input id="sc-name" class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="z. B. Name oder Ratenkauf"></div>
+      <div class="zwei">
+        <div class="feld"><label for="sc-betrag">${x ? 'Ursprünglich geliehen' : 'Betrag'}</label><input id="sc-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(e.betragText)}" placeholder="0 €"></div>
+        <div class="feld"><label for="sc-datum">Seit</label><input id="sc-datum" class="eingabe" type="date" data-feld="datum" value="${esc(e.datum || '')}"></div>
+      </div>
+      <div class="feld"><label for="sc-notiz">Notiz (optional)</label><input id="sc-notiz" class="eingabe" data-feld="notiz" value="${esc(e.notiz || '')}" placeholder="z. B. für das Auto"></div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <p class="hinweistext">Zählt nicht in „Frei“. Nur für deinen Überblick.</p>
+      <div class="knopfreihe">${x ? '<button class="knopf leise" data-a="schuld-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="schuld-speichern">Speichern</button></div>`, 'Schulden');
+  },
+  'schuld-zahlung': (eb) => {
+    const x = (z.daten.schulden || []).find((y) => y.id === eb.id);
+    const zurueck = eb.artZ === 'zurueck';
+    return sheet(`<h2>${zurueck ? 'Zurückzahlen' : 'Mehr geliehen'} · ${esc(x ? x.name : '')}</h2>
+      <div class="betrag-gross ${zurueck ? 'plus' : 'minus'}"><span>${zurueck ? '↩' : '−'}</span><input id="sz-betrag" class="eingabe" inputmode="decimal" data-feld="betragText" value="${esc(eb.betragText)}" placeholder="0" aria-label="Betrag in Euro"><span>€</span></div>
+      ${zurueck && x ? `<div class="chips"><button class="chip" data-a="sz-alles">Alles: ${esc(R.euro(R.schuldOffen(x)))}</button></div>` : ''}
+      <div class="feld"><label for="sz-datum">Datum</label><input id="sz-datum" class="eingabe" type="date" data-feld="datum" value="${esc(eb.datum)}"></div>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <p class="hinweistext">Ändert „Frei“ nicht – nur den offenen Betrag hier.</p>
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="sz-speichern">${zurueck ? 'Rückzahlung eintragen' : 'Eintragen'}</button></div>`, 'Schulden');
+  },
   'tag-wahl': (eb, i) => {
     const unter = z.ebenen[i - 1];
     const tage = Array.from({ length: 31 }, (_, k) => wahlKnopf('tag-gewaehlt', k + 1, String(k + 1), unter.entwurf.tag === k + 1)).join('');
@@ -1967,6 +2074,7 @@ const EBENEN = {
       })()}
       <div class="feld"><label for="ge-schaetzung">${DI.schaetzenAn(z.daten) ? 'Feste Schätzung (gilt, wenn die Dienst-Schätzung aus ist)' : 'Schätzung pro Monat'}</label><input id="ge-schaetzung" class="eingabe" inputmode="decimal" data-feld="schaetzungText" value="${esc(eb.schaetzungText)}"></div>
       <button class="knopf leise gr-start" data-a="gehaltsrechner" data-monat="${s}">🧮 Schätzung mit dem DRK-Gehaltsrechner ausrechnen</button>
+      <div class="zwei"><button class="knopf leise" data-a="ds-abr">📄 Abrechnung einlesen</button><button class="knopf leise" data-a="ds-pdf">📄 Monatsübersicht</button></div>
       ${(() => { const st = lernHinweis(g); return st && Math.abs(st.schnitt - zahl(eb.schaetzungText)) >= 1 ? `<div class="lern-box"><span>Deine letzten 3 Monate: <b>Ø ${R.euroRund(st.schnitt)}</b> (${R.euroRund(st.min)}–${R.euroRund(st.max)})</span><button class="knopf klein akzent" data-a="ge-schnitt">Als Schätzung übernehmen</button></div>` : ''; })()}
       <div class="feld"><span class="label">Kommt an</span><div class="wahl zwei-sp">${wahlKnopf('ge-ankunft', 'Monatsende', 'am Monatsende', g.kommtAn !== 'Tag')}${wahlKnopf('ge-ankunft', 'Tag', 'an einem Tag', g.kommtAn === 'Tag')}</div></div>
       ${g.kommtAn === 'Tag' ? `<div class="feld"><label for="ge-tag">Am Tag</label><input id="ge-tag" class="eingabe" inputmode="numeric" data-feld="tagText" value="${esc(eb.tagText)}"></div>` : ''}
@@ -2852,6 +2960,52 @@ const AKTION = {
       g.istWerte = g.istWerte.filter((w) => R.ymAus(w.datum) !== eb.monat);
       if (ist !== null) g.istWerte.push({ datum: eb.monat + '-' + R.zweistellig(R.ankunftsTag(g, eb.monat)), betrag: ist });
     }, { text: ist !== null ? `Gehalt ${monatsName(eb.monat)}: ${R.euroRund(ist)} eingetragen` : 'Gehalt gespeichert' });
+  },
+
+  // Versicherungen und Schulden (v34)
+  'vers-neu': () => { const k = R.kategorie(z.daten, 'versicherungen') || z.daten.kategorien.find((x) => x.art === 'fix' && /versicher/i.test(x.name)); AKTION['fixkosten-neu']({ dataset: { kat: k ? k.id : '' } }); },
+  'schuld-neu': () => oeffne({ art: 'schuld', id: null, entwurf: { name: '', betragText: '', datum: heute(), notiz: '' } }),
+  schuld: (el) => { const x = (z.daten.schulden || []).find((y) => y.id === el.dataset.id); if (x) oeffne({ art: 'schuld', id: x.id, entwurf: { name: x.name, betragText: R.euro(x.betrag, false), datum: x.datum || '', notiz: x.notiz || '' } }); },
+  'schuld-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf; const betrag = zahl(e.betragText);
+    if (!e.name.trim()) { eb.fehler = 'Bitte eintragen, bei wem.'; renderEbenen(); return; }
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    const id = eb.id || D.neueId('sch'); const neu = !eb.id;
+    await aendern((d) => {
+      if (!Array.isArray(d.schulden)) d.schulden = [];
+      const werte = { name: e.name.trim(), betrag, datum: e.datum || null, notiz: (e.notiz || '').trim() || null };
+      const x = d.schulden.find((y) => y.id === id);
+      if (x) Object.assign(x, werte); else d.schulden.push(Object.assign({ id, bewegungen: [] }, werte));
+      // erste Schuld: Kachel „Schulden“ in die Übersicht
+      if (neu) { const l = Array.isArray(d.einstellungen.kacheln) ? d.einstellungen.kacheln : STANDARD_KACHELN.map((k) => Object.assign({}, k)); if (!l.some((k) => k.id === 'schulden')) l.push({ id: 'schulden', breit: true }); d.einstellungen.kacheln = l; }
+    }, { text: neu ? `Schulden bei ${e.name.trim()}: ${R.euro(betrag)}` : `${e.name.trim()} gespeichert` });
+  },
+  'schuld-loeschen': () => {
+    const id = oben().id; const x = z.daten.schulden.find((y) => y.id === id);
+    oeffne({ art: 'frage', titel: `${x.name} löschen?`, text: 'Der Eintrag und sein Verlauf werden gelöscht.', ja: 'Löschen', bei: async () => {
+      z.ebenen.pop();
+      const i = z.daten.schulden.indexOf(x); const alt = kopie(x);
+      await aendern((d) => { d.schulden = d.schulden.filter((y) => y.id !== id); }, { text: `${x.name} gelöscht`, rueckgaengig: (d) => { d.schulden.splice(i, 0, alt); } });
+    } });
+  },
+  'schuld-zahlung': (el) => { const x = z.daten.schulden.find((y) => y.id === oben().id); oeffne({ art: 'schuld-zahlung', id: x.id, artZ: el.dataset.wert, betragText: '', datum: heute() }); setTimeout(() => { const f = document.getElementById('sz-betrag'); if (f) f.focus(); }, 60); },
+  'sz-alles': () => { const eb = oben(); const x = z.daten.schulden.find((y) => y.id === eb.id); eb.betragText = R.euro(R.schuldOffen(x), false); renderEbenen(); },
+  'sz-speichern': async () => {
+    const eb = oben(); const betrag = zahl(eb.betragText);
+    const x = z.daten.schulden.find((y) => y.id === eb.id);
+    if (isNaN(betrag) || betrag <= 0) { eb.fehler = 'Bitte einen Betrag über 0 € eintragen.'; renderEbenen(); return; }
+    if (eb.artZ === 'zurueck' && betrag > R.schuldOffen(x) + 0.005) { eb.fehler = `Offen sind nur noch ${R.euro(R.schuldOffen(x))}.`; renderEbenen(); return; }
+    if (!eb.datum) { eb.fehler = 'Bitte ein Datum wählen.'; renderEbenen(); return; }
+    z.ebenen.pop();
+    const id = D.neueId('sb');
+    await aendern((d) => { const y = d.schulden.find((q) => q.id === x.id); if (!Array.isArray(y.bewegungen)) y.bewegungen = []; y.bewegungen.push({ id, datum: eb.datum, betrag, art: eb.artZ }); },
+      { text: eb.artZ === 'zurueck' ? (R.schuldOffen(x) - betrag <= 0.005 ? `${x.name}: alles zurückgezahlt ✓` : `${x.name}: ${R.euro(betrag)} zurückgezahlt, offen ${R.euro(R.schuldOffen(x) - betrag)}`) : `${x.name}: ${R.euro(betrag)} mehr geliehen`,
+        rueckgaengig: (d) => { const y = d.schulden.find((q) => q.id === x.id); y.bewegungen = y.bewegungen.filter((b) => b.id !== id); } });
+  },
+  'schuld-bew-weg': async (el) => {
+    const sid = oben().id; const bid = el.dataset.wert; const x = z.daten.schulden.find((y) => y.id === sid); const b = x.bewegungen.find((q) => q.id === bid);
+    await aendern((d) => { const y = d.schulden.find((q) => q.id === sid); y.bewegungen = y.bewegungen.filter((q) => q.id !== bid); }, { text: 'Eintrag gelöscht', rueckgaengig: (d) => { d.schulden.find((q) => q.id === sid).bewegungen.push(b); } });
   },
 
   // Konsumkonto (v31)

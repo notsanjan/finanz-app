@@ -795,3 +795,7 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .bv-zeile.geplant small { background: rgba(223, 230, 176, .16); color: var(--hinweis); }
 .bv-knoepfe { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
 .ef-merken-zeile { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 10px; }
+
+/* v34: Schulden */
+.schuld-mini span { background: var(--plus); }
+.r-knopf { display: inline-flex; align-items: center; gap: 6px; }

@@ -47,3 +47,14 @@ test('Geplante Änderung ersetzen: neuer Betrag ab jetzt überschreibt den Plan'
   assert.equal(R.eigenerBetrag(f, '2027-01'), 110);
   assert.equal(R.eigenerBetrag(f, '2026-10'), 100);
 });
+
+test('v34 Schulden: offen = Betrag + mehr geliehen − zurückgezahlt; zählt nicht in „Frei“', async () => {
+  const { leereDaten } = await import('../www/js/daten.js');
+  const d = leereDaten();
+  const frei = R.monatsRechnung(d, '2026-11').frei;
+  d.schulden = [{ id: 's', name: 'Max', betrag: 1000, datum: '2026-10-01', bewegungen: [{ id: 'a', datum: '2026-11-01', betrag: 300, art: 'zurueck' }, { id: 'b', datum: '2026-11-05', betrag: 50, art: 'dazu' }] }];
+  assert.equal(R.schuldOffen(d.schulden[0]), 750);
+  assert.equal(R.schuldGesamt(d.schulden[0]), 1050);
+  assert.equal(R.schuldenOffen(d), 750);
+  assert.equal(R.monatsRechnung(d, '2026-11').frei, frei);
+});

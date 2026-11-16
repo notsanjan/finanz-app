@@ -44,7 +44,8 @@ export function leereDaten(heute = new Date()) {
     sparraten: [],
     uebertraege: [],
     buchungen: [],
-    wuensche: []
+    wuensche: [],
+    schulden: []
   };
 }
 
@@ -87,7 +88,7 @@ export function vervollstaendigen(d) {
   const out = Object.assign({}, leer, d);
   out.format = FORMAT;
   out.einstellungen = Object.assign({}, leer.einstellungen, d.einstellungen || {});
-  for (const k of ['kategorien', 'fixkosten', 'einnahmen', 'sparraten', 'uebertraege', 'buchungen', 'wuensche']) if (!Array.isArray(out[k])) out[k] = leer[k];
+  for (const k of ['kategorien', 'fixkosten', 'einnahmen', 'sparraten', 'uebertraege', 'buchungen', 'wuensche', 'schulden']) if (!Array.isArray(out[k])) out[k] = leer[k];
   if (!out.einnahmen.some((e) => e.id === 'gehalt') && !out.einnahmen.some((e) => e.wieOft === 'monatlich' && !e.status)) out.einnahmen.unshift(leer.einnahmen[0]);
   for (const e of out.einnahmen) if (!Array.isArray(e.istWerte)) e.istWerte = [];
   return out;
