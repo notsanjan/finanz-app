@@ -50,6 +50,18 @@ export const GRUPPEN = Object.keys(T_2026_10);
 export const SCHICHTZULAGE = 115;
 export const NACHT_JE_STUNDE = 5.5;
 export const PRAXISANLEITUNG = 153.32; // § 23 a Abs. 1 ab 01.10.2026 – bitte mit der eigenen Abrechnung vergleichen
+// v28: Dienstpauschale § 23 b – je dienstplanmäßiger Schicht ab 6 Stunden bei verlängerter Arbeitszeit (§ 12 Abs. 6), 10 € seit 01.01.2026
+export const DIENSTPAUSCHALE = 10;
+// Zusatzversorgung (ZVK/VBL): Umlage des Arbeitgebers, die bis 100 € im Monat nur zum Teil und darüber ganz zum
+// sozialversicherungspflichtigen Entgelt zählt (§ 1 Abs. 1 Satz 3 und 4 SvEV: 2,5 % des Entgelts abzüglich 13,30 €)
+const ZV_GRENZE = 100, ZV_SATZ = 0.025, ZV_FREI = 13.3;
+export function zvHinzurechnung(zvBrutto, agProzent) {
+  const ag = (Number(agProzent) || 0) / 100;
+  const umlage = r2((Number(zvBrutto) || 0) * ag);
+  if (!(umlage > 0)) return { umlage: 0, hinzu: 0 };
+  const hinzu = Math.max(0, umlage - ZV_GRENZE) + Math.max(0, Math.min(umlage, ZV_GRENZE) / ag * ZV_SATZ - ZV_FREI);
+  return { umlage, hinzu: r2(hinzu) };
+}
 const FAKTOR_WOCHE = 4.348;
 const BBG_KV = 5812.5, BBG_RV = 8450;
 
@@ -92,6 +104,8 @@ export function gehaltRechnen(e, ym) {
   // Teilzeit: alle Entgeltbestandteile anteilig (§ 29 Abs. 2 DRK-RTV) – auch die Zulagen
   if (e.schicht) zulagen.push([tz < 1 ? 'Schichtzulage (anteilig)' : 'Schichtzulage', r2(SCHICHTZULAGE * tz)]);
   if (e.praxis) zulagen.push([tz < 1 ? 'Praxisanleitung (anteilig)' : 'Praxisanleitung', r2(PRAXISANLEITUNG * tz)]);
+  const pd = Math.max(0, Number(e.pauschalDienste) || 0);
+  if (pd > 0) zulagen.push([`Dienstpauschale · ${String(pd).replace('.', ',')} ${pd === 1 ? 'Schicht' : 'Schichten'}`, r2(pd * DIENSTPAUSCHALE)]);
   if (e.besitz > 0) zulagen.push(['Besitzstand', r2(e.besitz)]);
   if (e.zulage > 0) zulagen.push(['Weitere Zulagen', r2(e.zulage)]);
   const zulagenSumme = r2(zulagen.reduce((a, z) => a + z[1], 0));
@@ -119,7 +133,10 @@ export function gehaltRechnen(e, ym) {
   }
   steuerfrei = r2(steuerfrei); svfrei = r2(svfrei);
   const steuerBrutto = r2(brutto - steuerfrei);
-  const svBrutto = r2(brutto - svfrei);
+  // v28 Zusatzversorgung: Eigenanteil vom Netto, Umlage des Arbeitgebers erhöht das SV-Entgelt (nicht das Steuer-Brutto)
+  const zv = zvHinzurechnung(steuerBrutto, e.zvkAg);
+  const zvkAn = r2(steuerBrutto * (Number(e.zvkAn) || 0) / 100);
+  const svBrutto = r2(brutto - svfrei + zv.hinzu);
 
   // Steuer nach PAP 2026
   const kinder = Math.max(0, Math.floor(Number(e.kinder) || 0));
@@ -138,7 +155,7 @@ export function gehaltRechnen(e, ym) {
   const kv = r2(kvBasis * kvSatz), pv = r2(kvBasis * pvSatz), rv = r2(rvBasis * 0.093), av = r2(rvBasis * 0.013);
   const abzug = r2(Number(e.abzug) || 0);
 
-  const abzuege = r2(lohnsteuer + soli + kirchensteuer + kv + pv + rv + av + abzug);
+  const abzuege = r2(lohnsteuer + soli + kirchensteuer + kv + pv + rv + av + zvkAn + abzug);
   const netto = r2(brutto - abzuege);
 
   // Jahressonderzahlung (November): 90 % des Monatsentgelts, Steuer als sonstiger Bezug, SV mit anteiliger Jahres-BBG
@@ -146,13 +163,15 @@ export function gehaltRechnen(e, ym) {
   const sb = sonstigerBezug2026(pap, Math.round(jsz * 100));
   const jszKist = e.kirche > 0 ? ab2(sb.BK / 100 * e.kirche / 100) : 0;
   const restKV = Math.max(0, 11 * BBG_KV - 11 * svBrutto), restRV = Math.max(0, 11 * BBG_RV - 11 * svBrutto);
-  const jszSV = r2(Math.min(jsz, restKV) * (kvSatz + pvSatz)) + r2(Math.min(jsz, restRV) * 0.106);
-  const jszNetto = r2(jsz - sb.LST / 100 - sb.SOLZ / 100 - jszKist - jszSV);
+  // Umlage auf eine Einmalzahlung zählt ganz zum SV-Entgelt (die 100 € sind durch das Monatsentgelt schon verbraucht)
+  const jszSvBasis = jsz + r2(jsz * (Number(e.zvkAg) || 0) / 100);
+  const jszSV = r2(Math.min(jszSvBasis, restKV) * (kvSatz + pvSatz)) + r2(Math.min(jszSvBasis, restRV) * 0.106);
+  const jszNetto = r2(jsz - sb.LST / 100 - sb.SOLZ / 100 - jszKist - jszSV - r2(jsz * (Number(e.zvkAn) || 0) / 100));
 
   return {
     stufe, tarif: tarifStand(ym), tabellenentgelt, zulagen, zulagenSumme, zuschlaege, zuschlaegeSumme, basisStunde: r2(basisStunde), basisMonat: zuschlagBasisMonat(e.eg, stufe, ym), grundlohn: r2(grundlohn), vz, tz, vollzeit: reihe[stufe - 1], brutto,
     steuerfrei, svfrei, steuerBrutto, svBrutto,
-    lohnsteuer, soli, kirchensteuer, kv, pv, rv, av, abzug, abzuege, netto,
+    lohnsteuer, soli, kirchensteuer, kv, pv, rv, av, abzug, abzuege, netto, zvkAn, zvUmlage: zv.umlage, zvHinzu: zv.hinzu,
     satz: { kv: kvSatz, pv: pvSatz }, pvz, pva,
     jsz, jszNetto
   };
@@ -160,7 +179,7 @@ export function gehaltRechnen(e, ym) {
 
 export const STANDARD = { eg: '9c', stufe: 3, vz: '38,5', tz: '100', schicht: true, praxis: false, zulageText: '', besitzText: '',
   nachtText: '', sonntagText: '', feiertagText: '', stkl: 1, kinder: 0, ab23: true, zkfText: '0', kvzText: '2,9', kirche: 0, sachsen: false,
-  freibetragText: '', abzugText: '', offenZaehlt: '1' };
+  freibetragText: '', abzugText: '', offenZaehlt: '1', dienstText: '', zvkAnText: '', zvkAgText: '' };
 
 // ---------- v27: Eingaben aus dem gemerkten Gehaltsrechner (Texte → Zahlen) ----------
 function zahlAus(text) {
@@ -187,7 +206,8 @@ export function eingaben(e, modus = String(e.offenZaehlt) === '0' ? 'aus' : 'min
   return { eg: e.eg, stufe: Number(e.stufe) || 1, vz: nz(e.vz) || 38.5, tz: nz(e.tz) || 100, schicht: !!e.schicht, praxis: !!e.praxis,
     zulage: w('zulageText'), besitz: w('besitzText'), nacht: w('nachtText'), sonntag: w('sonntagText'), feiertag: w('feiertagText'),
     stkl: Number(e.stkl) || 1, kinder: nz(e.kinder), ab23: e.ab23 !== false, zkf: nz(e.zkfText), kvz: nz(e.kvzText),
-    kirche: Number(e.kirche) || 0, sachsen: !!e.sachsen, freibetrag: nz(e.freibetragText), abzug: w('abzugText') };
+    kirche: Number(e.kirche) || 0, sachsen: !!e.sachsen, freibetrag: nz(e.freibetragText), abzug: w('abzugText'),
+    pauschalDienste: nz(e.dienstText), zvkAn: nz(e.zvkAnText), zvkAg: nz(e.zvkAgText) };
 }
 
 // ---------- v27: Woher kommt jede Zahl? ----------
@@ -200,7 +220,8 @@ export const QUELLEN = {
   aetv: { titel: '52. Änderungstarifvertrag zum DRK-RTV vom 10.07.2025, Anlage A 1 (Entgelttabelle)', stand: 'nachgelesen am 15.11.2026', wo: 'btg.drk.de; gegengeprüft mit oeffentlichen-dienst.de/entgelttabelle/drk.html' },
   pap: { titel: 'Programmablaufplan für den Lohnsteuerabzug 2026 (Bundesfinanzministerium)', stand: 'BMF-Schreiben vom 12.11.2025; centgenau gegen 207 Vergleichsfälle der BMF-Schnittstelle geprüft', wo: 'bundesfinanzministerium.de → Lohnsteuer → Programmablaufplan' },
   sv: { titel: 'Sozialversicherung 2026: Beitragssätze und Beitragsbemessungsgrenzen', stand: 'Werte für 2026, eingebaut am 15.11.2026', wo: 'SGB V, SGB VI, SGB XI, SGB III; Sozialversicherungsrechengrößen-Verordnung 2026' },
-  estg: { titel: 'Einkommensteuergesetz § 3b und Sozialversicherungsentgeltverordnung § 1', stand: 'eingebaut am 15.11.2026', wo: 'gesetze-im-internet.de' }
+  estg: { titel: 'Einkommensteuergesetz § 3b und Sozialversicherungsentgeltverordnung § 1', stand: 'eingebaut am 15.11.2026', wo: 'gesetze-im-internet.de' },
+  zv: { titel: 'Zusatzversorgung: § 30 DRK-RTV, § 1 Abs. 1 Satz 3 und 4 SvEV, § 3 Nr. 56 EStG', stand: 'nachgelesen am 16.11.2026; an einer echten Abrechnung auf den Cent nachgerechnet', wo: 'gesetze-im-internet.de; Sätze (Umlage, Eigenanteil) stehen auf deiner Abrechnung' }
 };
 export function rechenweg(e, ym) {
   const r = gehaltRechnen(e, ym);
@@ -211,6 +232,7 @@ export function rechenweg(e, ym) {
     fund: '§ 19 Abs. 1 DRK-RTV, Anlage A 1' + (r.tz < 1 ? ' · Teilzeit: § 29 Abs. 2' : ''), q: 'aetv' });
   for (const [n, b] of r.zulagen) {
     if (n.startsWith('Schichtzulage')) z.push({ teil: 'Brutto', name: n, betrag: b, weg: r.tz < 1 ? `${de(SCHICHTZULAGE)} € × ${std(r.tz * 100)} %` : `${de(SCHICHTZULAGE)} € je Monat (seit 01.01.2026)`, fund: '§ 14 Abs. 7 DRK-RTV · Schichtarbeit: § 13 Abs. 2', q: 'rtv' });
+    else if (n.startsWith('Dienstpauschale')) z.push({ teil: 'Brutto', name: n, betrag: b, weg: `${std(b / DIENSTPAUSCHALE)} × ${de(DIENSTPAUSCHALE)} € je Schicht ab 6 Stunden (seit 01.01.2026)`, fund: '§ 23 b DRK-RTV · nur bei verlängerter Arbeitszeit nach § 12 Abs. 6', q: 'rtv', hinweis: 'Auf der Abrechnung „Pauschale nach § 23 b“, auf der Monatsübersicht Lohnart 258.' });
     else if (n.startsWith('Praxisanleitung')) z.push({ teil: 'Brutto', name: n, betrag: b, weg: r.tz < 1 ? `${de(PRAXISANLEITUNG)} € × ${std(r.tz * 100)} %` : `${de(PRAXISANLEITUNG)} € je Monat (seit 01.10.2026)`, fund: '§ 23 a Abs. 1 DRK-RTV', q: 'rtv', hinweis: 'Nur mit schriftlicher Anordnung und nur für die Dauer der Anleitung.' });
     else z.push({ teil: 'Brutto', name: n, betrag: b, weg: 'von dir eingetragen', fund: n === 'Besitzstand' ? 'Überleitungstarifvertrag (TVÜ-DRK) – Betrag von deiner Abrechnung' : 'eigene Angabe', q: null });
   }
@@ -232,8 +254,10 @@ export function rechenweg(e, ym) {
   z.push({ teil: 'Versicherung', name: 'Rentenversicherung', betrag: -r.rv, weg: `${de(rvB)} € × 9,3 % (halbe 18,6 %)`, fund: '§ 158 SGB VI', q: 'sv' });
   z.push({ teil: 'Versicherung', name: 'Arbeitslosenversicherung', betrag: -r.av, weg: `${de(rvB)} € × 1,3 % (halbe 2,6 %)`, fund: '§ 341 SGB III', q: 'sv' });
   if (r.svBrutto > BBG_KV) z.push({ teil: 'Versicherung', name: 'Beitragsbemessungsgrenzen', info: true, betrag: null, weg: `Kranken/Pflege höchstens aus ${de(BBG_KV)} €, Rente/Arbeitslos aus ${de(BBG_RV)} € im Monat`, fund: 'Sozialversicherungsrechengrößen-Verordnung 2026', q: 'sv' });
-  if (r.abzug > 0) z.push({ teil: 'Versicherung', name: 'Weitere Abzüge', betrag: -r.abzug, weg: 'von dir eingetragen (z. B. Eigenanteil Zusatzversorgung)', fund: 'Zusatzversorgung: § 30 DRK-RTV – Höhe steht auf deiner Abrechnung', q: null });
-  z.push({ teil: 'Netto', name: 'Netto', betrag: r.netto, summe: true, weg: 'Brutto − Steuern − Versicherungen − weitere Abzüge', fund: '', q: null });
+  if (r.zvHinzu > 0) z.push({ teil: 'Versicherung', name: 'Umlage zur Zusatzversorgung zählt mit', info: true, betrag: r.zvHinzu, weg: `Dein Arbeitgeber zahlt ${std(Number(e.zvkAg))} % Umlage = ${de(r.zvUmlage)} €. Davon erhöhen ${de(r.zvHinzu)} € das Entgelt, aus dem die vier Versicherungen berechnet werden (${de(r.svBrutto)} € statt ${de(r2(r.svBrutto - r.zvHinzu))} €). Steuer fällt darauf nicht an.`, fund: '§ 1 Abs. 1 Satz 3 und 4 SvEV (über 100 € ganz; bis 100 €: 2,5 % des Entgelts abzüglich 13,30 €) · steuerfrei: § 3 Nr. 56 EStG', q: 'zv' });
+  if (r.zvkAn > 0) z.push({ teil: 'Versicherung', name: 'Zusatzversorgung: dein Eigenanteil', betrag: -r.zvkAn, weg: `${de(r.steuerBrutto)} € × ${std(Number(e.zvkAn))} %`, fund: '§ 30 DRK-RTV (Versicherung „unter eigener Beteiligung“) · Satz laut Satzung deiner Zusatzversorgungskasse', q: 'zv' });
+  if (r.abzug > 0) z.push({ teil: 'Versicherung', name: 'Weitere Abzüge', betrag: -r.abzug, weg: 'von dir eingetragen', fund: 'eigene Angabe', q: null });
+  z.push({ teil: 'Netto', name: 'Netto', betrag: r.netto, summe: true, weg: 'Brutto − Steuern − Versicherungen − Eigenanteil Zusatzversorgung − weitere Abzüge', fund: '', q: null });
   z.push({ teil: 'Jahressonderzahlung', name: 'Jahressonderzahlung (November)', betrag: r.jsz, weg: `90 % von ${de(r.brutto)} € – genau: 90 % vom Durchschnitt Juli bis September`, fund: '§ 23 Abs. 2 und 4 DRK-RTV', q: 'rtv', hinweis: 'Voraussetzung: ungekündigt am 1. Dezember und seit 1. Juni beschäftigt (§ 23 Abs. 1).' });
   return { r, zeilen: z };
 }

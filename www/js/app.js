@@ -6,14 +6,12 @@ import * as E from './einfuehrung.js';
 import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 
-export const APP_VERSION = 'finanz-v27';
+export const APP_VERSION = 'finanz-v28';
 const NEU_IN_VERSION = [
-  'Auswertung: Was gibst du im Schnitt aus, passt das Budget, wo geht das Geld hin (Ausgaben → Auswertung)',
-  'Gehalt aus dem Dienstplan schätzen: Dienste antippen oder aus CaleConnect einlesen, Monatsübersicht (PDF) – ein- und ausschaltbar',
-  'Gehaltsrechner: an jeder Zeile steht die Stelle im Tarifvertrag oder Gesetz, dazu die Seite „Woher kommen die Zahlen?“',
-  'Verlauf: suchen und filtern · Buchung: Kategorie und Datum ändern · Budget-Kachel antippen = Ausgabe eintragen',
-  'Fixkosten: neuer Betrag „gilt ab“ · Sparziel pro Konto · geplante Ausgaben als Gesamtliste · „Gekauft“ fragt nach dem echten Preis',
-  'Geteilte Ausgaben pro Person abrechnen · Erinnerung an die Sicherung · Warnung vor dem engsten Monat – alle Hinweise einzeln abschaltbar'
+  'Gehaltsrechner an einer echten Abrechnung nachgerechnet: neu ist die Zusatzversorgung (Eigenanteil und Umlage des Arbeitgebers) – damit stimmt das Netto auf den Cent',
+  'Neu: Dienstpauschale 10 € je Schicht (§ 23 b) – im Rechner, im Dienste-Kalender und aus der Monatsübersicht (Lohnart 258)',
+  'Zuschläge kommen jetzt standardmäßig 1 Monat später (Nachberechnung), einstellbar unter „Dienste und Gehalt“',
+  'Trag im Gehaltsrechner den Zusatzbeitrag deiner Krankenkasse und die zwei Sätze der Zusatzversorgung von deiner Abrechnung ein'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -1058,6 +1056,8 @@ function grErgebnisHtml(eb) {
     ${zeile(`Pflegeversicherung · ${prozent(r.satz.pv)}${r.pvz ? ' (kinderlos)' : ''}`, ab(r.pv), '', fund('Pflegeversicherung'))}
     ${zeile('Rentenversicherung · 9,3 %', ab(r.rv), '', fund('Rentenversicherung'))}
     ${zeile('Arbeitslosenversicherung · 1,3 %', ab(r.av), '', fund('Arbeitslosenversicherung'))}
+    ${r.zvHinzu > 0 ? `<p class="hinweistext gr-mini">Versicherungen gerechnet aus ${R.euro(r.svBrutto)}: ${R.euro(r.zvHinzu)} der Umlage zur Zusatzversorgung zählen mit (§ 1 Abs. 1 Satz 3 und 4 SvEV).</p>` : ''}
+    ${r.zvkAn > 0 ? zeile('Zusatzversorgung: dein Eigenanteil', ab(r.zvkAn), '', fund('Zusatzversorgung: dein Eigenanteil')) : ''}
     ${r.abzug > 0 ? zeile('Weitere Abzüge', ab(r.abzug)) : ''}
     ${zeile('Netto', reinZ(r.netto, false, '≈ '), 'summe netto')}
     ${(() => {
@@ -1086,7 +1086,7 @@ function grAktualisieren() {
 }
 function grSaetze(eb, r) {
   const basis = r.basisStunde;
-  return `Nacht 5,50 € · Sonntag ${R.euro(Math.round(basis * 25) / 100)} · Feiertag ${R.euro(Math.round(basis * 35) / 100)} je Stunde. Grundlage: ${R.euro(basis)} je Stunde (niedrigste Stufe deiner Gruppe, § 14 Abs. 2). Ausgezahlt werden Zuschläge laut Tarif mit dem Gehalt des zweiten Folgemonats (§ 29 Abs. 1 Satz 3).`;
+  return `Nacht 5,50 € · Sonntag ${R.euro(Math.round(basis * 25) / 100)} · Feiertag ${R.euro(Math.round(basis * 35) / 100)} je Stunde. Grundlage: ${R.euro(basis)} je Stunde (niedrigste Stufe deiner Gruppe, § 14 Abs. 2). Ausgezahlt werden Zuschläge meist mit der nächsten Abrechnung (Nachberechnung), laut Tarif spätestens im zweiten Folgemonat (§ 29 Abs. 1 Satz 3).`;
 }
 
 // ---------- v27: Hinweise und Warnungen (einzeln abschaltbar) ----------
@@ -1234,6 +1234,8 @@ function auswertungHtml(eb) {
 
 // ---------- v27: Dienste und Gehalt schätzen ----------
 const schichtarten = () => z.daten.einstellungen.schichtarten || [];
+// Schalter „Dienstpauschale“ im Schichtart-Fenster: solange nichts gewählt ist, entscheidet das Kürzel (R1T ja, FB nein)
+const saPauschale = (eb) => (typeof eb.entwurf.pauschale === 'boolean' ? eb.entwurf.pauschale : DI.mitPauschale(String(eb.entwurf.k || '').trim(), []));
 function diensteHtml(eb) {
   const s = eb.monat;
   const e = z.daten.einstellungen;
@@ -1256,13 +1258,14 @@ function diensteHtml(eb) {
   const arten = schichtarten();
   const pinsel = eb.pinsel || '';
   const pinselHtml = `<div class="chips ds-pinsel">${arten.map((a) => `<button class="chip" data-a="ds-pinsel" data-wert="${esc(a.k)}" aria-pressed="${pinsel === a.k}">${esc(a.k)} <small>${a.frei ? 'ganztägig' : esc(a.von + '–' + a.bis)}</small></button>`).join('')}<button class="chip" data-a="ds-pinsel" data-wert="-" aria-pressed="${pinsel === '-'}">✕ Leeren</button><button class="chip" data-a="schichtart" data-wert="">${ICON.plus} Schichtart</button></div>`;
-  const st = DI.stundenAusDiensten(z.daten.dienste, s, land);
+  const st = DI.stundenAusDiensten(z.daten.dienste, s, land, arten);
   const ms = (z.daten.monatsstunden || {})[s];
   const gilt = DI.stundenFuer(z.daten, s);
   const zahlMonat = R.ymPlus(s, vz);
-  const rech = hatRechner ? DRK.gehaltRechnen(Object.assign(DRK.eingaben(e.gehaltsrechner), gilt.quelle === 'schnitt' ? {} : { nacht: gilt.nacht, nacht04: gilt.nacht04, sonntag: gilt.sonntag, feiertag: gilt.feiertag, vorfest: gilt.vorfest }), zahlMonat) : null;
+  const rech = hatRechner ? DRK.gehaltRechnen(Object.assign(DRK.eingaben(e.gehaltsrechner), gilt.quelle === 'schnitt' ? {} : { nacht: gilt.nacht, nacht04: gilt.nacht04, sonntag: gilt.sonntag, feiertag: gilt.feiertag, vorfest: gilt.vorfest, pauschalDienste: gilt.pauschalDienste }), zahlMonat) : null;
   const stundenZeile = (l, w, klasse = '') => `<div class="gr-zeile ${klasse}"><span>${l}</span><b>${w}</b></div>`;
   const q = gilt.quelle === 'abrechnung' ? gilt : st;
+  const pBetrag = (q.pauschalDienste || 0) * DRK.DIENSTPAUSCHALE;
   const stunden = `<section class="karte" id="ds-stunden"><div class="label">Stunden mit Zuschlag im ${esc(monatsName(s))}</div>
       ${st.anzahl || gilt.quelle === 'abrechnung' ? `
       ${gilt.quelle === 'abrechnung' ? `<p class="hinweistext">✓ Aus der Monatsübersicht deines Arbeitgebers (abgerechnet${ms.stand ? ', Stand ' + esc(new Date(ms.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}).</p>` : stundenZeile(`${st.anzahl === 1 ? '1 Dienst' : st.anzahl + ' Dienste'}`, `${std(st.stunden)} Std.`)}
@@ -1270,7 +1273,8 @@ function diensteHtml(eb) {
       ${stundenZeile('Sonntag<small class="gr-fund">§ 14 Abs. 2 Satz 2 b</small>', `${std(q.sonntag)} Std.`)}
       ${stundenZeile('Feiertag<small class="gr-fund">§ 14 Abs. 2 Satz 2 c</small>', `${std(q.feiertag)} Std.`)}
       ${q.vorfest > 0 ? stundenZeile('24./31.12. ab 14 Uhr<small class="gr-fund">§ 14 Abs. 2 Satz 2 d</small>', `${std(q.vorfest)} Std.`) : ''}
-      ${rech ? stundenZeile(`Zuschläge brutto · kommen mit dem Gehalt Ende ${esc(monatJahr(zahlMonat))}`, reinZ(rech.zuschlaegeSumme, false, '≈ '), 'summe') : ''}
+      ${stundenZeile(`Dienstpauschale · ${std(q.pauschalDienste || 0)} ${q.pauschalDienste === 1 ? 'Schicht' : 'Schichten'} × ${R.euro(DRK.DIENSTPAUSCHALE)}<small class="gr-fund">§ 23 b DRK-RTV · Schichten ab 6 Std. mit verlängerter Arbeitszeit</small>`, R.euro(pBetrag))}
+      ${rech ? stundenZeile(`Zuschläge und Pauschale brutto · kommen mit dem Gehalt Ende ${esc(monatJahr(zahlMonat))}`, reinZ(rech.zuschlaegeSumme + pBetrag, false, '≈ '), 'summe') : ''}
       ${st.ohneZeit ? `<p class="hinweistext warn-text">${st.ohneZeit === 1 ? '1 Dienst hat' : st.ohneZeit + ' Dienste haben'} keine Uhrzeit und ${st.ohneZeit === 1 ? 'zählt' : 'zählen'} nicht mit. Leg die Schichtart mit Uhrzeit an, dann den Tag neu antippen.</p>` : ''}
       ${ms && !ms.fertig ? `<p class="hinweistext">Zwischenstand laut Monatsübersicht${ms.stand ? ' vom ' + esc(new Date(ms.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}: Nacht ${std(ms.nacht)} · Sonntag ${std(ms.sonntag)} · Feiertag ${std(ms.feiertag)} Std. Gerechnet wird mit den Diensten, bis der Monat abgerechnet ist.</p>` : ''}` : '<div class="leerzustand" style="padding:8px 0">Noch keine Dienste in diesem Monat.</div>'}
       <button class="knopf klein" data-a="monatsstunden" data-monat="${s}">${ms ? 'Stunden laut Arbeitgeber ändern' : 'Stunden laut Arbeitgeber eintragen'}</button>
@@ -1282,7 +1286,7 @@ function diensteHtml(eb) {
     const zeilen = [0, 1, 2, 3].map((i) => {
       const m = R.ymPlus(heuteYm(), i); const x = DI.gehaltSchaetzung(z.daten, m); const ist = g && R.gehaltBestaetigt(g, m);
       const w = x.stunden.quelle === 'abrechnung' ? `Monatsübersicht ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]}` : x.stunden.quelle === 'dienste' ? `Dienste ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]}` : `Durchschnitt (keine Dienste im ${R.MONATE_KURZ[R.ymTeile(x.stunden.monat).monat - 1]})`;
-      return `<div class="gr-zeile"><span>Ende ${esc(monatJahr(m, true))}<small class="gr-fund">Zuschläge ≈ ${R.euroRund(x.zuschlaege)} · ${esc(w)}${ist ? ' · Gehalt schon bestätigt' : ''}</small></span><b>${reinZ(x.netto, true, '≈ ')}</b></div>`;
+      return `<div class="gr-zeile"><span>Ende ${esc(monatJahr(m, true))}<small class="gr-fund">Zuschläge ≈ ${R.euroRund(x.zuschlaege)}${x.stunden.pauschalDienste ? ` + Pauschale ${R.euroRund(x.stunden.pauschalDienste * DRK.DIENSTPAUSCHALE)}` : ''} · ${esc(w)}${ist ? ' · Gehalt schon bestätigt' : ''}</small></span><b>${reinZ(x.netto, true, '≈ ')}</b></div>`;
     }).join('');
     ausblick = `<section class="karte" id="ds-ausblick"><div class="label">Geschätztes Gehalt (netto)</div>${zeilen}<p class="hinweistext">Diese Werte stehen im Monat als Gehalt, bis du den echten Betrag bestätigst.</p></section>`;
   }
@@ -1290,8 +1294,8 @@ function diensteHtml(eb) {
     <section class="karte">
       <button class="schalter" role="switch" aria-checked="${an}" data-a="ds-schaetzen"><span class="t">Gehalt aus den Diensten schätzen<br><span class="klein">${an ? 'Jeder Monat bekommt seine eigene Schätzung' : 'Aus: es gilt deine feste Schätzung'}</span></span><span class="spur"></span></button>
       ${!hatRechner ? `<p class="hinweistext">Dafür braucht die App einmal deine Angaben im Gehaltsrechner (Entgeltgruppe, Stufe, Steuerklasse …) – dort „Merken“ tippen.</p><button class="knopf akzent" data-a="gehaltsrechner">🧮 Gehaltsrechner öffnen</button>` : ''}
-      <div class="feld"><span class="label">Zuschläge kommen mit dem Gehalt …</span><div class="wahl drei">${[[2, '2 Monate später'], [1, '1 Monat später'], [0, 'im selben Monat']].map(([w, t]) => wahlKnopf('ds-verzug', w, t, vz === w)).join('')}</div></div>
-      <p class="hinweistext">Tarif: am Zahltag des zweiten Folgemonats (§ 29 Abs. 1 Satz 3 DRK-RTV). Zuschläge aus September kommen also Ende November. Schau auf deiner Abrechnung nach, ob dein Arbeitgeber das so macht.</p>
+      <div class="feld"><span class="label">Zuschläge kommen mit dem Gehalt …</span><div class="wahl drei">${[[1, '1 Monat später'], [2, '2 Monate später'], [0, 'im selben Monat']].map(([w, t]) => wahlKnopf('ds-verzug', w, t, vz === w)).join('')}</div></div>
+      <p class="hinweistext">Üblich ist die Nachberechnung mit der nächsten Abrechnung: Zuschläge aus November kommen Ende Dezember. Der Tarif lässt Zeit bis zum Zahltag des zweiten Folgemonats (§ 29 Abs. 1 Satz 3 DRK-RTV). Auf der Abrechnung erkennst du es an den Zeilen mit „N“ davor.</p>
     </section>
     <div class="monatswahl ds-monat">
       <button class="knopf rund" data-a="ds-monat" data-wert="-1" aria-label="Vorheriger Monat">${ICON.links}</button>
@@ -1315,7 +1319,7 @@ function diensteHtml(eb) {
       <p class="hinweistext">CaleConnect: Menü → Backup → Speichern, dann hier die Datei wählen. Die Monatsübersicht deines Arbeitgebers bringt nach Monatsende die abgerechneten Stunden – genauer geht es nicht.</p>
       <div class="feld"><label for="ds-land">Feiertage von</label><select id="ds-land" class="eingabe" data-a-wechsel="ds-land">${Object.entries(DI.LAENDER).map(([k, n]) => `<option value="${k}" ${land === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
     </section>
-    <button class="knopf leise" data-a="quellen">Woher kommen die Zahlen? Rechenweg und Fundstellen</button>`);
+    <div class="zwei"><button class="knopf leise" data-a="gehaltsrechner">🧮 Gehaltsrechner</button><button class="knopf leise" data-a="quellen">Woher kommen die Zahlen?</button></div>`);
 }
 
 async function pdfZeilen(datei) {
@@ -1351,7 +1355,7 @@ function quellenHtml(eb) {
     ${karten}
     <section class="karte quellen-karte"><div class="label">Wann kommt was?</div>
       ${zeile({ name: 'Zahltag', betrag: null, weg: 'Letzter Tag des Monats für den laufenden Monat.', fund: '§ 29 Abs. 1 Satz 2 DRK-RTV' })}
-      ${zeile({ name: 'Zeitzuschläge', betrag: null, weg: 'Werden am Zahltag des zweiten Folgemonats fällig: Nacht- und Sonntagsstunden aus September kommen Ende November.', fund: '§ 29 Abs. 1 Satz 3 DRK-RTV' })}
+      ${zeile({ name: 'Zeitzuschläge', betrag: null, weg: 'Werden spätestens am Zahltag des zweiten Folgemonats fällig. Viele Abrechnungen bringen sie schon im Folgemonat als Nachberechnung (Zeilen mit „N“). Die App rechnet mit deiner Einstellung unter „Dienste und Gehalt“.', fund: '§ 29 Abs. 1 Satz 3 DRK-RTV' })}
       ${zeile({ name: 'Zusammentreffen', betrag: null, weg: 'Treffen Sonntag, Feiertag und 24./31.12. zusammen, gibt es nur den höchsten Zuschlag. Der Nachtzuschlag kommt immer dazu.', fund: '§ 14 Abs. 2 Satz 4 DRK-RTV' })}
       ${zeile({ name: 'Urlaub und Krankheit', betrag: null, weg: 'Zuschläge laufen als Durchschnitt der letzten drei vollen Monate weiter, bei Krankheit ohne Nachtzuschläge. Das rechnet die App nicht mit.', fund: '§ 24 Abs. 1 und 2 DRK-RTV' })}
     </section>
@@ -1363,7 +1367,8 @@ function quellenHtml(eb) {
         <li>Jede Stunde im Dienst zählt voll, Pausen werden nicht abgezogen. Ein Dienst zählt zu dem Monat, in dem er beginnt.</li>
         <li>Stundenanteil mit 38,5 Wochenstunden (Rettungsdienst, § 12 Abs. 1 Satz 2), auch wenn deine Arbeitszeit durch Arbeitsbereitschaft länger ist (§ 12 Abs. 6). Das ist eine Annahme – vergleiche den Stundensatz mit deiner Abrechnung.</li>
         <li>Feiertage: die gesetzlichen Feiertage des gewählten Bundeslands, ohne Sonderfälle einzelner Gemeinden.</li>
-        <li>Nicht enthalten: Bereitschaftsdienst und Rufbereitschaft, Überstunden, vermögenswirksame Leistungen (§ 26), die Zusatzversorgung (§ 30 – bitte unter „Weitere Abzüge“ eintragen) und alles, was dein Arbeitgeber anders macht als der Tarifvertrag.</li>
+        <li>Nicht enthalten: Bereitschaftsdienst und Rufbereitschaft, Überstunden, vermögenswirksame Leistungen (§ 26), Leistungsprämien (§ 22), ausgezahlte Arbeitsstunden (§ 14 Abs. 6) und alles, was dein Arbeitgeber anders macht als der Tarifvertrag. Solche Zahlungen trägst du als „Weitere Einnahme“ ein.</li>
+        <li>Zusatzversorgung: gerechnet wird nur, wenn du die zwei Sätze von deiner Abrechnung einträgst. Liegt die Umlage über 338 € im Monat (2026), wird der Rest pauschal versteuert – das rechnet die App nicht.</li>
         <li>Steuer und Sozialversicherung gelten für 2026. Für 2027 rechnet die App vorerst mit denselben Werten.</li>
       </ul>
       <p class="hinweistext">Zuletzt am Tariftext geprüft: ${DRK.QUELLEN_STAND}. Ändert sich der Tarif, muss die App aktualisiert werden.</p>
@@ -1411,19 +1416,21 @@ const EBENEN = {
       ${e.frei ? '<p class="hinweistext">Ganztägige Einträge stehen nur zur Übersicht im Kalender. Zuschläge gibt es dafür nicht.</p>' : `<div class="zwei">
         <div class="feld"><label for="sa-von">Beginn</label><input id="sa-von" class="eingabe" type="time" data-feld="von" value="${esc(e.von)}"></div>
         <div class="feld"><label for="sa-bis">Ende</label><input id="sa-bis" class="eingabe" type="time" data-feld="bis" value="${esc(e.bis)}"></div></div>
-      <p class="hinweistext">Endet der Dienst am nächsten Morgen (z. B. 19:00–07:00), rechnet die App über Mitternacht.</p>`}
+      <p class="hinweistext">Endet der Dienst am nächsten Morgen (z. B. 19:00–07:00), rechnet die App über Mitternacht.</p>
+      <button class="schalter" role="switch" aria-checked="${saPauschale(eb)}" data-a="sa-pauschale"><span class="t">Dienstpauschale ${R.euro(DRK.DIENSTPAUSCHALE)} je Schicht<br><span class="klein">§ 23 b: bei verlängerter Arbeitszeit mit Arbeitsbereitschaft, z. B. Rettungswagen – nicht bei Fortbildung oder Büro</span></span><span class="spur"></span></button>`}
       ${eb.alt ? '<p class="hinweistext">Neue Uhrzeiten gelten für Tage, die du ab jetzt antippst. Schon eingetragene Dienste behalten ihre Zeit.</p>' : ''}
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
       <div class="knopfreihe">${eb.alt ? '<button class="knopf leise" data-a="sa-loeschen">Löschen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="sa-speichern">Speichern</button></div>`, 'Schichtart');
   },
   monatsstunden: (eb) => {
     const e = eb.entwurf;
-    const st = DI.stundenAusDiensten(z.daten.dienste, eb.monat, DI.land(z.daten));
+    const st = DI.stundenAusDiensten(z.daten.dienste, eb.monat, DI.land(z.daten), schichtarten());
     const feld = (id, label, f, platz) => `<div class="feld"><label for="${id}">${label}</label><input id="${id}" class="eingabe" inputmode="decimal" data-feld="${f}" value="${esc(e[f] ?? '')}" placeholder="${esc(platz)}"></div>`;
     return sheet(`<h2>Stunden laut Arbeitgeber · ${esc(monatJahr(eb.monat))}</h2>
       <p class="hinweistext">Die Summen stehen unten auf deiner Monatsübersicht bei „Lohnarten“. Sie gelten vor den Diensten, sobald der Monat abgerechnet ist.</p>
       <div class="zwei">${feld('ms-nacht', 'Nacht gesamt (Std.)', 'nacht', st.anzahl ? 'Dienste: ' + std(st.nacht) : 'z. B. 40')}${feld('ms-nacht04', 'davon 0–4 Uhr', 'nacht04', st.anzahl ? 'Dienste: ' + std(st.nacht04) : 'z. B. 16')}</div>
       <div class="zwei">${feld('ms-sonntag', 'Sonntag (Std.)', 'sonntag', st.anzahl ? 'Dienste: ' + std(st.sonntag) : 'z. B. 12')}${feld('ms-feiertag', 'Feiertag (Std.)', 'feiertag', st.anzahl ? 'Dienste: ' + std(st.feiertag) : 'z. B. 0')}</div>
+      ${feld('ms-pauschale', 'Dienstpauschale in € (Lohnart 258, § 23 b)', 'pauschale', st.anzahl ? 'Dienste: ' + std(st.pauschalDienste * DRK.DIENSTPAUSCHALE) : 'z. B. 120')}
       ${R.ymTeile(eb.monat).monat === 12 ? feld('ms-vorfest', '24./31.12. ab 14 Uhr (Std.)', 'vorfest', st.anzahl ? 'Dienste: ' + std(st.vorfest) : 'z. B. 0') : ''}
       <button class="schalter" role="switch" aria-checked="${!!e.fertig}" data-a="ms-fertig"><span class="t">Monat ist abgerechnet<br><span class="klein">${e.fertig ? 'Diese Stunden gelten für die Schätzung' : 'Zwischenstand – gerechnet wird weiter mit den Diensten'}</span></span><span class="spur"></span></button>
       ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
@@ -1435,7 +1442,7 @@ const EBENEN = {
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="ds-import-ja">Einlesen</button></div>`, 'Dienste einlesen'),
   'mue-import': (eb) => {
     const r = eb.ergebnis;
-    const zeile = (x) => `<div class="gr-zeile"><span>${esc(x.nr + ' ' + x.name)}<small class="gr-fund">${x.art ? { nacht: 'zählt als Nacht', nacht04: 'zählt als Nacht 0–4 Uhr', sonntag: 'zählt als Sonntag', feiertag: 'zählt als Feiertag', vorfest: 'zählt als 24./31.12.' }[x.art] : 'wird nicht verwendet'}</small></span><b>${std(x.stunden)} Std.</b></div>`;
+    const zeile = (x) => `<div class="gr-zeile"><span>${esc(x.nr + ' ' + x.name)}<small class="gr-fund">${x.art ? { nacht: 'zählt als Nacht', nacht04: 'zählt als Nacht 0–4 Uhr', sonntag: 'zählt als Sonntag', feiertag: 'zählt als Feiertag', vorfest: 'zählt als 24./31.12.', pauschale: `Dienstpauschale § 23 b in € = ${std(x.stunden / DRK.DIENSTPAUSCHALE)} Schichten` }[x.art] : 'wird nicht verwendet'}</small></span><b>${x.art === 'pauschale' ? R.euro(x.stunden) : std(x.stunden) + ' Std.'}</b></div>`;
     return sheet(`<h2>Monatsübersicht ${esc(monatJahr(r.monat))}</h2>
       <p class="hinweistext">${r.fertig ? '✓ Der Monat ist vorbei – die Stunden gelten als abgerechnet und ersetzen die Rechnung aus den Diensten.' : `Zwischenstand${r.stand ? ' vom ' + esc(new Date(r.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}: Der Monat läuft noch. Die Stunden werden nur als Zwischenstand gemerkt, gerechnet wird mit den Diensten.`}</p>
       ${r.lohnarten.length ? `<div class="label">Lohnarten</div>${r.lohnarten.map(zeile).join('')}` : '<p class="hinweistext">Noch keine Lohnarten in der Übersicht.</p>'}
@@ -1714,6 +1721,7 @@ const EBENEN = {
         <div class="label">Zulagen jeden Monat</div>
         ${schalter('schicht', `Schichtzulage · ${R.euro(DRK.SCHICHTZULAGE)}`, 'bei ständiger Schichtarbeit (§ 14 Abs. 7) · in Teilzeit anteilig')}
         ${schalter('praxis', `Praxisanleitung · ${R.euro(DRK.PRAXISANLEITUNG)}`, '§ 23 a Abs. 1 – mit deiner Abrechnung vergleichen')}
+        ${feld('gr-dienst', `Schichten mit Dienstpauschale im Monat (${R.euro(DRK.DIENSTPAUSCHALE)} je Schicht, § 23 b)`, 'dienstText', 'z. B. 12 – nur bei verlängerter Arbeitszeit')}
         ${feldO('gr-besitz', 'Besitzstand (€, falls auf der Abrechnung)', 'besitzText', 'z. B. 0')}
         ${feldO('gr-zulage', 'Weitere Zulagen (€)', 'zulageText', 'z. B. 98,12')}
       </section>
@@ -1734,7 +1742,12 @@ const EBENEN = {
         ${feld('gr-kvz', 'Zusatzbeitrag deiner Krankenkasse (%)', 'kvzText', '2,9 = Durchschnitt 2026')}
         <div class="feld"><span class="label">Kirchensteuer</span><div class="wahl drei">${wahl('kirche', [[0, 'keine'], [8, '8 % (BW, BY)'], [9, '9 %']])}</div></div>
         ${feld('gr-freibetrag', 'Steuerfreibetrag pro Monat (€, optional)', 'freibetragText', 'z. B. 0')}
-        ${feldO('gr-abzug', 'Weitere Abzüge pro Monat (€, z. B. Zusatzversorgung)', 'abzugText', 'z. B. 0')}
+        ${feldO('gr-abzug', 'Weitere Abzüge pro Monat (€)', 'abzugText', 'z. B. 0')}
+      </section>
+      <section class="karte gr-karte">
+        <div class="label">Zusatzversorgung (ZVK / VBL)</div>
+        <div class="zwei">${feld('gr-zvkan', 'Dein Eigenanteil (%)', 'zvkAnText', 'z. B. 0,55')}${feld('gr-zvkag', 'Umlage Arbeitgeber (%)', 'zvkAgText', 'z. B. 5,75')}</div>
+        <p class="hinweistext">Beides steht auf deiner Abrechnung: Eigenanteil = „AN-Anteil ZVK“ ÷ „ZVK-Brutto“, Umlage = Prozentsatz bei „Allg. Uml. ZVK“. Die Umlage zahlt dein Arbeitgeber, sie erhöht aber deine Beiträge zur Sozialversicherung (§ 1 Abs. 1 Satz 3 und 4 SvEV). Leer = ohne Zusatzversorgung gerechnet.</p>
       </section>
       <section class="karte gr-ergebnis" id="gr-ergebnis" aria-live="polite">${grErgebnisHtml(eb)}</section>
 <button class="knopf leise" data-a="quellen">Woher kommen die Zahlen? Rechenweg und Fundstellen</button>
@@ -1894,9 +1907,9 @@ const AKTION = {
   'gr-dienste': (el) => {
     const eb = oben(); const st = DI.stundenFuer(z.daten, el.dataset.monat);
     if (st.quelle === 'schnitt') return;
-    Object.assign(eb.entwurf, { nachtText: std(st.nacht), sonntagText: std(st.sonntag), feiertagText: std((st.feiertag || 0) + (st.vorfest || 0)), nachtTextOffen: false, sonntagTextOffen: false, feiertagTextOffen: false });
+    Object.assign(eb.entwurf, { nachtText: std(st.nacht), sonntagText: std(st.sonntag), feiertagText: std((st.feiertag || 0) + (st.vorfest || 0)), dienstText: std(st.pauschalDienste || 0), nachtTextOffen: false, sonntagTextOffen: false, feiertagTextOffen: false });
     haptik('tick'); renderEbenen();
-    zeigeToast(`Stunden aus ${st.quelle === 'abrechnung' ? 'der Monatsübersicht' : 'den Diensten'} ${monatsName(st.monat)} eingesetzt`, null, 'info');
+    zeigeToast(`Stunden und Schichten aus ${st.quelle === 'abrechnung' ? 'der Monatsübersicht' : 'den Diensten'} ${monatsName(st.monat)} eingesetzt`, null, 'info');
   },
 
   // Dienste
@@ -1926,7 +1939,7 @@ const AKTION = {
     if (an && !z.daten.einstellungen.gehaltsrechner) { zeigeToast('Erst im Gehaltsrechner deine Angaben eintragen und „Merken“ tippen', null, 'info'); return; }
     await aendern((d) => { d.einstellungen.gehaltSchaetzen = an; }, { text: an ? 'Gehalt wird aus den Diensten geschätzt' : 'Dienst-Schätzung aus – es gilt deine feste Schätzung', rueckgaengig: (d) => { d.einstellungen.gehaltSchaetzen = !an; } });
   },
-  'ds-verzug': async (el) => { const v = Number(el.dataset.wert); await aendern((d) => { d.einstellungen.zuschlagVerzug = v; }, { text: v === 2 ? 'Zuschläge: 2 Monate später (Tarif)' : v === 1 ? 'Zuschläge: 1 Monat später' : 'Zuschläge: im selben Monat', haptik: 'tick' }); },
+  'ds-verzug': async (el) => { const v = Number(el.dataset.wert); await aendern((d) => { d.einstellungen.zuschlagVerzug = v; }, { text: v === 2 ? 'Zuschläge: 2 Monate später (spätester Termin laut Tarif)' : v === 1 ? 'Zuschläge: 1 Monat später' : 'Zuschläge: im selben Monat', haptik: 'tick' }); },
   'ds-land': async (el) => { const v = el.value; await aendern((d) => { d.einstellungen.bundesland = v; }, { text: `Feiertage: ${DI.LAENDER[v]}`, haptik: 'tick' }); },
   'ds-datei': () => document.getElementById('dienste-datei').click(),
   'ds-pdf': () => document.getElementById('mue-datei').click(),
@@ -1950,9 +1963,10 @@ const AKTION = {
   },
   schichtart: (el) => {
     const a = schichtarten().find((x) => x.k === el.dataset.wert);
-    oeffne({ art: 'schichtart', alt: a ? a.k : null, entwurf: a ? { k: a.k, von: a.von || '07:00', bis: a.bis || '19:00', frei: !!a.frei } : { k: '', von: '07:00', bis: '19:00', frei: false } });
+    oeffne({ art: 'schichtart', alt: a ? a.k : null, entwurf: a ? { k: a.k, von: a.von || '07:00', bis: a.bis || '19:00', frei: !!a.frei, pauschale: DI.mitPauschale(a.k, schichtarten()) } : { k: '', von: '07:00', bis: '19:00', frei: false, pauschale: null } });
   },
   'sa-frei': (el) => { oben().entwurf.frei = el.dataset.wert === '1'; renderEbenen(); },
+  'sa-pauschale': () => { const eb = oben(); eb.entwurf.pauschale = !saPauschale(eb); haptik('tick'); renderEbenen(); },
   'sa-speichern': async () => {
     const eb = oben(); const e = eb.entwurf; const k = String(e.k || '').trim();
     if (!k) { eb.fehler = 'Bitte ein Kürzel eintragen, z. B. R1T.'; renderEbenen(); return; }
@@ -1960,7 +1974,7 @@ const AKTION = {
     if (schichtarten().some((x) => x.k === k && x.k !== eb.alt)) { eb.fehler = `${k} gibt es schon.`; renderEbenen(); return; }
     if (!e.frei && (!/^\d{2}:\d{2}$/.test(e.von || '') || !/^\d{2}:\d{2}$/.test(e.bis || ''))) { eb.fehler = 'Bitte Beginn und Ende eintragen.'; renderEbenen(); return; }
     if (!e.frei && e.von === e.bis) { eb.fehler = 'Beginn und Ende sind gleich.'; renderEbenen(); return; }
-    const neu = e.frei ? { k, frei: true } : { k, von: e.von, bis: e.bis };
+    const neu = e.frei ? { k, frei: true } : { k, von: e.von, bis: e.bis, pauschale: saPauschale(eb) };
     z.ebenen.pop();
     await aendern((d) => { const l = (d.einstellungen.schichtarten || []).slice(); const i = l.findIndex((x) => x.k === eb.alt); if (i >= 0) l[i] = neu; else l.push(neu); d.einstellungen.schichtarten = l; }, { text: `Schichtart ${k} gespeichert` });
     const o = oben(); if (o && o.art === 'dienste') { o.pinsel = k; renderEbenen(); }
@@ -1975,7 +1989,7 @@ const AKTION = {
     const m = el.dataset.monat; const ms = (z.daten.monatsstunden || {})[m];
     const t = (x) => (x == null || x === 0 ? (ms ? '0' : '') : std(x));
     const vorbei = m < heuteYm();
-    oeffne({ art: 'monatsstunden', monat: m, vorhanden: !!ms, entwurf: ms ? { nacht: t(ms.nacht), nacht04: t(ms.nacht04), sonntag: t(ms.sonntag), feiertag: t(ms.feiertag), vorfest: t(ms.vorfest), fertig: !!ms.fertig } : { nacht: '', nacht04: '', sonntag: '', feiertag: '', vorfest: '', fertig: vorbei } });
+    oeffne({ art: 'monatsstunden', monat: m, vorhanden: !!ms, entwurf: ms ? { nacht: t(ms.nacht), nacht04: t(ms.nacht04), sonntag: t(ms.sonntag), feiertag: t(ms.feiertag), vorfest: t(ms.vorfest), pauschale: ms.pauschale == null ? '' : std(ms.pauschale), fertig: !!ms.fertig } : { nacht: '', nacht04: '', sonntag: '', feiertag: '', vorfest: '', pauschale: '', fertig: vorbei } });
   },
   'ms-fertig': () => { oben().entwurf.fertig = !oben().entwurf.fertig; renderEbenen(); },
   'ms-speichern': async () => {
@@ -1983,6 +1997,8 @@ const AKTION = {
     const w = {};
     for (const f of ['nacht', 'nacht04', 'sonntag', 'feiertag', 'vorfest']) { const n = String(e[f] || '').trim() === '' ? 0 : zahl(e[f]); if (isNaN(n) || n < 0 || n > 744) { eb.fehler = 'Bitte Stunden als Zahl eintragen (z. B. 40 oder 12,5).'; renderEbenen(); return; } w[f] = n; }
     if (w.nacht04 > w.nacht) { eb.fehler = '„davon 0–4 Uhr“ kann nicht mehr sein als die Nachtstunden gesamt.'; renderEbenen(); return; }
+    // Dienstpauschale: leer = aus den Diensten zählen
+    if (String(e.pauschale || '').trim() !== '') { const p = zahl(e.pauschale); if (isNaN(p) || p < 0) { eb.fehler = 'Die Dienstpauschale bitte als Betrag in € eintragen (oder leer lassen).'; renderEbenen(); return; } w.pauschale = p; }
     const alt = kopie(z.daten.monatsstunden || {});
     z.ebenen.pop();
     await aendern((d) => { if (!d.monatsstunden) d.monatsstunden = {}; d.monatsstunden[eb.monat] = Object.assign(w, { fertig: !!e.fertig, stand: heute(), quelle: 'hand' }); },
@@ -2955,7 +2971,10 @@ function bindeEreignisse() {
     if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
     const a = DI.diensteAusUebersicht(r.dienste, schichtarten());
     z.toast = null;
-    oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten: DI.schichtartenAus(a.fertig.filter((x) => x.frei || (/:(00|15|30|45)$/.test(x.von) && /:(00|15|30|45)$/.test(x.bis))), schichtarten()) });
+    // Schichtarten: glatte Zeiten übernehmen; Dienstpauschale je Kürzel so, wie sie in der Übersicht gebucht ist
+    const arten = DI.schichtartenAus(a.fertig.filter((x) => x.frei || (/:(00|15|30|45)$/.test(x.von) && /:(00|15|30|45)$/.test(x.bis))), schichtarten())
+      .map((x) => (x.frei || !(x.k in a.pauschale) ? x : Object.assign({}, x, { pauschale: a.pauschale[x.k] })));
+    oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten });
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && ev.target.id === 'vf-text') { ev.target.blur(); return; }

@@ -4,7 +4,9 @@
 // - Nachtarbeit = 20 bis 6 Uhr (§ 13 Abs. 6), Zuschlag je Stunde (§ 14 Abs. 2 Satz 3).
 // - Sonntag 25 %, Feiertag 35 %, 24.12. und 31.12. ab 14 Uhr 35 % (§ 14 Abs. 2 Satz 2 b–d).
 //   Treffen Sonntag, Feiertag und 24./31.12. zusammen, gibt es nur den höchsten (Satz 4). Nacht kommt immer dazu.
-// - Zeitzuschläge werden am Zahltag des zweiten Folgemonats fällig (§ 29 Abs. 1 Satz 3).
+// - Zeitzuschläge werden spätestens am Zahltag des zweiten Folgemonats fällig (§ 29 Abs. 1 Satz 3). In der Praxis
+//   kommen sie als Nachberechnung schon mit der nächsten Abrechnung → Standard: 1 Monat später.
+// - Dienstpauschale § 23 b: 10 € je dienstplanmäßiger Schicht ab 6 Stunden, nur bei verlängerter Arbeitszeit (§ 12 Abs. 6).
 // Annahme: Jede Stunde im Dienst zählt voll (keine Pausen abgezogen), der ganze Dienst zählt zum Monat,
 // in dem er beginnt – so steht es auch in der Monatsübersicht des Arbeitgebers (Nachtdienst Sa→So: Sonntag 7 Std.).
 import * as R from './rechnen.js';
@@ -71,19 +73,27 @@ export function dienstMinuten(dienst, land = 'BW') {
   return m;
 }
 const h2 = (minuten) => Math.round(minuten / 60 * 100) / 100;
-// Stunden aller Dienste, die im Monat ym beginnen
-export function stundenAusDiensten(dienste, ym, land = 'BW') {
+// v28 Dienstpauschale (§ 23 b): Hat die Schichtart die Angabe `pauschale`, gilt sie. Sonst: Kürzel von Fahrzeug-Diensten
+// (R1T, N1N, M1T, K1F …) ja, alles andere (Fortbildung, Dozent, Büro) nein.
+export function mitPauschale(k, arten = []) {
+  const a = arten.find((x) => x.k === k);
+  if (a && typeof a.pauschale === 'boolean') return a.pauschale;
+  return /^[RNMK]\d/i.test(String(k || ''));
+}
+// Stunden aller Dienste, die im Monat ym beginnen; pauschalDienste = Schichten ab 6 Stunden mit Dienstpauschale
+export function stundenAusDiensten(dienste, ym, land = 'BW', arten = []) {
   const l = (dienste || []).filter((x) => x && typeof x.d === 'string' && x.d.slice(0, 7) === ym);
   const s = { gesamt: 0, nacht: 0, nacht04: 0, sonntag: 0, feiertag: 0, vorfest: 0 };
-  let anzahl = 0, ohneZeit = 0;
+  let anzahl = 0, ohneZeit = 0, pauschalDienste = 0;
   for (const x of l) {
     if (x.frei) continue;
     const m = dienstMinuten(x, land);
     if (!m.gesamt) { ohneZeit++; continue; }
     anzahl++;
+    if (m.gesamt >= 360 && mitPauschale(x.k, arten)) pauschalDienste++;
     for (const k of Object.keys(s)) s[k] += m[k];
   }
-  return { anzahl, ohneZeit, stunden: h2(s.gesamt), nacht: h2(s.nacht), nacht04: h2(s.nacht04), sonntag: h2(s.sonntag), feiertag: h2(s.feiertag), vorfest: h2(s.vorfest) };
+  return { anzahl, ohneZeit, pauschalDienste, stunden: h2(s.gesamt), nacht: h2(s.nacht), nacht04: h2(s.nacht04), sonntag: h2(s.sonntag), feiertag: h2(s.feiertag), vorfest: h2(s.vorfest) };
 }
 
 // ---------- Dienste aus einer Datei (CaleConnect) ----------
@@ -138,8 +148,10 @@ export function schichtartenAus(dienste, vorhandene = []) {
 // unten die Summen der Lohnarten („770 Nacht 12:00 …“) und „Gedruckt am“.
 const MONATE = ['januar', 'februar', 'märz', 'april', 'mai', 'juni', 'juli', 'august', 'september', 'oktober', 'november', 'dezember'];
 const hDez = (t) => { const m = /^(\d{1,3}):(\d{2})$/.exec(t); return m ? Math.round((Number(m[1]) + Number(m[2]) / 60) * 100) / 100 : NaN; };
-export function lohnartZuordnen(name) {
+export function lohnartZuordnen(name, nr) {
   const n = name.toLowerCase();
+  // Lohnart 258 heißt auf der Monatsübersicht „Schichtzulage“, auf der Abrechnung „Pauschale nach § 23 b“ (Betrag in €, kein Stundenwert)
+  if (nr === '258' || /pauschale|23 ?b/.test(n)) return 'pauschale';
   if (/0[:.]00\s*-\s*4[:.]00/.test(n)) return 'nacht04';
   if (/nacht|nach\b/.test(n)) return 'nacht';
   if (/sonntag/.test(n)) return 'sonntag';
@@ -163,7 +175,7 @@ export function monatsuebersichtLesen(zeilen) {
       if (/^urlaubsst|^gedruckt|^von benutzer/i.test(x)) break;
       const re = /(\d{3})\s+(.+?)\s+(\d{1,3}:\d{2})(?=\s+\d{3}\s|\s*$)/g;
       let m;
-      while ((m = re.exec(x))) lohnarten.push({ nr: m[1], name: m[2], stunden: hDez(m[3]), art: lohnartZuordnen(m[2]) });
+      while ((m = re.exec(x))) lohnarten.push({ nr: m[1], name: m[2], stunden: hDez(m[3]), art: lohnartZuordnen(m[2], m[1]) });
     }
   }
   // Tageszeilen: „Mo 02 R1T 07:00 n 19:00 n …“ · „So 01 -“ · Zeit auch als 07*00
@@ -174,13 +186,14 @@ export function monatsuebersichtLesen(zeilen) {
     const k = m[3];
     if (/^[-+–]+$/.test(k) || /^\d/.test(k)) continue;
     const d = ym + '-' + m[2];
-    if (m[4]) dienste.push({ d, k, von: m[4] + ':' + m[5], bis: m[6] + ':' + m[7], gestempelt: true });
+    // p = an diesem Tag wurde die Dienstpauschale (Lohnart 258) gebucht
+    if (m[4]) dienste.push({ d, k, von: m[4] + ':' + m[5], bis: m[6] + ':' + m[7], gestempelt: true, p: /\s258\s+\d/.test(x) });
     else dienste.push({ d, k });
   }
-  const s = { nacht: 0, nacht04: 0, sonntag: 0, feiertag: 0, vorfest: 0 };
+  const s = { nacht: 0, nacht04: 0, sonntag: 0, feiertag: 0, vorfest: 0, pauschale: 0 };
   for (const x of lohnarten) if (x.art && isFinite(x.stunden)) s[x.art] += x.stunden;
-  // In der Übersicht ist „Nacht“ ohne die Stunden 0–4 Uhr geführt → für die Rechnung zusammenzählen
-  const stunden = { nacht: Math.round((s.nacht + s.nacht04) * 100) / 100, nacht04: s.nacht04, sonntag: s.sonntag, feiertag: s.feiertag, vorfest: s.vorfest };
+  // In der Übersicht ist „Nacht“ ohne die Stunden 0–4 Uhr geführt → für die Rechnung zusammenzählen. pauschale = Euro.
+  const stunden = { nacht: Math.round((s.nacht + s.nacht04) * 100) / 100, nacht04: s.nacht04, sonntag: s.sonntag, feiertag: s.feiertag, vorfest: s.vorfest, pauschale: s.pauschale };
   const letzter = ym + '-' + R.zweistellig(R.tageImMonat(ym));
   return { ok: true, monat: ym, stand, fertig: !!stand && stand > letzter, lohnarten, stunden, dienste };
 }
@@ -197,11 +210,14 @@ export function diensteAusUebersicht(dienste, schichtarten = []) {
     else if (x.von) fertig.push({ d: x.d, k: x.k, von: x.von, bis: x.bis });
     else ohne.push(x);
   }
-  return { fertig, ohne };
+  // Dienstpauschale je Kürzel: aus den Tagen mit gebuchter Zeit ablesen (ja, sobald sie einmal gebucht wurde)
+  const pauschale = {};
+  for (const x of dienste) if (x.von && typeof x.p === 'boolean') pauschale[x.k] = pauschale[x.k] || x.p;
+  return { fertig, ohne, pauschale };
 }
 
 // ---------- Gehalt schätzen ----------
-export const VERZUG_STANDARD = 2; // § 29 Abs. 1 Satz 3 DRK-RTV
+export const VERZUG_STANDARD = 1; // Nachberechnung mit der nächsten Abrechnung; der Tarif erlaubt bis zum zweiten Folgemonat (§ 29 Abs. 1 Satz 3 DRK-RTV)
 export function verzug(daten) { const v = daten.einstellungen && daten.einstellungen.zuschlagVerzug; return v === 0 || v === 1 || v === 2 ? v : VERZUG_STANDARD; }
 export function land(daten) { return (daten.einstellungen && daten.einstellungen.bundesland) || 'BW'; }
 export function schaetzenAn(daten) { return !!(daten.einstellungen && daten.einstellungen.gehaltSchaetzen && daten.einstellungen.gehaltsrechner); }
@@ -209,8 +225,10 @@ export function schaetzenAn(daten) { return !!(daten.einstellungen && daten.eins
 // Welche Zuschlag-Stunden gelten für den Arbeitsmonat ym – und woher kommen sie?
 export function stundenFuer(daten, ym) {
   const ms = daten.monatsstunden && daten.monatsstunden[ym];
-  if (ms && ms.fertig) return { quelle: 'abrechnung', monat: ym, nacht: ms.nacht || 0, nacht04: ms.nacht04 || 0, sonntag: ms.sonntag || 0, feiertag: ms.feiertag || 0, vorfest: ms.vorfest || 0 };
-  const d = stundenAusDiensten(daten.dienste, ym, land(daten));
+  const arten = (daten.einstellungen && daten.einstellungen.schichtarten) || [];
+  const d = stundenAusDiensten(daten.dienste, ym, land(daten), arten);
+  if (ms && ms.fertig) return { quelle: 'abrechnung', monat: ym, nacht: ms.nacht || 0, nacht04: ms.nacht04 || 0, sonntag: ms.sonntag || 0, feiertag: ms.feiertag || 0, vorfest: ms.vorfest || 0,
+    pauschalDienste: ms.pauschale != null ? Math.round(ms.pauschale / DRK.DIENSTPAUSCHALE * 100) / 100 : d.pauschalDienste };
   if (d.anzahl > 0) return Object.assign({ quelle: 'dienste', monat: ym }, d);
   return { quelle: 'schnitt', monat: ym };
 }
@@ -219,7 +237,7 @@ export function gehaltSchaetzung(daten, s) {
   if (!schaetzenAn(daten)) return null;
   const e = DRK.eingaben(daten.einstellungen.gehaltsrechner);
   const st = stundenFuer(daten, R.ymPlus(s, -verzug(daten)));
-  if (st.quelle !== 'schnitt') Object.assign(e, { nacht: st.nacht, nacht04: st.nacht04, sonntag: st.sonntag, feiertag: st.feiertag, vorfest: st.vorfest });
+  if (st.quelle !== 'schnitt') Object.assign(e, { nacht: st.nacht, nacht04: st.nacht04, sonntag: st.sonntag, feiertag: st.feiertag, vorfest: st.vorfest, pauschalDienste: st.pauschalDienste });
   const r = DRK.gehaltRechnen(e, s);
   return { monat: s, netto: r.netto, brutto: r.brutto, zuschlaege: r.zuschlaegeSumme, stunden: st, eingaben: e, r };
 }
