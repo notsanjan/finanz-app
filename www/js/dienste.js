@@ -216,6 +216,22 @@ export function diensteAusUebersicht(dienste, schichtarten = []) {
   return { fertig, ohne, pauschale };
 }
 
+// v29: Kalender der App gegen die Dienste der Monatsübersicht (nur Kürzel je Tag).
+// Ganztägige Einträge im Kalender (Urlaub, krank), die in der Übersicht fehlen, gelten nicht als Unterschied.
+export function diensteVergleich(kalender, uebersicht, ym) {
+  const kal = new Map((kalender || []).filter((x) => x.d.slice(0, 7) === ym).map((x) => [x.d, x]));
+  const ueb = new Map((uebersicht || []).filter((x) => x.d.slice(0, 7) === ym).map((x) => [x.d, x]));
+  const tage = [...new Set([...kal.keys(), ...ueb.keys()])].sort();
+  let gleich = 0; const unterschiede = [];
+  for (const d of tage) {
+    const a = kal.get(d), b = ueb.get(d);
+    if (a && b && a.k === b.k) { gleich++; continue; }
+    if (a && a.frei && !b) continue;
+    unterschiede.push({ d, kal: a ? a.k : null, ueb: b ? b.k : null });
+  }
+  return { imKalender: kal.size, gleich, unterschiede };
+}
+
 // ---------- Gehalt schätzen ----------
 export const VERZUG_STANDARD = 1; // Nachberechnung mit der nächsten Abrechnung; der Tarif erlaubt bis zum zweiten Folgemonat (§ 29 Abs. 1 Satz 3 DRK-RTV)
 export function verzug(daten) { const v = daten.einstellungen && daten.einstellungen.zuschlagVerzug; return v === 0 || v === 1 || v === 2 ? v : VERZUG_STANDARD; }

@@ -738,3 +738,22 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .ds-tag:active { background: var(--flaeche-3); }
 .ds-pinsel .chip small { color: var(--gedaempft); font-size: var(--t-mini); margin-left: 4px; }
 .ds-pinsel .chip[aria-pressed="true"] small { color: inherit; }
+
+/* ---------- v29: Abgleich ---------- */
+.abgleich { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--r-klein); font-size: var(--t-klein); line-height: 1.35; color: var(--gedaempft); background: var(--flaeche-1); border: 1px solid var(--rand-leise); }
+.abgleich b { font-size: var(--t-text); font-weight: 600; color: var(--text); }
+.abgleich.gut { border-color: rgba(143, 214, 160, .45); background: rgba(143, 214, 160, .08); }
+.abgleich.gut b { color: var(--plus); }
+.abgleich.warn { border-color: rgba(223, 230, 176, .5); background: rgba(223, 230, 176, .08); }
+.abgleich.warn b { color: var(--hinweis); }
+.vgl-tabelle { display: flex; flex-direction: column; }
+.vgl-zeile { display: grid; grid-template-columns: minmax(0, 1fr) 92px 92px 18px; gap: 6px; align-items: baseline; padding: 7px 0; border-bottom: 1px solid var(--flaeche-1); font-size: var(--t-klein); color: var(--gedaempft); }
+.vgl-zeile span { min-width: 0; overflow-wrap: anywhere; hyphens: manual; }
+.vgl-zeile b { text-align: right; font-weight: 500; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vgl-zeile i { font-style: normal; text-align: center; color: var(--plus); }
+.vgl-zeile.ab i { color: var(--hinweis); font-weight: 700; }
+.vgl-zeile.ab span { color: var(--text); }
+.vgl-zeile.kopf { border-bottom-color: var(--rand-mittel); padding-top: 2px; }
+.vgl-zeile.kopf b { font-size: var(--t-mini); font-weight: 400; color: var(--gedaempft); letter-spacing: .03em; }
+.ds-leser .label:not(:first-child) { margin-top: 8px; }
+.ds-leser .hinweistext { margin: 0; }

@@ -5,13 +5,14 @@ import * as D from './daten.js';
 import * as E from './einfuehrung.js';
 import * as DRK from './drk.js';
 import * as DI from './dienste.js';
+import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v28';
+export const APP_VERSION = 'finanz-v29';
 const NEU_IN_VERSION = [
-  'Gehaltsrechner an einer echten Abrechnung nachgerechnet: neu ist die Zusatzversorgung (Eigenanteil und Umlage des Arbeitgebers) – damit stimmt das Netto auf den Cent',
-  'Neu: Dienstpauschale 10 € je Schicht (§ 23 b) – im Rechner, im Dienste-Kalender und aus der Monatsübersicht (Lohnart 258)',
-  'Zuschläge kommen jetzt standardmäßig 1 Monat später (Nachberechnung), einstellbar unter „Dienste und Gehalt“',
-  'Trag im Gehaltsrechner den Zusatzbeitrag deiner Krankenkasse und die zwei Sätze der Zusatzversorgung von deiner Abrechnung ein'
+  'Neu: Brutto-Netto-Abrechnung einlesen (PDF) – echtes Gehalt eintragen, jede Zeile mit dem Gehaltsrechner vergleichen, Einstellungen übernehmen',
+  'Nachberechnung: Die App zeigt, aus welchem Monat Zuschläge und Pauschale kommen, und vergleicht die Stunden mit deinen Diensten',
+  'Monatsübersicht einlesen: Vergleich Tag für Tag mit deinem Kalender und Stunden-Vergleich nach Monatsende',
+  'Beide Leser stehen getrennt unter „Dienste und Gehalt“; die Datei bleibt auf dem Handy, Nummern und Bankverbindung werden nicht gelesen'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -1312,11 +1313,16 @@ function diensteHtml(eb) {
     </section>
     ${stunden}
     ${ausblick}
-    <section class="karte">
-      <div class="label">Einlesen statt antippen</div>
+    <section class="karte ds-leser">
+      <div class="label">Dienste einlesen statt antippen</div>
       <button class="knopf" data-a="ds-datei">Dienste aus CaleConnect einlesen (.json)</button>
+      <p class="hinweistext">CaleConnect: Menü → Backup → Speichern, dann hier die Datei wählen. Bringt die geplanten Dienste in den Kalender oben.</p>
+      <div class="label">Monatsübersicht deines Arbeitgebers</div>
       <button class="knopf" data-a="ds-pdf">Monatsübersicht einlesen (PDF)</button>
-      <p class="hinweistext">CaleConnect: Menü → Backup → Speichern, dann hier die Datei wählen. Die Monatsübersicht deines Arbeitgebers bringt nach Monatsende die abgerechneten Stunden – genauer geht es nicht.</p>
+      <p class="hinweistext">Bringt nach Monatsende die abgerechneten Stunden und vergleicht die Dienste Tag für Tag mit deinem Kalender.</p>
+      <div class="label">Brutto-Netto-Abrechnung</div>
+      <button class="knopf" data-a="ds-abr">Abrechnung einlesen (PDF)</button>
+      <p class="hinweistext">Trägt das echte Gehalt ein und vergleicht jede Zeile mit dem Gehaltsrechner. Die Datei bleibt auf dem Handy; Nummern und Bankverbindung liest die App nicht.</p>
       <div class="feld"><label for="ds-land">Feiertage von</label><select id="ds-land" class="eingabe" data-a-wechsel="ds-land">${Object.entries(DI.LAENDER).map(([k, n]) => `<option value="${k}" ${land === k ? 'selected' : ''}>${n}</option>`).join('')}</select></div>
     </section>
     <div class="zwei"><button class="knopf leise" data-a="gehaltsrechner">🧮 Gehaltsrechner</button><button class="knopf leise" data-a="quellen">Woher kommen die Zahlen?</button></div>`);
@@ -1326,8 +1332,9 @@ async function pdfZeilen(datei) {
   const pdfjs = await import('../vendor/pdfjs/pdf.min.js');
   pdfjs.GlobalWorkerOptions.workerSrc = new URL('../vendor/pdfjs/pdf.worker.min.js', import.meta.url).href;
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await datei.arrayBuffer()) }).promise;
-  const zeilen = [];
+  const blaetter = [];
   for (let n = 1; n <= doc.numPages; n++) {
+    const zeilen = [];
     const seite = await doc.getPage(n);
     const tc = await seite.getTextContent();
     const stuecke = tc.items.filter((i) => i.str && i.str.trim()).map((i) => ({ x: i.transform[4], y: i.transform[5], t: i.str }));
@@ -1336,8 +1343,74 @@ async function pdfZeilen(datei) {
     const fertig = () => { if (reihe.length) zeilen.push(reihe.sort((a, b) => a.x - b.x).map((i) => i.t).join(' ')); reihe = []; };
     for (const i of stuecke) { if (y === null || Math.abs(i.y - y) > 3) { fertig(); y = i.y; } reihe.push(i); }
     fertig();
+    blaetter.push(zeilen);
   }
-  return zeilen;
+  return blaetter; // ein Eintrag je Blatt, darin die Textzeilen
+}
+
+// ---------- v29: Brutto-Netto-Abrechnung abgleichen ----------
+function abrechnungHtml(eb) {
+  const erg = eb.ergebnis; const a = erg.haupt;
+  const zeile = (l, w, klasse = '') => `<div class="gr-zeile ${klasse}"><span>${l}</span><b>${w}</b></div>`;
+  const datum = (d) => (d ? new Date(d + 'T12:00:00').toLocaleDateString('de-DE') : '');
+  let auszahlung = '', vergleich = '', einstellungen = '';
+  if (a) {
+    const g = gehalt();
+    const ist = g && (g.istWerte || []).find((w) => R.ymAus(w.datum) === a.monat);
+    const sch = g ? R.einnahmeIm(g, a.monat).schaetzung : null;
+    const schon = ist && Math.abs(ist.betrag - a.auszahlung) < 0.005;
+    const abzuege = a.nettoPosten.filter((x) => !x.nach);
+    auszahlung = `<section class="karte ring" id="abr-auszahlung"><div class="label">Auszahlung ${esc(monatJahr(a.monat))}</div>
+      <div class="grosszahl" style="font-size:var(--t-zahl-l)"><span class="plus-zahl">+ ${R.euro(a.auszahlung)}</span></div>
+      ${a.nettoVerdienst != null ? zeile(`Netto-Verdienst ${esc(monatsName(a.monat))}`, R.euro(a.nettoVerdienst)) : ''}
+      ${abzuege.map((x) => zeile(esc(x.name), x.betrag < 0 ? rausZ(-x.betrag) : reinZ(x.betrag))).join('')}
+      ${a.ausNB.map((x) => zeile(`Nachberechnung ${esc(monatJahr(x.monat))}`, x.betrag < 0 ? rausZ(-x.betrag) : reinZ(x.betrag))).join('')}
+      ${a.auszahlung == null ? '<p class="hinweistext">Der Auszahlungsbetrag steht nicht lesbar in der Datei.</p>' : schon ? `<p class="hinweistext">✓ Als Gehalt ${esc(monatsName(a.monat))} eingetragen.</p>`
+        : `${sch != null && sch > 0 ? `<p class="hinweistext">${ist ? `Bisher eingetragen: ${R.euro(ist.betrag)}.` : `Die App hatte ≈ ${R.euroRund(sch)} geschätzt – ${Math.abs(a.auszahlung - sch) < 1 ? 'das passt' : a.auszahlung > sch ? R.euroRund(a.auszahlung - sch) + ' weniger als gekommen ist' : R.euroRund(sch - a.auszahlung) + ' mehr als gekommen ist'}.`}</p>` : ''}
+          <button class="knopf haupt" data-a="abr-gehalt">${R.euro(a.auszahlung)} als Gehalt ${esc(monatsName(a.monat))} eintragen</button>`}
+    </section>`;
+    const v = AB.vergleich(a, z.daten.einstellungen.gehaltsrechner ? DRK.eingaben(z.daten.einstellungen.gehaltsrechner) : {});
+    vergleich = `<section class="karte" id="abr-vergleich"><div class="label">Rechnet die App wie die Abrechnung?</div>
+      ${!v.ok ? `<p class="hinweistext">Kein Vergleich möglich: ${esc(v.grund)}</p>` : `
+      <div class="abgleich ${v.passt ? 'gut' : 'warn'}"><b>${v.passt ? `✓ Alle ${v.zeilen.length} Zeilen stimmen auf den Cent` : `≠ ${v.abweichungen.length === 1 ? '1 Zeile weicht' : v.abweichungen.length + ' Zeilen weichen'} ab`}</b><span>Verglichen wird der laufende Monat${a.ausNB.length ? ', ohne die Nachberechnung' : ''}. Die Sätze (Kasse, Zusatzversorgung) stammen aus der Abrechnung selbst.</span></div>
+      <div class="vgl-tabelle"><div class="vgl-zeile kopf"><span></span><b>Abrechnung</b><b>App</b><i></i></div>${v.zeilen.map((x) => `<div class="vgl-zeile ${Math.abs(x.diff) > 0.02 ? 'ab' : ''}"><span>${esc(x.name).replace(/versicherung/, '\u00ADversicherung').replace(/versorgung/, '\u00ADversorgung')}</span><b>${R.euro(x.echt)}</b><b>${R.euro(x.app)}</b><i>${Math.abs(x.diff) > 0.02 ? '≠' : '✓'}</i></div>`).join('')}</div>
+      ${v.abweichungen.length ? `<p class="hinweistext">Größte Abweichung: ${esc(v.abweichungen.sort((p, q) => Math.abs(q.diff) - Math.abs(p.diff))[0].name)} (${R.euro(Math.abs(v.abweichungen[0].diff))}). Häufige Gründe: Kinderfreibeträge, Kirchensteuer, Freibetrag oder eine Zulage, die die App nicht kennt.</p>` : ''}
+      ${v.einmal.length ? `<p class="hinweistext">Nicht verglichen (Einmalzahlungen): ${esc(v.einmal.map((x) => x.name + ' ' + R.euro(x.betrag)).join(', '))}.</p>` : ''}`}
+    </section>`;
+  }
+  // Einstellungen
+  const quelle = a || erg.nachberechnungen[0];
+  const abl = AB.einstellungenAus(quelle); const felder = AB.rechnerFelder(abl);
+  const gesp = z.daten.einstellungen.gehaltsrechner || null;
+  const NAME = { eg: 'Entgeltgruppe', stufe: 'Stufe', stkl: 'Steuerklasse', vz: 'Vollzeit pro Woche', kvzText: 'Zusatzbeitrag der Krankenkasse', kinder: 'Kinder (Pflegeversicherung)', ab23: 'Zuschlag für Kinderlose ab 23', zvkAnText: 'Zusatzversorgung: Eigenanteil', zvkAgText: 'Zusatzversorgung: Umlage Arbeitgeber' };
+  const zeig = (f, w) => (f === 'eg' ? 'E ' + w : f === 'stkl' ? ['I', 'II', 'III', 'IV', 'V', 'VI'][w - 1] : f === 'vz' ? w + ' Std.' : f === 'ab23' ? (w ? 'ja' : 'nein') : /Text$/.test(f) ? w + ' %' : String(w));
+  const fz = Object.keys(felder).map((f) => { const gleich = gesp && String(gesp[f]) === String(felder[f]); return { f, gleich, html: zeile(`${NAME[f]}${gleich ? '' : `<small class="gr-fund">${gesp && gesp[f] !== undefined && gesp[f] !== '' ? 'im Rechner bisher: ' + esc(zeig(f, gesp[f])) : 'im Rechner noch nicht eingetragen'}</small>`}`, `${gleich ? '✓ ' : ''}${esc(zeig(f, felder[f]))}`) }; });
+  const neu = fz.filter((x) => !x.gleich).length;
+  if (fz.length) einstellungen = `<section class="karte" id="abr-einstellungen"><div class="label">Einstellungen aus der Abrechnung</div>${fz.map((x) => x.html).join('')}
+      ${abl.einKindOderUnter23 ? '<p class="hinweistext">Pflegeversicherung ohne Kinderlosen-Zuschlag: Ob du ein Kind hast oder unter 23 bist, kann die App nicht unterscheiden – das stellst du im Gehaltsrechner selbst ein.</p>' : ''}
+      ${neu ? `<button class="knopf akzent" data-a="abr-einstellungen">${neu === 1 ? '1 Wert' : neu + ' Werte'} in den Gehaltsrechner übernehmen</button>` : '<p class="hinweistext">✓ Der Gehaltsrechner hat schon diese Werte.</p>'}
+      <p class="hinweistext">Kassen-Beitrag und Zusatzversorgung sind aus den Beträgen zurückgerechnet. Alles andere im Rechner (Schichtzulage, Stunden) bleibt, wie es ist.</p></section>`;
+  // Nachberechnungen
+  const nbs = erg.nachberechnungen.map((nb) => {
+    const lohn = nb.lohnarten.filter((x) => x.imBrutto && x.nach);
+    const sv = AB.stundenVergleich(nb, z.daten);
+    const ms = (z.daten.monatsstunden || {})[nb.monat];
+    const schon = ms && ms.fertig && ms.quelle === 'abrechnung';
+    const wert = (x, einheit) => (x == null ? '–' : std(x) + (einheit ? ' ' + einheit : ''));
+    const woher = sv && (sv.quelle === 'abrechnung' ? 'Monatsübersicht' : 'Deine Dienste');
+    return `<section class="karte abr-nb" data-monat="${nb.monat}"><div class="label">Nachberechnung ${esc(monatJahr(nb.monat))}</div>
+      <p class="hinweistext">Diese Beträge gehören zum ${esc(monatsName(nb.monat))} und kommen mit der Auszahlung ${a ? esc(monatsName(a.monat)) : ''}${nb.auszahlung != null ? `: netto ${R.euro(nb.auszahlung)}` : ''}.</p>
+      ${lohn.map((x) => zeile(`${esc(x.name)}${x.menge != null ? `<small class="gr-fund">${std(x.menge)} ${esc(x.einheit || '')} × ${R.euro(x.faktor)}${x.steuerfrei ? ' · steuerfrei' : ''}</small>` : x.art === 'pauschale' ? `<small class="gr-fund">${std(x.betrag / DRK.DIENSTPAUSCHALE)} Schichten × ${R.euro(DRK.DIENSTPAUSCHALE)} · § 23 b DRK-RTV</small>` : x.einmal ? '<small class="gr-fund">Einmalzahlung · die App schätzt sie nicht</small>' : ''}`, reinZ(x.betrag))).join('') || '<p class="hinweistext">Keine nachberechneten Beträge lesbar.</p>'}
+      ${sv ? (sv.quelle === 'schnitt' ? `<p class="hinweistext">Für ${esc(monatsName(nb.monat))} sind in der App keine Dienste eingetragen – es gibt nichts zum Vergleichen.</p>`
+        : `<div class="abgleich ${sv.passt ? 'gut' : 'warn'}"><b>${sv.passt ? '✓ Stunden wie in der App' : '≠ Stunden weichen von der App ab'}</b></div>
+          <div class="vgl-tabelle"><div class="vgl-zeile kopf"><span></span><b>Abrechnung</b><b>${woher}</b><i></i></div>${sv.zeilen.map((x) => `<div class="vgl-zeile ${Math.abs(x.echt - x.app) > 0.01 ? 'ab' : ''}"><span>${x.name}</span><b>${wert(x.echt, x.einheit)}</b><b>${wert(x.app, x.einheit)}</b><i>${Math.abs(x.echt - x.app) > 0.01 ? '≠' : '✓'}</i></div>`).join('')}</div>`) : ''}
+      ${sv ? (schon ? `<p class="hinweistext">✓ Als abgerechnete Stunden für ${esc(monatsName(nb.monat))} übernommen.</p>` : `<button class="knopf" data-a="abr-stunden" data-monat="${nb.monat}">Stunden für ${esc(monatsName(nb.monat))} als abgerechnet übernehmen</button>`) : ''}
+    </section>`;
+  }).join('');
+  return seite(a ? `Abrechnung ${monatJahr(a.monat)}` : 'Nachberechnung', `
+    <p class="hinweistext">Gelesen aus der Datei${erg.datum ? ' vom ' + esc(datum(erg.datum)) : ''}. Gespeichert wird nur, was du unten übernimmst. Personalnummer, Steuer-ID und Bankverbindung liest die App nicht.</p>
+    ${auszahlung}${vergleich}${einstellungen}${nbs}
+    <button class="knopf leise" data-a="quellen">Woher kommen die Zahlen? Rechenweg und Fundstellen</button>`);
 }
 
 // ---------- v27: Woher kommen die Zahlen? ----------
@@ -1376,6 +1449,7 @@ function quellenHtml(eb) {
 }
 
 const EBENEN = {
+  abrechnung: (eb) => abrechnungHtml(eb),
   // ---------- v27 ----------
   auswertung: (eb) => auswertungHtml(eb),
   dienste: (eb) => diensteHtml(eb),
@@ -1447,6 +1521,20 @@ const EBENEN = {
       <p class="hinweistext">${r.fertig ? '✓ Der Monat ist vorbei – die Stunden gelten als abgerechnet und ersetzen die Rechnung aus den Diensten.' : `Zwischenstand${r.stand ? ' vom ' + esc(new Date(r.stand + 'T12:00:00').toLocaleDateString('de-DE')) : ''}: Der Monat läuft noch. Die Stunden werden nur als Zwischenstand gemerkt, gerechnet wird mit den Diensten.`}</p>
       ${r.lohnarten.length ? `<div class="label">Lohnarten</div>${r.lohnarten.map(zeile).join('')}` : '<p class="hinweistext">Noch keine Lohnarten in der Übersicht.</p>'}
       <p class="hinweistext">${eb.fertig.length ? `${eb.fertig.length === 1 ? '1 Dienst' : eb.fertig.length + ' Dienste'} im ${esc(monatsName(r.monat))} werden in den Kalender übernommen und ersetzen, was dort für diesen Monat steht.` : 'Keine Dienste in der Übersicht.'}${eb.ohne.length ? ` ${eb.ohne.length === 1 ? '1 Dienst hat' : eb.ohne.length + ' Dienste haben'} noch keine Uhrzeit (${esc([...new Set(eb.ohne.map((x) => x.k))].join(', '))}) – dafür bitte die Schichtart anlegen.` : ''}</p>
+      ${(() => {
+        const t = eb.tage; if (!t || !t.imKalender) return '';
+        const tag = (d) => Number(d.slice(8)) + '.' + Number(d.slice(5, 7)) + '.';
+        if (!t.unterschiede.length) return `<div class="abgleich gut"><b>✓ Deckt sich mit deinem Kalender</b><span>${t.gleich === 1 ? '1 Dienst' : t.gleich + ' Dienste'} im ${esc(monatsName(r.monat))} sind gleich.</span></div>`;
+        return `<div class="abgleich warn"><b>≠ ${t.unterschiede.length === 1 ? '1 Tag weicht' : t.unterschiede.length + ' Tage weichen'} von deinem Kalender ab</b>${t.unterschiede.slice(0, 10).map((u) => `<span>${tag(u.d)} · Kalender: ${u.kal ? esc(u.kal) : 'kein Dienst'} · Übersicht: ${u.ueb ? esc(u.ueb) : 'kein Dienst'}</span>`).join('')}${t.unterschiede.length > 10 ? `<span>… und ${t.unterschiede.length - 10} weitere</span>` : ''}<span>Mit „Übernehmen“ gilt die Übersicht.</span></div>`;
+      })()}
+      ${(() => {
+        const g = eb.gerechnet; if (!g) return '';
+        const zeilen = [['Nacht', r.stunden.nacht, g.nacht, 'Std.'], ['davon 0–4 Uhr', r.stunden.nacht04, g.nacht04, 'Std.'], ['Sonntag', r.stunden.sonntag, g.sonntag, 'Std.'], ['Feiertag', r.stunden.feiertag, g.feiertag, 'Std.'], ['Dienstpauschale', r.stunden.pauschale, g.pauschalDienste * DRK.DIENSTPAUSCHALE, '€']].filter((x) => x[1] > 0 || x[2] > 0);
+        if (!zeilen.length) return '';
+        const ab = zeilen.filter((x) => Math.abs(x[1] - x[2]) > 0.01);
+        return `<div class="label">Arbeitgeber ↔ aus den Diensten gerechnet</div><div class="vgl-tabelle">${zeilen.map((x) => `<div class="vgl-zeile ${Math.abs(x[1] - x[2]) > 0.01 ? 'ab' : ''}"><span>${x[0]}</span><b>${std(x[1])} ${x[3]}</b><b>${std(x[2])} ${x[3]}</b><i>${Math.abs(x[1] - x[2]) > 0.01 ? '≠' : '✓'}</i></div>`).join('')}</div>
+          <p class="hinweistext">${ab.length ? 'Es gilt, was dein Arbeitgeber abgerechnet hat. Unterschiede entstehen z. B. durch getauschte Dienste oder andere Uhrzeiten.' : 'Die App rechnet die Stunden wie dein Arbeitgeber.'}</p>`;
+      })()}
       <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="mue-import-ja">Übernehmen</button></div>`, 'Monatsübersicht');
   },
   start: () => sheet(`<h2>Willkommen</h2>
@@ -1943,6 +2031,29 @@ const AKTION = {
   'ds-land': async (el) => { const v = el.value; await aendern((d) => { d.einstellungen.bundesland = v; }, { text: `Feiertage: ${DI.LAENDER[v]}`, haptik: 'tick' }); },
   'ds-datei': () => document.getElementById('dienste-datei').click(),
   'ds-pdf': () => document.getElementById('mue-datei').click(),
+  'ds-abr': () => document.getElementById('abr-datei').click(),
+  // Abrechnung (v29)
+  'abr-gehalt': async () => {
+    const a = oben().ergebnis.haupt; const s = a.monat; const betrag = a.auszahlung;
+    const g = gehalt(); const alt = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag, quelle: 'abrechnung' }); },
+      { text: `Gehalt ${monatsName(s)}: ${R.euro(betrag)} aus der Abrechnung eingetragen`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== s); if (alt) x.istWerte.push(alt); } });
+  },
+  'abr-einstellungen': async () => {
+    const a = oben().ergebnis.haupt || oben().ergebnis.nachberechnungen[0];
+    const felder = AB.rechnerFelder(AB.einstellungenAus(a));
+    const vorher = z.daten.einstellungen.gehaltsrechner ? kopie(z.daten.einstellungen.gehaltsrechner) : null;
+    await aendern((d) => { d.einstellungen.gehaltsrechner = Object.assign({}, DRK.STANDARD, d.einstellungen.gehaltsrechner || {}, felder); },
+      { text: 'Einstellungen aus der Abrechnung in den Gehaltsrechner übernommen', rueckgaengig: (d) => { if (vorher) d.einstellungen.gehaltsrechner = vorher; else delete d.einstellungen.gehaltsrechner; } });
+  },
+  'abr-stunden': async (el) => {
+    const erg = oben().ergebnis; const nb = erg.nachberechnungen.find((x) => x.monat === el.dataset.monat); if (!nb) return;
+    const st = AB.stundenAus(nb.lohnarten.filter((x) => x.imBrutto && x.nach)); if (!st) return;
+    const alt = kopie(z.daten.monatsstunden || {});
+    await aendern((d) => { if (!d.monatsstunden) d.monatsstunden = {}; d.monatsstunden[nb.monat] = Object.assign({}, st, { fertig: true, stand: nb.datum || heute(), quelle: 'abrechnung' }); },
+      { text: `Stunden ${monatsName(nb.monat)} aus der Abrechnung übernommen (abgerechnet)`, rueckgaengig: (d) => { d.monatsstunden = alt; } });
+  },
+
   'ds-import-ja': async () => {
     const eb = oben(); const vorher = { dienste: kopie(z.daten.dienste || []), arten: kopie(schichtarten()) };
     z.ebenen.pop();
@@ -2965,8 +3076,9 @@ function bindeEreignisse() {
     ev.target.value = '';
     if (!datei) return;
     let zeilen;
-    try { zeigeToast('Lese die Monatsübersicht …', null, 'info'); zeilen = await pdfZeilen(datei); }
+    try { zeigeToast('Lese die Monatsübersicht …', null, 'info'); zeilen = (await pdfZeilen(datei)).flat(); }
     catch (e) { zeigeToast('Die PDF-Datei lässt sich nicht lesen. Trag die Stunden bitte von Hand ein („Stunden laut Arbeitgeber“).', null, 'fehler'); haptik('fehler'); return; }
+    if (zeilen.some((x) => /Abrechnung der Brutto\/Netto-Bezüge/i.test(x))) { zeigeToast('Das ist eine Brutto-Netto-Abrechnung. Nimm dafür den Knopf „Abrechnung einlesen“.', null, 'fehler'); haptik('fehler'); return; }
     const r = DI.monatsuebersichtLesen(zeilen);
     if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
     const a = DI.diensteAusUebersicht(r.dienste, schichtarten());
@@ -2974,7 +3086,22 @@ function bindeEreignisse() {
     // Schichtarten: glatte Zeiten übernehmen; Dienstpauschale je Kürzel so, wie sie in der Übersicht gebucht ist
     const arten = DI.schichtartenAus(a.fertig.filter((x) => x.frei || (/:(00|15|30|45)$/.test(x.von) && /:(00|15|30|45)$/.test(x.bis))), schichtarten())
       .map((x) => (x.frei || !(x.k in a.pauschale) ? x : Object.assign({}, x, { pauschale: a.pauschale[x.k] })));
-    oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten });
+    // v29 Abgleich: Kalender ↔ Übersicht (Tage) und, nach Monatsende, Stunden des Arbeitgebers ↔ aus den Diensten gerechnet
+    const tage = DI.diensteVergleich(z.daten.dienste, a.fertig.concat(a.ohne), r.monat);
+    const gerechnet = r.fertig && r.lohnarten.length ? DI.stundenAusDiensten(a.fertig, r.monat, DI.land(z.daten), arten) : null;
+    oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten, tage, gerechnet });
+  });
+  document.getElementById('abr-datei').addEventListener('change', async (ev) => {
+    const datei = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!datei) return;
+    let blaetter;
+    try { zeigeToast('Lese die Abrechnung …', null, 'info'); blaetter = await pdfZeilen(datei); }
+    catch (e) { zeigeToast('Die PDF-Datei lässt sich nicht lesen.', null, 'fehler'); haptik('fehler'); return; }
+    const r = AB.abrechnungLesen(blaetter);
+    if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
+    z.toast = null;
+    oeffne({ art: 'abrechnung', ergebnis: r });
   });
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && ev.target.id === 'vf-text') { ev.target.blur(); return; }
