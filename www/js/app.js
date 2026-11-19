@@ -6,10 +6,13 @@ import * as E from './einfuehrung.js';
 import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
+import * as K from './kontostand.js';
+import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v35';
+export const APP_VERSION = 'finanz-v36';
 const NEU_IN_VERSION = [
-  'Budget-Widget: Wer möchte, schaltet in den Einstellungen „Kategorie im Widget wechseln“ ein. Dann blättern ‹ › neben dem Namen durch die Budget-Kategorien. Neue Widgets fragen weiterhin beim Anlegen nach der Kategorie'
+  'Kontostand: Unter „Frei“ steht jetzt, was heute auf deinem Girokonto ist und wie tief es bis zum Gehalt sinkt. Antippen → Stand eintragen → die App rechnet Tag für Tag weiter (Gehalt, Fixkosten am Bankarbeitstag, Daueraufträge). Fehlt Geld, warnt sie vorher',
+  'Kontoauszug als CSV einlesen (Einstellungen oder Seite „Kontostand“): Die App übernimmt den Kontostand und die Ausgaben. Fixkosten, Überträge und schon Gebuchtes erkennt sie und lässt sie weg – du prüfst jede Zeile'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -263,6 +266,7 @@ function monatTeile(s = z.monat) {
   }
   if (brocken && hinweisAn('eng') && (!eng || (eng.monat !== brocken.monat && brocken.monat === R.ymPlus(s, 1)))) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} kommen zusätzlich ${R.euroRund(brocken.summe)} (${esc(brocken.posten.map((f) => f.name).join(', '))}). Dort bleiben ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))} frei.</div>`);
   const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
+  const kontoHeute = istHeute && hinweisAn('kontostand') ? kontostandZeile() : '';
 
   // Frei-Karte: große Zahl, darunter rein (grün) und raus (rot); die Zahl „Frei“ steht nur einmal
   const zeile = (punkt, text, betrag, art) => `<div class="auf-zeile"><span class="l">${punkt}${text}</span><span class="r ${art}">${betrag}</span></div>`;
@@ -273,6 +277,7 @@ function monatTeile(s = z.monat) {
     <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}">${freiText}</div>
     ${mitGeplantem}
     ${mitOffenem}
+    ${kontoHeute}
     <div class="balken" role="img" aria-label="${esc(aria)}">${stuecke}</div>
     <div class="aufstellung">
       ${gehaltZeile}
@@ -335,6 +340,7 @@ function monatTeile(s = z.monat) {
     <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
     <div class="zwei"><button class="knopf" data-a="ds-abr">📄 Abrechnung einlesen</button><button class="knopf" data-a="ds-pdf">📄 Monatsübersicht</button></div>
+    <div class="zwei"><button class="knopf" data-a="kontostand">🏦 Kontostand</button><button class="knopf" data-a="csv">📥 Kontoauszug (CSV)</button></div>
     <div class="zwei"><button class="knopf" data-a="bereich" data-wert="versicherungen">🛡️ Versicherungen</button><button class="knopf" data-a="bereich" data-wert="schulden">💸 Schulden</button></div>
     <button class="knopf" data-a="dienste">📅 Dienste und Gehalt schätzen${DI.schaetzenAn(z.daten) ? ' · an' : ''}</button>
     <button class="knopf" data-a="hinweise">🔔 Hinweise und Warnungen${(z.daten.einstellungen.hinweiseAus || []).length ? ' · ' + (z.daten.einstellungen.hinweiseAus || []).length + ' aus' : ''}</button>
@@ -652,7 +658,7 @@ function bereichHtml(eb) {
   let inhalt = '';
   if (eb.typ === 'konsum') return seite('Konsum', konsumSeite());
   if (eb.typ === 'ausgaben') inhalt = t.liste;
-  else if (eb.typ === 'konten') inhalt = t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>';
+  else if (eb.typ === 'konten') inhalt = eingangKarte() + (t.konten || '<div class="leerzustand">Noch kein Konto eingerichtet.</div>');
   else if (eb.typ === 'einnahmen') inhalt = t.einnahmenKarte;
   else if (eb.typ === 'abos') inhalt = abosHtml(z.monat);
   else if (eb.typ === 'versicherungen') inhalt = versicherungenHtml(z.monat);
@@ -1010,6 +1016,105 @@ function efFortsetzenKarte() {
 function konsumNamen() { return R.konsumKategorien(z.daten).map((k) => mitEmoji(k) + k.name).join(', '); }
 const kurzDatum = (d) => Number(d.slice(8, 10)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1];
 
+// ---------- v36: Kontostand des Eingangskontos ----------
+const WOCHENTAG = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+const tagMitWoche = (d) => WOCHENTAG[new Date(d + 'T12:00:00').getDay()] + ' ' + Number(d.slice(8, 10)) + '.' + Number(d.slice(5, 7)) + '.';
+const vzRund = (x) => (x < 0 ? '− ' : '') + R.euroRund(Math.abs(x));
+const standZahl = (x) => (x < 0 ? `<span class="minus-zahl">− ${R.euro(-x)}</span>` : R.euro(x));
+function tiefsterSatz(v) {
+  if (!v.zukunft.length) return '';
+  const t = v.tiefster;
+  if (t.stand < 0) return `<span class="warn-text">⚠ Am ${esc(tagMitWoche(t.datum))} fehlen ≈ ${R.euroRund(-t.stand)}</span>`;
+  if (v.vorGehalt && v.gehalt) return `bis zum Gehalt (${esc(tagMitWoche(v.gehalt.datum))}) am tiefsten ≈ ${vzRund(v.vorGehalt.stand)}`;
+  return `am tiefsten ≈ ${R.euroRund(t.stand)} am ${esc(tagMitWoche(t.datum))}`;
+}
+function kontostandZeile() {
+  const v = K.vorschau(z.daten, heute());
+  if (!v) return `<button class="konto-heute leer" data-a="kontostand"><span>🏦 Kontostand vom Girokonto eintragen</span><small>Dann siehst du, was bis zum Gehalt übrig bleibt ›</small></button>`;
+  const alt = v.tageAlt >= 7 ? ` · Stand vom ${Number(v.standDatum.slice(8))}.${Number(v.standDatum.slice(5, 7))}.` : '';
+  return `<button class="konto-heute ${v.tiefster.stand < 0 ? 'warn' : ''}" data-a="kontostand" aria-label="Kontostand ${esc(v.name)} ansehen"><span class="kh-zeile">🏦 Auf dem ${esc(v.name)} heute <b class="${v.heute < 0 ? 'minus-zahl' : ''}">${v.heute < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(v.heute))}</b></span><small>${tiefsterSatz(v)}${esc(alt)} ›</small></button>`;
+}
+function eingangKarte() {
+  const v = K.vorschau(z.daten, heute());
+  return `<button class="karte spar eingang" data-a="kontostand"><span class="symbol">🏦</span><span class="mitte"><span style="font-size:var(--t-text);font-weight:600">${esc(K.kontoName(z.daten))} · Eingangskonto</span><span class="klein">${v ? tiefsterSatz(v) || 'Vorschau bis zum Gehalt' : 'Stand eintragen → Vorschau bis zum Gehalt'}</span></span>
+    ${v ? `<span class="stand"><span class="klein" style="font-size:var(--t-mini)">heute ≈</span><span style="font-size:var(--t-titel-karte);font-weight:500">${v.heute < 0 ? '<span class="minus-zahl">− ' + R.euroRund(-v.heute) + '</span>' : R.euroRund(v.heute)}</span></span>` : ''}</button>`;
+}
+function ksZeile(x) {
+  const zusatz = [x.geschaetzt ? '≈ geschätzt' : '', x.tagOffen ? 'Tag offen' : '', x.eigentlich && x.eigentlich !== x.datum ? `fällig ${Number(x.eigentlich.slice(8))}.` : '', x.verschoben ? 'Bankarbeitstag' : ''].filter(Boolean).join(' · ');
+  const ziel = x.fixkostenId ? `data-a="fixkosten" data-id="${esc(x.fixkostenId)}"` : x.buchungId ? `data-a="buchung" data-id="${esc(x.buchungId)}"` : x.art === 'gehalt' ? 'data-a="gehalt"' : '';
+  return `<${ziel ? 'button' : 'div'} class="ks-zeile" ${ziel}><span class="ks-l"><span>${esc(x.text)}</span>${zusatz ? `<small>${esc(zusatz)}</small>` : ''}</span><span class="ks-r">${x.betrag < 0 ? rausZ(-x.betrag) : reinZ(x.betrag)}<small class="${x.stand < 0 ? 'minus-zahl' : ''}">→ ${x.stand < 0 ? '− ' : ''}${R.euro(Math.abs(x.stand))}</small></span></${ziel ? 'button' : 'div'}>`;
+}
+function ksTage(l) {
+  const tage = []; for (const x of l) { const t = tage[tage.length - 1]; if (t && t.datum === x.datum) t.l.push(x); else tage.push({ datum: x.datum, l: [x] }); }
+  return tage.map((t) => `<div class="ks-tag">${esc(t.datum === heute() ? 'Heute · ' + tagMitWoche(t.datum) : tagMitWoche(t.datum))}</div>${t.l.map(ksZeile).join('')}`).join('');
+}
+function kontostandSeite() {
+  const v = K.vorschau(z.daten, heute());
+  const knoepfe = `<div class="zwei"><button class="knopf" data-a="ks-stand">✎ Neuer Stand</button><button class="knopf" data-a="csv">📥 CSV einlesen</button></div>`;
+  if (!v) return `<section class="karte ring"><div class="label">Kontostand vom Girokonto</div>
+    <p class="hinweistext">Trag ein, was heute auf dem Konto ist, auf dem dein Gehalt ankommt und von dem die Fixkosten abgehen. Die App rechnet dann Tag für Tag weiter: + Gehalt, − Fixkosten (am Bankarbeitstag), − Daueraufträge auf deine Konten, − Ausgaben, die nicht vom Konsumkonto bezahlt werden.</p>
+    <p class="hinweistext">Oder lies einen Kontoauszug als CSV-Datei ein (Online-Banking → Umsätze → Export CSV). Dann übernimmt die App den Kontostand und die Ausgaben.</p>${knoepfe}</section>`;
+  const ek = v.konto;
+  const eingetragen = `${(Number(ek.stand) < 0 ? '− ' : '') + R.euro(Math.abs(Number(ek.stand)))} am ${Number(ek.standDatum.slice(8))}.${Number(ek.standDatum.slice(5, 7))}.${ek.standZeit && ek.standDatum === R.datumText(new Date(ek.standZeit)) && !/T23:59/.test(R.zeitText(new Date(ek.standZeit))) ? ' um ' + R.zeitText(new Date(ek.standZeit)).slice(11, 16) : ''}`;
+  const g = v.gehalt;
+  const warn = v.tiefster.stand < 0
+    ? `<div class="frei-hinweis warn">⚠ Am ${esc(tagMitWoche(v.tiefster.datum))} fehlen ≈ ${R.euroRund(-v.tiefster.stand)}. Dann können Lastschriften zurückgehen – das kostet Gebühren. Vorher Geld aufs ${esc(v.name)} schieben oder eine Abbuchung verschieben.</div>`
+    : v.zukunft.length && !(v.vorGehalt && v.vorGehalt.stand === v.tiefster.stand) ? `<div class="frei-hinweis neutral">Am tiefsten: ≈ ${R.euroRund(v.tiefster.stand)} am ${esc(tagMitWoche(v.tiefster.datum))}</div>` : '';
+  const gehaltSatz = g ? `<div class="frei-hinweis neutral">${esc(g.name)} ${g.geschaetzt ? '≈ ' : ''}${R.euroRund(g.betrag)} am ${esc(tagMitWoche(g.datum))}${g.eigentlich && g.eigentlich !== g.datum ? ` (der ${Number(g.eigentlich.slice(8))}. ist kein Bankarbeitstag – vorsichtig gerechnet)` : ''}${v.vorGehalt ? ` · bis dahin am tiefsten ≈ ${vzRund(v.vorGehalt.stand)}` : ''}</div>` : '';
+  const alt = v.tageAlt >= 7 ? `<div class="frei-hinweis">Dein Stand ist ${v.tageAlt} Tage alt. Je älter, desto ungenauer – trag ab und zu den echten Stand ein.</div>` : '';
+  return `<section class="karte ring ks-kopf">
+    <div class="label">Auf dem ${esc(v.name)} heute</div>
+    <div class="grosszahl ${v.heute < 0 ? 'minus' : ''}" style="font-size:var(--t-zahl-xl)">${v.heute < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(v.heute))}</div>
+    <p class="hinweistext">Eingetragen: ${esc(eingetragen)} · seitdem gerechnet</p>
+    ${warn}${gehaltSatz}${alt}
+    ${knoepfe}
+  </section>
+  <div class="abschnitt-kopf"><span class="label">Was noch kommt</span><span class="klein">bis ${esc(tagMitWoche(v.bis))}</span></div>
+  <section class="karte liste ks-liste">${v.zukunft.length ? ksTage(v.zukunft) : '<div class="leer-zeile" style="border:0">Bis Monatsende kommt nichts mehr.</div>'}</section>
+  ${v.vorbei.length ? `<div class="abschnitt-kopf"><span class="label">Seit deinem Stand</span><span class="klein">schon im „heute“ drin</span></div><section class="karte liste ks-liste">${ksTage(v.vorbei)}</section>` : ''}
+  <p class="hinweistext">Gerechnet mit: Gehalt (geschätzt, bis es bestätigt ist; am Wochenende erst am nächsten Bankarbeitstag), weiteren festen Einnahmen, Fixkosten am Bankarbeitstag, Daueraufträgen auf deine Konten, Ausgaben aus Budgets, die nicht vom Konsumkonto bezahlt werden, und – vorsichtig – dem noch offenen Rest dieser Budgets. Nicht drin: geplante Ausgaben, Schulden, Konsum-Ausgaben.</p>`;
+}
+function csvSeite(eb) {
+  const kk = R.konsumKonto(z.daten);
+  const l = eb.zeilen;
+  const daten = eb.gelesen.buchungen.map((b) => b.datum).sort();
+  const kurz = (d) => Number(d.slice(8)) + '.' + Number(d.slice(5, 7)) + '.';
+  const kontoWahl = `<div class="wahl ${kk ? 'drei' : 'zwei-sp'}">${wahlKnopf('csv-konto', 'eingang', esc(K.kontoName(z.daten)), eb.konto === 'eingang')}${kk ? wahlKnopf('csv-konto', 'konsum', esc(kk.name), eb.konto === 'konsum') : ''}${wahlKnopf('csv-konto', 'anderes', 'Anderes Konto', eb.konto === 'anderes')}</div>`;
+  const sa = eb.gelesen.saldo;
+  const saldoHtml = eb.konto === 'anderes' ? '<p class="hinweistext">Bei „Anderes Konto“ übernimmt die App nur die Ausgaben, die du unten auswählst – keinen Kontostand.</p>'
+    : sa ? `<button class="schalter" role="switch" aria-checked="${!!eb.saldoAn}" data-a="csv-saldo"><span class="t">Kontostand übernehmen: ${standZahl(sa.betrag)} am ${esc(kurz(sa.datum))}<br><span class="klein">${esc(eb.saldoHinweis || 'danach rechnet die App selbst weiter')}</span></span><span class="spur"></span></button>`
+      : '<p class="hinweistext">In der Datei steht kein Kontostand. Den trägst du auf der Seite „Kontostand“ selbst ein.</p>';
+  const erlaubt = C.erlaubteKategorien(z.daten, eb.konto === 'anderes' ? 'anderes' : eb.konto);
+  const alleBudgets = budgetKats();
+  const opt = (w, text, an) => `<option value="${esc(w)}" ${an ? 'selected' : ''}>${esc(text)}</option>`;
+  const auswahl = (x) => {
+    if (x.betrag > 0) return opt('', 'Nicht übernehmen', !x.wahl) + (gehalt() ? opt('gehalt', 'Als Gehalt eintragen', x.wahl === 'gehalt') : '') + opt('einnahme', 'Als Einnahme eintragen', x.wahl === 'einnahme');
+    const andere = alleBudgets.filter((k) => !erlaubt.includes(k));
+    return opt('', 'Nicht übernehmen', !x.wahl) + erlaubt.map((k) => opt(k.id, mitEmoji(k) + k.name, x.wahl === k.id)).join('')
+      + (eb.konto === 'eingang' && kk && !erlaubt.length ? opt(C.NEU_EINGANG, '🏦 Neue Kategorie „Vom Eingangskonto“', x.wahl === C.NEU_EINGANG) : '')
+      + (andere.length ? `<optgroup label="${esc(kk ? (eb.konto === 'konsum' ? 'Vom Eingangskonto bezahlt' : 'Vom ' + kk.name + ' bezahlt') : 'Weitere')}">${andere.map((k) => opt(k.id, mitEmoji(k) + k.name, x.wahl === k.id)).join('')}</optgroup>` : '');
+  };
+  const zeile = (x) => `<div class="csv-zeile ${x.wahl ? '' : 'aus'}"><div class="cz-kopf"><span class="cz-name">${esc(x.name)}</span>${x.betrag < 0 ? rausZ(-x.betrag) : reinZ(x.betrag)}</div>
+    <div class="cz-unter"><span class="klein">${esc(kurz(x.datum))} · ${esc(x.grund)}</span><select class="eingabe cz-wahl" data-a-wechsel="csv-wahl" data-i="${x.i}" aria-label="${esc(x.name)}: übernehmen als">${auswahl(x)}</select></div></div>`;
+  const rein = l.filter((x) => x.wahl); const raus = l.filter((x) => !x.wahl);
+  const n = rein.length;
+  return `<p class="hinweistext">${l.length === 1 ? '1 Umsatz' : l.length + ' Umsätze'} vom ${esc(kurz(daten[0]))} bis ${esc(kurz(daten[daten.length - 1]))}${eb.dateiName ? ' · ' + esc(eb.dateiName) : ''}</p>
+    <section class="karte"><div class="label">Welches Konto ist das?</div>${kontoWahl}${saldoHtml}</section>
+    <div class="abschnitt-kopf"><span class="label">Wird übernommen (${n})</span><span class="klein">als Ausgabe bzw. Einnahme</span></div>
+    <section class="karte liste">${rein.map(zeile).join('') || '<div class="leer-zeile" style="border:0">Nichts ausgewählt.</div>'}</section>
+    <div class="abschnitt-kopf"><span class="label">Nicht übernehmen (${raus.length})</span><span class="klein">Fixkosten, Überträge …</span></div>
+    <section class="karte liste">${raus.map(zeile).join('') || '<div class="leer-zeile" style="border:0">–</div>'}</section>
+    <p class="hinweistext">Gespeichert werden nur Datum, Betrag, Händler und Kategorie – keine IBAN und kein Verwendungszweck. Die Datei selbst behält die App nicht.</p>
+    <div class="knopfreihe unten-fest"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="csv-los" ${n || (eb.saldoAn && eb.konto !== 'anderes') ? '' : 'disabled'}>${n ? (n === 1 ? '1 übernehmen' : n + ' übernehmen') : 'Nur Kontostand übernehmen'}</button></div>`;
+}
+function csvSaldoStandard(eb) {
+  const sa = eb.gelesen.saldo; eb.saldoAn = false; eb.saldoHinweis = '';
+  if (!sa || eb.konto === 'anderes') return;
+  const alt = eb.konto === 'konsum' ? R.konsumKonto(z.daten) : K.eingangskonto(z.daten);
+  if (alt && alt.standDatum && alt.standDatum > sa.datum) { eb.saldoHinweis = `Dein eingetragener Stand vom ${Number(alt.standDatum.slice(8))}.${Number(alt.standDatum.slice(5, 7))}. ist neuer`; return; }
+  eb.saldoAn = true;
+}
+
 // ---------- Konsumkonto (v31) ----------
 function konsumSeite() {
   const u = R.konsumUebersicht(z.daten, heute());
@@ -1331,7 +1436,8 @@ const HINWEISE = [
   ['ruecklage', 'Rücklagenkonto', 'wenn die Rücklage nicht reicht, und der Tipp zum Einrichten'],
   ['geplant', 'Geplante Ausgaben', 'wenn das Geld für etwas Geplantes nicht reicht'],
   ['sparziel', 'Sparziel', 'wenn die Rate für ein Sparziel nicht reicht'],
-  ['gehalt', 'Gehalt da?', 'Frage nach dem Gehalt am Ankunftstag']
+  ['gehalt', 'Gehalt da?', 'Frage nach dem Gehalt am Ankunftstag'],
+  ['kontostand', 'Kontostand unter „Frei“', 'Zeile „Auf dem Girokonto heute …“ bzw. „Kontostand eintragen“']
 ];
 const hinweisAn = (id) => !((z.daten && z.daten.einstellungen.hinweiseAus) || []).includes(id);
 const std = (x) => String(Math.round((Number(x) || 0) * 100) / 100).replace('.', ',');
@@ -1710,6 +1816,19 @@ function quellenHtml(eb) {
 }
 
 const EBENEN = {
+  kontostand: () => seite('Kontostand', kontostandSeite()),
+  'csv-import': (eb) => seite('Kontoauszug einlesen', csvSeite(eb)),
+  'ks-stand': (eb) => {
+    const e = eb.entwurf;
+    return sheet(`<h2>Kontostand eintragen</h2>
+      <p class="hinweistext">Das Konto, auf dem dein Gehalt ankommt und von dem die Fixkosten abgehen. Den Stand siehst du in der Banking-App.</p>
+      <div class="feld"><label for="ks-name">Name</label><input id="ks-name" class="eingabe" data-feld="name" value="${esc(e.name)}" placeholder="z. B. Girokonto"></div>
+      <div class="zwei"><div class="feld"><label for="ks-betrag">Stand (€, im Minus mit −)</label><input id="ks-betrag" class="eingabe" inputmode="text" data-feld="betragText" value="${esc(e.betragText)}" placeholder="z. B. 217,02"></div>
+        <div class="feld"><label for="ks-datum">Stand vom</label><input id="ks-datum" class="eingabe" type="date" data-feld="datum" max="${heute()}" value="${esc(e.datum)}"></div></div>
+      <p class="hinweistext">Was nach diesem Zeitpunkt passiert, rechnet die App dazu. Bei einem früheren Tag zählt alles ab dem Tag danach.</p>
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe">${K.eingangskonto(z.daten) ? '<button class="knopf leise" data-a="ks-weg">Nicht mehr verfolgen</button>' : '<button class="knopf leise" data-a="schliessen">Abbrechen</button>'}<button class="knopf haupt breit" data-a="ks-speichern">Speichern</button></div>`, 'Kontostand eintragen');
+  },
   abrechnung: (eb) => abrechnungHtml(eb),
   // ---------- v27 ----------
   auswertung: (eb) => auswertungHtml(eb),
@@ -2297,6 +2416,80 @@ function oeffne(eb) { z.ebenen.push(eb); renderEbenen(); }
 function kopie(x) { return JSON.parse(JSON.stringify(x)); }
 
 const AKTION = {
+  kontostand: () => oeffne({ art: 'kontostand' }),
+  'ks-stand': () => {
+    const ek = z.daten.eingangskonto || {};
+    const v = K.vorschau(z.daten, heute());
+    oeffne({ art: 'ks-stand', entwurf: { name: ek.name || 'Girokonto', betragText: v ? R.euro(v.heute, false) : '', datum: heute() } });
+  },
+  'ks-speichern': async () => {
+    const eb = oben(); const e = eb.entwurf;
+    const betrag = zahl(String(e.betragText || '').replace(/[−–]/g, '-'));
+    if (isNaN(betrag)) { eb.fehler = 'Bitte den Kontostand als Zahl eintragen (z. B. 217,02 oder −35).'; renderEbenen(); return; }
+    const datum = e.datum && e.datum <= heute() ? e.datum : heute();
+    const name = (e.name || '').trim() || 'Girokonto';
+    const alt = z.daten.eingangskonto ? kopie(z.daten.eingangskonto) : null;
+    z.ebenen.pop();
+    await aendern((d) => { d.eingangskonto = { name, stand: Math.round(betrag * 100) / 100, standDatum: datum, standZeit: datum === heute() ? new Date().toISOString() : new Date(datum + 'T23:59:00').toISOString() }; },
+      { text: `${name}: Stand ${R.euro(betrag)} gespeichert`, rueckgaengig: (d) => { if (alt) d.eingangskonto = alt; else delete d.eingangskonto; } });
+  },
+  'ks-weg': async () => {
+    const alt = kopie(z.daten.eingangskonto);
+    z.ebenen.pop();
+    await aendern((d) => { delete d.eingangskonto; }, { text: 'Kontostand wird nicht mehr verfolgt', rueckgaengig: (d) => { d.eingangskonto = alt; } });
+  },
+  csv: () => document.getElementById('csv-datei').click(),
+  'csv-konto': (el) => { const eb = oben(); eb.konto = el.dataset.wert; eb.zeilen = C.vorschlaege(z.daten, eb.gelesen, eb.konto); csvSaldoStandard(eb); renderEbenen(); },
+  'csv-saldo': () => { const eb = oben(); eb.saldoAn = !eb.saldoAn; renderEbenen(); },
+  'csv-wahl': (el) => { const eb = oben(); const x = eb.zeilen[Number(el.dataset.i)]; if (x) x.wahl = el.value; haptik('tick'); renderEbenen(); },
+  'csv-los': async () => {
+    const eb = oben(); const kk = R.konsumKonto(z.daten); const g = gehalt();
+    const gewaehlt = eb.zeilen.filter((x) => x.wahl);
+    const neueIds = []; const neueEinnahmen = []; const gehaltWerte = [];
+    const altEk = z.daten.eingangskonto ? kopie(z.daten.eingangskonto) : null;
+    const altKk = kk ? { stand: kk.stand, standDatum: kk.standDatum, standZeit: kk.standZeit } : null;
+    let neueKat = false;
+    const sa = eb.saldoAn && eb.konto !== 'anderes' ? eb.gelesen.saldo : null;
+    z.ebenen.pop();
+    await aendern((d) => {
+      for (const x of gewaehlt) {
+        if (x.betrag < 0) {
+          let katId = x.wahl;
+          if (katId === C.NEU_EINGANG) {
+            katId = 'kat-eingang';
+            if (!d.kategorien.some((k) => k.id === katId)) { d.kategorien.push({ id: katId, name: 'Vom Eingangskonto', art: 'budget', budget: 0, emoji: '🏦', symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: [] }); neueKat = true; }
+          }
+          const id = D.neueId('b'); neueIds.push(id);
+          d.buchungen.push({ id, zeit: x.datum + 'T12:00:00', kategorieId: katId, betrag: Math.round(-x.betrag * 100) / 100, ort: x.name, quelle: 'import' });
+          d.einstellungen.haendlerKategorie = Object.assign({}, d.einstellungen.haendlerKategorie, { [C.schluessel(x.name)]: katId });
+        } else if (x.wahl === 'gehalt' && g) {
+          const ge = d.einnahmen.find((e) => e.id === g.id);
+          ge.istWerte = (ge.istWerte || []).filter((w) => R.ymAus(w.datum) !== R.ymAus(x.datum)).concat([{ datum: x.datum, betrag: x.betrag, quelle: 'csv' }]);
+          gehaltWerte.push(x.datum);
+        } else if (x.wahl === 'einnahme') {
+          const id = D.neueId('ein'); neueEinnahmen.push(id);
+          d.einnahmen.push({ id, name: x.name, wieOft: 'einmalig', betrag: x.betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: false, monat: R.ymAus(x.datum), ab: null, bis: null, istWerte: [{ datum: x.datum, betrag: x.betrag }] });
+        }
+      }
+      if (sa) {
+        const werte = { stand: sa.betrag, standDatum: sa.datum, standZeit: new Date(sa.datum + 'T23:59:00').toISOString() };
+        if (eb.konto === 'konsum') { const k = d.sparraten.find((x) => kk && x.id === kk.id); if (k) Object.assign(k, werte); }
+        else d.eingangskonto = Object.assign({ name: (d.eingangskonto && d.eingangskonto.name) || 'Girokonto' }, werte);
+      }
+    }, {
+      text: [gewaehlt.length ? (gewaehlt.length === 1 ? '1 Umsatz übernommen' : gewaehlt.length + ' Umsätze übernommen') : '', sa ? 'Kontostand ' + R.euro(sa.betrag) : ''].filter(Boolean).join(' · '),
+      rueckgaengig: (d) => {
+        d.buchungen = d.buchungen.filter((b) => !neueIds.includes(b.id));
+        d.einnahmen = d.einnahmen.filter((e) => !neueEinnahmen.includes(e.id));
+        const ge = g && d.einnahmen.find((e) => e.id === g.id);
+        if (ge) ge.istWerte = (ge.istWerte || []).filter((w) => !(w.quelle === 'csv' && gehaltWerte.includes(w.datum)));
+        if (neueKat && !d.buchungen.some((b) => b.kategorieId === 'kat-eingang')) d.kategorien = d.kategorien.filter((k) => k.id !== 'kat-eingang');
+        if (sa && eb.konto === 'konsum') { const k = d.sparraten.find((x) => kk && x.id === kk.id); if (k && altKk) Object.assign(k, altKk); }
+        else if (sa) { if (altEk) d.eingangskonto = altEk; else delete d.eingangskonto; }
+      }
+    });
+    if (sa && eb.konto !== 'konsum' && !(oben() && oben().art === 'kontostand')) oeffne({ art: 'kontostand' });
+  },
   // ---------- v27 ----------
   auswertung: () => oeffne({ art: 'auswertung', n: 3, monat: null }),
   'aw-zeit': (el) => { const eb = oben(); eb.n = Number(el.dataset.wert); eb.monat = null; haptik('tick'); renderEbenen(); },
@@ -3534,6 +3727,19 @@ function bindeEreignisse() {
     const tage = DI.diensteVergleich(z.daten.dienste, a.fertig.concat(a.ohne), r.monat);
     const gerechnet = r.fertig && r.lohnarten.length ? DI.stundenAusDiensten(a.fertig, r.monat, DI.land(z.daten), arten) : null;
     oeffne({ art: 'mue-import', ergebnis: r, fertig: a.fertig, ohne: a.ohne, arten, tage, gerechnet });
+  });
+  document.getElementById('csv-datei').addEventListener('change', async (ev) => {
+    const datei = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!datei) return;
+    let r;
+    try { r = C.lesen(C.dekodieren(await datei.arrayBuffer())); }
+    catch (e) { r = { ok: false, fehler: 'Die Datei lässt sich nicht lesen.' }; }
+    if (!r.ok) { zeigeToast(r.fehler, null, 'fehler'); haptik('fehler'); return; }
+    const eb = { art: 'csv-import', gelesen: r, dateiName: datei.name || '', konto: C.kontoRaten(z.daten, r) };
+    eb.zeilen = C.vorschlaege(z.daten, r, eb.konto);
+    csvSaldoStandard(eb);
+    oeffne(eb);
   });
   document.getElementById('abr-datei').addEventListener('change', async (ev) => {
     const datei = ev.target.files && ev.target.files[0];

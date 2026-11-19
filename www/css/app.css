@@ -799,3 +799,28 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 /* v34: Schulden */
 .schuld-mini span { background: var(--plus); }
 .r-knopf { display: inline-flex; align-items: center; gap: 6px; }
+
+/* v36: Kontostand des Eingangskontos und CSV-Import */
+.konto-heute { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; width: 100%; min-height: 48px; justify-content: center; margin-top: -6px; padding: 0; border: 0; background: transparent; text-align: left; font-size: var(--t-klein); color: var(--gedaempft); }
+.konto-heute .kh-zeile { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.konto-heute b { color: var(--text); font-weight: 500; }
+.konto-heute small { font-size: var(--t-mini); color: var(--gedaempft); }
+.konto-heute.leer span { color: var(--akzent, #7fd6c8); }
+.konto-heute .warn-text { color: var(--fehler); }
+.ks-tag { font-size: var(--t-label); color: var(--gedaempft); padding: 12px 0 4px; border-top: 1px solid var(--flaeche-2); }
+.ks-liste .ks-tag:first-child { border-top: 0; padding-top: 2px; }
+.ks-zeile { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 6px 0; border: 0; background: transparent; color: var(--text); text-align: left; font-size: var(--t-text); }
+.ks-zeile .ks-l { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ks-zeile .ks-l > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ks-zeile small { font-size: var(--t-mini); color: var(--gedaempft); }
+.ks-zeile .ks-r { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; white-space: nowrap; }
+.ks-zeile .ks-r small { font-size: var(--t-mini); }
+.karte.spar.eingang .symbol { font-size: 20px; }
+.csv-zeile { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; border-top: 1px solid var(--flaeche-2); }
+.liste .csv-zeile:first-child { border-top: 0; }
+.csv-zeile.aus .cz-name { color: var(--gedaempft); }
+.cz-kopf { display: flex; align-items: baseline; gap: 10px; font-size: var(--t-text); }
+.cz-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.cz-unter { display: flex; flex-direction: column; gap: 6px; }
+.cz-unter .klein { font-size: var(--t-label); color: var(--gedaempft); }
+.cz-wahl { min-height: 44px; font-size: var(--t-klein); }
