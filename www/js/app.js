@@ -7,11 +7,9 @@ import * as DRK from './drk.js';
 import * as DI from './dienste.js';
 import * as AB from './abrechnung.js';
 
-export const APP_VERSION = 'finanz-v34';
+export const APP_VERSION = 'finanz-v35';
 const NEU_IN_VERSION = [
-  'Versicherungen: eigene Kachel und Seite mit allen Verträgen – pro Monat, im Jahr, nächste Abbuchung, Kündigungsfrist, geplante Erhöhungen',
-  'Schulden: eigener Bereich (Kachel „Schulden“ oder Einstellungen). Was du wem schuldest, Rückzahlungen, was noch offen ist – zählt nicht in „Frei“',
-  'Abrechnung und Monatsübersicht einlesen jetzt auch direkt im Gehalt-Fenster und in den Einstellungen'
+  'Budget-Widget: Wer möchte, schaltet in den Einstellungen „Kategorie im Widget wechseln“ ein. Dann blättern ‹ › neben dem Namen durch die Budget-Kategorien. Neue Widgets fragen weiterhin beim Anlegen nach der Kategorie'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -333,6 +331,7 @@ function monatTeile(s = z.monat) {
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
     <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Frei“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
+    <button class="schalter" role="switch" aria-checked="${!!z.daten.einstellungen.widgetPfeile}" data-a="widgetpfeile"><span class="t">Kategorie im Widget wechseln<br><span class="klein">‹ › neben dem Namen im Budget-Widget</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
     <div class="zwei"><button class="knopf" data-a="ds-abr">📄 Abrechnung einlesen</button><button class="knopf" data-a="ds-pdf">📄 Monatsübersicht</button></div>
@@ -3092,6 +3091,7 @@ const AKTION = {
       : { betragText: String(empf || ''), tagText: '1', standText: '0' } });
   },
   'rk-empfohlen': () => { oben().entwurf.betragText = String(R.empfohleneRuecklage(z.daten, heuteYm())); renderEbenen(); },
+  widgetpfeile: async () => { const an = !z.daten.einstellungen.widgetPfeile; await aendern((d) => { if (an) d.einstellungen.widgetPfeile = true; else delete d.einstellungen.widgetPfeile; }, { text: an ? 'Widget: ‹ › zum Kategorie-Wechsel an' : 'Widget: Pfeile aus', haptik: false }); },
   budgetleiste: async () => { const aus = !z.daten.einstellungen.budgetLeisteAus; await aendern((d) => { d.einstellungen.budgetLeisteAus = aus; }, { text: aus ? 'Budgets unter „Frei“ ausgeblendet' : 'Budgets unter „Frei“ eingeblendet', haptik: false }); },
   'ruecklage-hinweis-weg': async () => { await aendern((d) => { d.einstellungen.ruecklageHinweisAus = true; }, { text: 'Hinweis ausgeblendet', haptik: false }); },
   'rk-speichern': async () => {

@@ -165,6 +165,13 @@ object Widgets {
         v.setTextViewText(R.id.rest, if (budget > 0) "noch " + Logik.euro(rest) else "")
         v.setImageViewBitmap(R.id.balken, balken(budget, ausgegeben, vorl.toDouble()))
         v.setOnClickPendingIntent(R.id.kopf, appOeffnen(ctx, 2))
+        // v35: ‹ › wechseln die Kategorie dieses Widgets (Einstellung „Pfeile im Widget“, Standard aus)
+        val pfeile = daten.optJSONObject("einstellungen")?.optBoolean("widgetPfeile", false) == true && Logik.budgetKategorien(daten).size > 1
+        for (pid in intArrayOf(R.id.pfeilLinks, R.id.pfeilRechts)) v.setViewVisibility(pid, if (pfeile) View.VISIBLE else View.GONE)
+        if (pfeile) {
+            v.setOnClickPendingIntent(R.id.pfeilLinks, aktion(ctx, id, "pfeil", "-1", 20))
+            v.setOnClickPendingIntent(R.id.pfeilRechts, aktion(ctx, id, "pfeil", "1", 21))
+        }
         // Betrag antippen: genauen Betrag in der App eintippen (Kategorie ist schon gewählt)
         v.setOnClickPendingIntent(R.id.betragbereich, PendingIntent.getActivity(ctx, 700000 + id, Kurzbefehle.eintragenIntent(ctx, kat.getString("id")), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
 
@@ -315,6 +322,21 @@ object Widgets {
                 WidgetZustand.setzePhase(ctx, id, "")
             }
             "ueberspringen" -> WidgetZustand.setzePhase(ctx, id, "")
+            "pfeil" -> {
+                val d = Speicher.lesen(ctx)
+                val liste = if (d != null) Logik.budgetKategorien(d) else emptyList()
+                if (liste.size > 1) {
+                    Haptik.ohneAnsicht(ctx, "tick")
+                    val jetzt = liste.indexOfFirst { it.optString("id") == WidgetZustand.kategorie(ctx, id) }
+                    val schritt = wert.toIntOrNull() ?: 1
+                    val neu = ((if (jetzt < 0) 0 else jetzt) + schritt + liste.size) % liste.size
+                    WidgetZustand.setzeKategorie(ctx, id, liste[neu].optString("id"))
+                    // Halbfertiges der alten Kategorie verwerfen, sonst landet es in der neuen
+                    WidgetZustand.setzeVorlaeufig(ctx, id, 0)
+                    WidgetZustand.setzePhase(ctx, id, "")
+                    WidgetZustand.setzeLetzte(ctx, id, null)
+                }
+            }
             "rueckgaengig" -> {
                 Haptik.ohneAnsicht(ctx, "tick")
                 val bId = WidgetZustand.letzte(ctx, id)

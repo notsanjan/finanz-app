@@ -9,7 +9,9 @@
             <ImageView android:id="@+id/symbol" android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:src="@drawable/ic_wagen" android:contentDescription="@null"/>
             <TextView android:id="@+id/symbolEmoji" android:layout_width="match_parent" android:layout_height="match_parent" android:gravity="center" android:textSize="17sp" android:includeFontPadding="false" android:visibility="gone"/>
         </FrameLayout>
+        <TextView android:id="@+id/pfeilLinks" android:layout_width="36dp" android:layout_height="36dp" android:gravity="center" android:text="‹" android:textColor="#EEF2F0" android:textSize="22sp" android:includeFontPadding="false" android:contentDescription="Vorherige Kategorie" android:visibility="gone"/>
         <TextView android:id="@+id/name" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginLeft="10dp" android:text="Lebensmittel" android:textColor="#EEF2F0" android:textSize="17sp" android:fontFamily="@font/barlow_semibold" android:maxLines="1" android:ellipsize="end"/>
+        <TextView android:id="@+id/pfeilRechts" android:layout_width="36dp" android:layout_height="36dp" android:gravity="center" android:text="›" android:textColor="#EEF2F0" android:textSize="22sp" android:includeFontPadding="false" android:contentDescription="Nächste Kategorie" android:visibility="gone"/>
         <TextView android:id="@+id/budget" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Budget 300 €" android:textColor="#B7C1BE" android:textSize="13sp" android:fontFamily="@font/barlow_regular" android:visibility="visible"/>
     </LinearLayout>
 
