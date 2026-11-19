@@ -164,3 +164,23 @@ test('CSV: Zahlen und Datumsformate, falsche Datei', () => {
   const bytes = new Uint8Array([0x42, 0xe4, 0x63, 0x6b, 0x65, 0x72]);
   assert.equal(C.dekodieren(bytes), 'Bäcker');
 });
+
+test('CSV Deutsche Bank: „Letzter Kontostand“ oben ist der Anfangsstand, Endstand steht unten; Kartendatum, Abwickler', () => {
+  const db = ['Umsätze', 'Konto;Filial-/Kontonummer;IBAN;Währung', 'AktivKonto;111 2222222 05;DE00TEST;EUR', '', '1.11.2026 - 20.11.2026', 'Letzter Kontostand;;;;1.000,5;EUR', 'Vorgemerkte und noch nicht gebuchte Umsätze sind nicht Bestandteil dieser Übersicht.',
+    'Buchungstag;Wert;Umsatzart;Begünstigter / Auftraggeber;Verwendungszweck;IBAN / Kontonummer;BIC;Kundenreferenz;Mandatsreferenz;Gläubiger ID;Fremde Gebühren;Betrag;Abweichender Empfänger;Anzahl der Aufträge;Anzahl der Schecks;Soll;Haben;Währung',
+    '19.11.2026;19.11.2026;Kartenzahlung;Nexi Germany GmbH;BAECKEREI SONNE MUSTER GIR 1234//MUSTERSTADT/DE 17-11-2026T12:48:18 Folgenr. 009;DE00;;;;;;-2,5;;;;-2,5;;EUR',
+    '18.11.2026;18.11.2026;SEPA Lastschrift;PayPal Europe S.a.r.l. et Cie S.C.A;104/PP.5486.PP/. , Ihr Einkauf bei;LU00;;;;;;-20;;;;-20;;EUR',
+    '15.11.2026;15.11.2026;Auszahlung;;GA NR0000 BLZ000 13.11/16.54UHR MUSTERSTADT;;;;;;;-30;;;;-30;;EUR',
+    '2.11.2026;2.11.2026;SEPA Überweisung (Lohn, Gehalt, Rente);Firma;LOHN / GEHALT 10/26;DE00;;;;;;2.500;;;;;2.500;EUR',
+    'Kontostand;20.11.2026;;;3.448,0;EUR', ''].join('\n');
+  const r = C.lesen(db);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.saldo, { betrag: 3448, datum: '2026-11-20' });
+  assert.equal(r.buchungen.length, 4);
+  assert.deepEqual([r.buchungen[0].datum, r.buchungen[0].uhr, C.haendler(r.buchungen[0])], ['2026-11-17', '12:48', 'Baeckerei Sonne Muster']);
+  assert.equal(C.haendler(r.buchungen[1]), 'PayPal');
+  assert.equal(C.haendler(r.buchungen[2]), 'Bargeld (Automat)');
+  assert.equal(r.buchungen[3].betrag, 2500);
+  // ohne Endstand mit Datum: kein Kontostand (der obere ist der Stand vor dem Zeitraum)
+  assert.equal(C.lesen(db.replace('Kontostand;20.11.2026;;;3.448,0;EUR', '')).saldo, null);
+});

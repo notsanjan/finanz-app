@@ -98,16 +98,18 @@ export function lesen(text) {
     if (s.datum != null && (s.betrag != null || s.soll != null || s.haben != null)) { k = i; sp = s; break; }
   }
   if (k < 0) return { ok: false, fehler: 'In der Datei steht keine Kopfzeile mit Datum und Betrag. Ist das eine CSV-Datei mit Umsätzen (nicht PDF)?' };
-  // Kontostand aus den Zeilen über dem Kopf (ING, DKB: „Kontostand vom 18.11.2026:;1.234,56 €“)
-  let metaSaldo = null;
-  for (const r of rows.slice(0, k)) {
-    const t = norm(r[0]);
-    if (/kontostand|saldo/.test(t)) {
-      const b = r.slice(1).map(betragAus).find((x) => isFinite(x));
-      const d = (r.join(' ').match(/\d{1,2}\.\d{1,2}\.\d{2,4}/) || [])[0];
-      if (isFinite(b)) metaSaldo = { betrag: b, datum: d ? datumAus(d) : null };
-    }
+  // Kontostand aus Zeilen außerhalb der Tabelle (ING/DKB oben: „Kontostand vom 18.11.2026:;1.234,56 €“,
+  // Deutsche Bank unten: „Kontostand;31.12.2025;;;1.555,1“). Zeilen ohne Datum zählen nicht: Bei der
+  // Deutschen Bank ist „Letzter Kontostand“ oben der Stand VOR dem Zeitraum.
+  const metaSaldi = [];
+  const istMeta = (r) => /kontostand|saldo/.test(norm(r[0])) && !datumAus(r[sp.datum] || '');
+  for (const r of rows.slice(0, k).concat(rows.slice(k + 1).filter(istMeta))) {
+    if (!/kontostand|saldo/.test(norm(r[0]))) continue;
+    const b = r.slice(1).map(betragAus).filter((x) => isFinite(x)).pop();
+    const d = (r.join(' ').match(/\d{1,2}\.\d{1,2}\.\d{2,4}|\d{4}-\d{2}-\d{2}/) || [])[0];
+    if (isFinite(b) && d && datumAus(d)) metaSaldi.push({ betrag: b, datum: datumAus(d) });
   }
+  const metaSaldo = metaSaldi.sort((a, b) => (a.datum < b.datum ? -1 : 1)).pop() || null;
   const zelle = (r, key) => (sp[key] != null ? (r[sp[key]] || '') : '');
   const liste = [];
   for (const r of rows.slice(k + 1)) {
@@ -122,10 +124,13 @@ export function lesen(text) {
     if (!isFinite(betrag) || betrag === 0) continue;
     if (sp.sh != null && /^s/i.test(zelle(r, 'sh'))) betrag = -Math.abs(betrag);
     const saldo = sp.saldo != null ? betragAus(zelle(r, 'saldo')) : NaN;
-    liste.push({ datum, betrag: Math.round(betrag * 100) / 100, name: zelle(r, 'name'), zweck: zelle(r, 'zweck'), text: zelle(r, 'text'), saldo: isFinite(saldo) ? saldo : null, nr: liste.length });
+    // Kartenzahlung: Der Verwendungszweck nennt oft den echten Tag („27-12-2025T12:06:38“), gebucht wird später
+    const echt = zelle(r, 'zweck').match(/\b(\d{2})-(\d{2})-(\d{4})T(\d{2}):(\d{2})/);
+    const kauf = echt ? echt[3] + '-' + echt[2] + '-' + echt[1] : null;
+    liste.push({ datum: kauf && kauf <= datum ? kauf : datum, uhr: kauf && kauf <= datum ? echt[4] + ':' + echt[5] : null, betrag: Math.round(betrag * 100) / 100, name: zelle(r, 'name'), zweck: zelle(r, 'zweck'), text: zelle(r, 'text'), saldo: isFinite(saldo) ? saldo : null, nr: liste.length });
   }
   if (!liste.length) return { ok: false, fehler: 'Die Datei hat eine Kopfzeile, aber keine lesbaren Umsätze.' };
-  return { ok: true, buchungen: liste, saldo: saldoAus(liste) || (metaSaldo && metaSaldo.datum ? metaSaldo : metaSaldo ? { betrag: metaSaldo.betrag, datum: liste.reduce((m, x) => (x.datum > m ? x.datum : m), liste[0].datum) } : null) };
+  return { ok: true, buchungen: liste, saldo: saldoAus(liste) || metaSaldo };
 }
 
 // Kontostand nach der neuesten Buchung: Die Datei kann auf- oder absteigend sortiert sein
@@ -149,12 +154,18 @@ function schoen(s) {
   }
   return t.length > 40 ? t.slice(0, 40).trim() + '…' : t;
 }
+const ABWICKLER = /^(nexi|adyen|sg - vr payment|vr payment|sumup|stripe|novalnet|worldline|payone|concardis|computop|mollie|klarna|ingenico|wirecard)/i;
 export function haendler(b) {
   const name = (b.name || '').trim(); const zweck = b.zweck || '';
+  if (/kontoabrechnung|rechnungsabschluss/i.test(b.text || '') || /^saldo der abschlussposten/i.test(zweck)) return 'Kontoführung';
+  if (/wertpapier-?kauf/i.test(zweck)) return 'Wertpapierkauf';
+  if (/^GA\s?NR/i.test(zweck) || /geldautomat|bargeldauszahlung/i.test(zweck + ' ' + (b.text || ''))) return 'Bargeld (Automat)';
   if (/paypal/i.test(name) || /^pp\.\d+/i.test(zweck)) {
-    const m = zweck.match(/Ihr Einkauf bei ([^,]+?)(?:,|$)/i) || zweck.match(/PP\.\d+\.PP\s*\.\s*([^,]+?)(?:,|$)/i);
-    if (m) return schoen(m[1]);
+    const m = zweck.match(/Ihr Einkauf bei ([^,]+?)\s*(?:,|$)/i) || zweck.match(/PP\.\d+\.PP\s*\.\s*([^,]+?)(?:,|$)/i);
+    return m && m[1].trim() ? schoen(m[1]) : 'PayPal';
   }
+  // Kartenzahlung über einen Abwickler (Nexi, Adyen …): Der Händler steht im Verwendungszweck
+  if (ABWICKLER.test(name) && zweck) { const h = zweck.split(/\/\/|\//)[0].replace(/\s+GIR\s+\d+.*$/i, '').trim(); if (h) return schoen(h); }
   let t = name || zweck.split(/\s{2,}|\/\//)[0] || b.text || 'Umsatz';
   t = t.split('//')[0].replace(/\s+(\d{4,}|DE|GER)\s*$/i, '');
   return schoen(t) || 'Umsatz';
@@ -192,7 +203,7 @@ export function erlaubteKategorien(daten, konto) {
   return budget.filter((k) => !R.istKonsum(daten, k, kk));
 }
 const tageAbstand = (a, b) => Math.abs(Math.round((new Date(a + 'T12:00:00') - new Date(b + 'T12:00:00')) / 864e5));
-const UEBERTRAG = /umbuchung|übertrag|uebertrag|dauerauftrag|eigenes konto|eigene konten|sparplan/i;
+const UEBERTRAG = /umbuchung|übertrag|uebertrag|dauerauftrag|eigenes konto|eigene konten|sparplan|wertpapier-?kauf|ultimo-sparen|tagesgeld/i;
 const GEHALT = /\b(lohn|gehalt|bezuege|bezüge|entgelt|salary|loehne|löhne)\b/i;
 
 function fixkosteFuer(daten, b, name) {
@@ -225,8 +236,9 @@ export function vorschlaege(daten, gelesen, konto) {
   });
   return gelesen.buchungen.map((b, i) => {
     const name = haendler(b);
-    const z = { i, datum: b.datum, betrag: b.betrag, name, wahl: '', grund: '', art: 'buchung' };
+    const z = { i, datum: b.datum, uhr: b.uhr || null, betrag: b.betrag, name, wahl: '', grund: '', art: 'buchung' };
     const t = (b.text || '') + ' ' + (b.zweck || '') + ' ' + (b.name || '');
+    const weg = ((daten.einstellungen && daten.einstellungen.csvWeglassen) || []).includes(schluessel(name));
     if (b.betrag < 0) {
       const d = doppelt(b);
       if (d) { benutzt.add(d.id); return Object.assign(z, { art: 'doppelt', grund: `schon gebucht (${d.ort || 'Buchung'} am ${Number(d.zeit.slice(8, 10))}.${Number(d.zeit.slice(5, 7))}.)` }); }
@@ -236,7 +248,8 @@ export function vorschlaege(daten, gelesen, konto) {
       }
       const sp = (daten.sparraten || []).find((x) => Number(x.betrag) > 0 && Math.abs(Number(x.betrag) + b.betrag) < 0.015);
       if (sp && konto !== 'konsum') return Object.assign(z, { art: 'konto', grund: `Übertrag aufs ${sp.name} – rechnet die App schon` });
-      if (UEBERTRAG.test(t)) return Object.assign(z, { art: 'konto', grund: 'Umbuchung auf ein eigenes Konto?' });
+      if (UEBERTRAG.test(t)) return Object.assign(z, { art: 'konto', grund: 'Umbuchung, Sparen oder Dauerauftrag?' });
+      if (weg) return Object.assign(z, { art: 'weg', grund: 'wie beim letzten Mal: nicht übernehmen' });
       if (!erlaubt.length && konto === 'eingang' && kk) return Object.assign(z, { wahl: NEU_EINGANG, grund: 'neue Kategorie „Vom Eingangskonto“' });
       const r = rateKategorie(daten, b, erlaubt, name);
       return Object.assign(z, { wahl: r.id, grund: r.grund === 'gemerkt' ? 'wie beim letzten Mal' : r.grund === 'erraten' ? 'nach dem Namen' : 'bitte prüfen' });

@@ -9,10 +9,10 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v36';
+export const APP_VERSION = 'finanz-v37';
 const NEU_IN_VERSION = [
-  'Kontostand: Unter „Frei“ steht jetzt, was heute auf deinem Girokonto ist und wie tief es bis zum Gehalt sinkt. Antippen → Stand eintragen → die App rechnet Tag für Tag weiter (Gehalt, Fixkosten am Bankarbeitstag, Daueraufträge). Fehlt Geld, warnt sie vorher',
-  'Kontoauszug als CSV einlesen (Einstellungen oder Seite „Kontostand“): Die App übernimmt den Kontostand und die Ausgaben. Fixkosten, Überträge und schon Gebuchtes erkennt sie und lässt sie weg – du prüfst jede Zeile'
+  'CSV einlesen, Deutsche Bank: Die App nimmt jetzt den Kontostand am Ende des Zeitraums (unten in der Datei), nicht den Stand davor',
+  'CSV: echter Kaufzeitpunkt bei Kartenzahlungen, Händler bei Nexi/Adyen-Zahlungen, „PayPal“, „Bargeld (Automat)“, Wertpapierkäufe zählen als Sparen. „Nicht übernehmen“ merkt sich die App pro Händler'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -2452,6 +2452,10 @@ const AKTION = {
     const sa = eb.saldoAn && eb.konto !== 'anderes' ? eb.gelesen.saldo : null;
     z.ebenen.pop();
     await aendern((d) => {
+      // v37: Händler, die du bei Ausgaben auf „Nicht übernehmen“ stellst, merkt sich die App fürs nächste Mal
+      const weg = new Set(d.einstellungen.csvWeglassen || []);
+      for (const x of eb.zeilen) if (x.betrag < 0 && x.art === 'buchung' && !x.wahl) weg.add(C.schluessel(x.name)); else if (x.wahl && x.betrag < 0) weg.delete(C.schluessel(x.name));
+      if (weg.size) d.einstellungen.csvWeglassen = [...weg].slice(-200); else delete d.einstellungen.csvWeglassen;
       for (const x of gewaehlt) {
         if (x.betrag < 0) {
           let katId = x.wahl;
@@ -2460,7 +2464,7 @@ const AKTION = {
             if (!d.kategorien.some((k) => k.id === katId)) { d.kategorien.push({ id: katId, name: 'Vom Eingangskonto', art: 'budget', budget: 0, emoji: '🏦', symbol: 'sonstiges', schritte: [5, 20], frage: 'Wofür?', chips: [] }); neueKat = true; }
           }
           const id = D.neueId('b'); neueIds.push(id);
-          d.buchungen.push({ id, zeit: x.datum + 'T12:00:00', kategorieId: katId, betrag: Math.round(-x.betrag * 100) / 100, ort: x.name, quelle: 'import' });
+          d.buchungen.push({ id, zeit: x.datum + 'T' + (x.uhr || '12:00') + ':00', kategorieId: katId, betrag: Math.round(-x.betrag * 100) / 100, ort: x.name, quelle: 'import' });
           d.einstellungen.haendlerKategorie = Object.assign({}, d.einstellungen.haendlerKategorie, { [C.schluessel(x.name)]: katId });
         } else if (x.wahl === 'gehalt' && g) {
           const ge = d.einnahmen.find((e) => e.id === g.id);
