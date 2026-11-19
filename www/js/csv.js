@@ -219,7 +219,14 @@ function fixkosteFuer(daten, b, name) {
     const punkte = (nameTrifft ? 2 : 0) + (betragTrifft ? 2 : 0) + (tagTrifft ? 1 : 0);
     if ((nameTrifft || (betragTrifft && tagTrifft)) && (!best || punkte > best.punkte)) best = { f, punkte };
   }
-  return best && best.f;
+  if (best) return best.f;
+  // v38: zwei Fixkosten, die die Bank zusammen abbucht (z. B. 1&1: Internet + Handy in einem Betrag)
+  const nahe = (daten.fixkosten || []).filter((f) => [s, R.ymPlus(s, -1)].some((m) => R.wirdAbgebuchtIm(f, m) && tageAbstand(R.abbuchungIm(f, m).gebucht, b.datum) <= 5));
+  for (let x = 0; x < nahe.length; x++) for (let y = x + 1; y < nahe.length; y++) {
+    const summe = (f) => Number(R.betragIm(f, s).betrag) || 0;
+    if (Math.abs(summe(nahe[x]) + summe(nahe[y]) - a) < 0.015) return { id: nahe[x].id, name: nahe[x].name + ' + ' + nahe[y].name };
+  }
+  return null;
 }
 
 export function vorschlaege(daten, gelesen, konto) {

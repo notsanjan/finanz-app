@@ -9,10 +9,9 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v37';
+export const APP_VERSION = 'finanz-v38';
 const NEU_IN_VERSION = [
-  'CSV einlesen, Deutsche Bank: Die App nimmt jetzt den Kontostand am Ende des Zeitraums (unten in der Datei), nicht den Stand davor',
-  'CSV: echter Kaufzeitpunkt bei Kartenzahlungen, Händler bei Nexi/Adyen-Zahlungen, „PayPal“, „Bargeld (Automat)“, Wertpapierkäufe zählen als Sparen. „Nicht übernehmen“ merkt sich die App pro Händler'
+  'CSV einlesen: Bucht die Bank zwei Fixkosten zusammen ab (z. B. Internet und Handy bei 1&1), erkennt die App das jetzt als Fixkosten und lässt es weg'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };

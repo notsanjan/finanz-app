@@ -184,3 +184,12 @@ test('CSV Deutsche Bank: „Letzter Kontostand“ oben ist der Anfangsstand, End
   // ohne Endstand mit Datum: kein Kontostand (der obere ist der Stand vor dem Zeitraum)
   assert.equal(C.lesen(db.replace('Kontostand;20.11.2026;;;3.448,0;EUR', '')).saldo, null);
 });
+
+test('CSV: zwei Fixkosten in einer Abbuchung (Internet + Handy)', () => {
+  const d = basis();
+  d.fixkosten.push({ id: 'net', name: 'Internet', betrag: 34.99, wieOft: 'monatlich', tag: 28, kategorieId: 'wohnen', meinAnteil: 100 }, { id: 'handy', name: 'Handyvertrag', betrag: 9.99, wieOft: 'monatlich', tag: 25, kategorieId: 'wohnen', meinAnteil: 100 });
+  const gelesen = { buchungen: [{ datum: '2026-11-25', betrag: -44.98, name: 'Telekommunikation GmbH', zweck: 'KD-Nr. 1', text: 'SEPA Lastschrift' }] };
+  const v = C.vorschlaege(d, gelesen, 'eingang');
+  assert.equal(v[0].art, 'fix');
+  assert.match(v[0].grund, /Handyvertrag \+ Internet|Internet \+ Handyvertrag/);
+});
