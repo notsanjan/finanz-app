@@ -91,12 +91,35 @@ object Logik {
         return (0 until k.length()).map { k.getJSONObject(it) }.filter { it.optString("art") == "budget" }
     }
 
+    // v43: Monat von Gehalt zu Gehalt (wie rechnen.js monatsBeginn/periode). 0 = Kalendermonat.
+    fun beginnTag(d: JSONObject): Int {
+        val e = d.optJSONObject("einstellungen") ?: return 0
+        if (!e.optBoolean("gehaltsmonat", false)) return 0
+        val l = d.optJSONArray("einnahmen") ?: return 0
+        var g: JSONObject? = null
+        for (i in 0 until l.length()) { val o = l.getJSONObject(i); if (o.optString("id") == "gehalt") { g = o; break } }
+        if (g == null) for (i in 0 until l.length()) { val o = l.getJSONObject(i); if (o.optString("wieOft") == "monatlich" && (o.isNull("status") || o.optString("status").isEmpty())) { g = o; break } }
+        if (g == null || g.optString("kommtAn") != "Tag") return 0
+        val t = g.optString("ankunftTag", "").toIntOrNull() ?: 0
+        return if (t > 1) t else 0
+    }
+
+    fun periode(d: JSONObject, datum: String): String {
+        if (datum.length < 10) return datum.take(7)
+        val c = datum.substring(0, 7)
+        val b = beginnTag(d)
+        if (b == 0) return c
+        return if (datum.substring(8, 10).toInt() >= minOf(b, tageImMonat(c))) ymPlus(c, 1) else c
+    }
+
+    fun aktuellePeriode(d: JSONObject): String = periode(d, heuteText())
+
     fun ausgegebenIm(d: JSONObject, ym: String, katId: String): Double {
         val b = d.optJSONArray("buchungen") ?: return 0.0
         var s = 0.0
         for (i in 0 until b.length()) {
             val o = b.getJSONObject(i)
-            if (o.optString("kategorieId") == katId && o.optString("zeit").startsWith(ym)) s += o.optDouble("betrag", 0.0)
+            if (o.optString("kategorieId") == katId && periode(d, o.optString("zeit")) == ym) s += o.optDouble("betrag", 0.0)
         }
         return s
     }

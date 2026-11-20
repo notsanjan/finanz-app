@@ -27,6 +27,54 @@ export function zeitText(d) {
 }
 export function datumText(d) { return zeitText(d).slice(0, 10); }
 
+// ---------- v43: Monat von Gehalt zu Gehalt (Einstellung „gehaltsmonat“, Wunsch Jan) ----------
+// Aus: Monat = Kalendermonat. An: Der Monat beginnt am Gehaltstag des Vormonats. Mit Gehalt am 28. ist
+// „Dezember 2026“ der 28.11.–27.12. – das Novembergehalt ist das Geld für den Dezember.
+// Der Beginn steht modulweit, damit alle Rechnungen (und die bestehenden Aufrufe) ihn ohne neuen Parameter kennen.
+// Die Oberfläche ruft monatsBeginn(daten) nach dem Laden und nach jeder Änderung auf.
+let BEGINN = 0;
+export function monatsBeginn(daten) {
+  const e = (daten && daten.einstellungen) || {};
+  const g = daten ? gehaltVon(daten) : null;
+  const t = g && g.kommtAn === 'Tag' && /^\d+$/.test(String(g.ankunftTag || '')) ? Number(g.ankunftTag) : 0;
+  BEGINN = e.gehaltsmonat && t > 1 ? t : 0;
+  return BEGINN;
+}
+export function beginnTag() { return BEGINN; }
+const beginnIm = (c) => Math.min(BEGINN, tageImMonat(c));
+// Monat, zu dem ein Datum ("2026-11-28") gehört
+export function periode(datum) {
+  const c = datum.slice(0, 7);
+  if (!BEGINN) return c;
+  return Number(datum.slice(8, 10)) >= beginnIm(c) ? ymPlus(c, 1) : c;
+}
+// erster und letzter Tag des Monats s
+export function zeitraum(s) {
+  if (!BEGINN) return { von: s + '-01', bis: s + '-' + zweistellig(tageImMonat(s)) };
+  const v = ymPlus(s, -1);
+  const ende = new Date(s + '-' + zweistellig(beginnIm(s)) + 'T12:00:00'); ende.setDate(ende.getDate() - 1);
+  return { von: v + '-' + zweistellig(beginnIm(v)), bis: datumText(ende) };
+}
+// Tag `tag` (z. B. Abbuchung am 30.), der zum Monat s gehört: liegt er ab dem Gehaltstag, dann im Vormonat
+export function datumIm(s, tag) {
+  const t = (c) => Math.min(tag || 1, tageImMonat(c));
+  if (BEGINN) { const p = ymPlus(s, -1); if (t(p) >= beginnIm(p)) return p + '-' + zweistellig(t(p)); }
+  return s + '-' + zweistellig(t(s));
+}
+// Gehalt: kommt oft ein paar Tage früher oder später als geplant – 5 Tage Spielraum, damit es im richtigen Monat zählt
+export function gehaltMonat(datum) {
+  if (!BEGINN) return ymAus(datum);
+  const d = new Date(datum.slice(0, 10) + 'T12:00:00'); d.setDate(d.getDate() + 5);
+  return periode(datumText(d));
+}
+// Datum, an dem das Gehalt für den Monat s kommt (an: im Vormonat)
+export function gehaltDatum(g, s) {
+  if (!BEGINN) return s + '-' + zweistellig(ankunftsTag(g, s));
+  const v = ymPlus(s, -1);
+  return v + '-' + zweistellig(beginnIm(v));
+}
+const istWertMonat = (e, datum) => (e && e.wieOft === 'monatlich' ? gehaltMonat(datum) : periode(datum));
+
 // ---------- Geld ----------
 export function euro(x, mitZeichen = true) {
   const r = Math.round(x * 100) / 100;
@@ -102,15 +150,17 @@ export function abbuchungsMonate(fk) {
 // läuft die Fixkoste im Monat s noch? (endetAm = letzter Tag, an dem sie noch gilt)
 export function laeuftIm(fk, s) {
   if (!fk.endetAm) return true;
-  return s <= ymAus(fk.endetAm);
+  return s <= periode(fk.endetAm);
 }
 
+// v43: Datum der Abbuchung, die zum Monat s gehört (bei „Monat von Gehalt zu Gehalt“ ggf. im Kalender-Vormonat)
+export function abbuchungsDatum(fk, s) { return datumIm(s, fk.tag || 1); }
 export function wirdAbgebuchtIm(fk, s) {
-  return laeuftIm(fk, s) && abbuchungsMonate(fk).includes(ymTeile(s).monat);
+  return laeuftIm(fk, s) && abbuchungsMonate(fk).includes(ymTeile(ymAus(abbuchungsDatum(fk, s))).monat);
 }
 
 // Abbuchungstag im Monat s (31. im Februar → letzter Tag)
-export function abbuchungsTag(fk, s) { return Math.min(fk.tag || 1, tageImMonat(s)); }
+export function abbuchungsTag(fk, s) { return Number(abbuchungsDatum(fk, s).slice(8)); }
 
 // ---------- v33: Bankarbeitstage ----------
 // SEPA-Lastschriften werden nur an TARGET-Geschäftstagen gebucht: nicht am Wochenende, nicht an Neujahr,
@@ -143,7 +193,7 @@ export function bankTag(datum) {
 }
 // Fälligkeit und echter Abbuchungstag einer Fixkoste im Monat s
 export function abbuchungIm(fk, s) {
-  const faellig = s + '-' + zweistellig(abbuchungsTag(fk, s));
+  const faellig = abbuchungsDatum(fk, s);
   return { faellig, gebucht: bankTag(faellig) };
 }
 
@@ -165,7 +215,7 @@ export function gehaltVon(daten) {
 }
 // Ist die Einnahme im Monat s vorgesehen? monatlich (mit ab/bis) oder einmalig im Monat
 export function einnahmeAktivIm(e, s) {
-  if ((e.istWerte || []).some((w) => ymAus(w.datum) === s)) return true;
+  if ((e.istWerte || []).some((w) => istWertMonat(e, w.datum) === s)) return true;
   if (e.wieOft === 'einmalig') return e.monat === s;
   if (e.wieOft === 'monatlich') return !(e.ab && s < e.ab) && !(e.bis && s > e.bis);
   return false;
@@ -173,7 +223,7 @@ export function einnahmeAktivIm(e, s) {
 // Wert der Einnahme im Monat s: Ist-Wert, wenn eingetragen, sonst Schätzung (bei Spanne der untere Wert).
 // Zählt zu „Frei“, wenn sie fest ist oder im Monat angekommen ist; „geplant“ zählt erst nach „Kam an“.
 export function einnahmeIm(e, s) {
-  const ist = (e.istWerte || []).find((w) => ymAus(w.datum) === s);
+  const ist = (e.istWerte || []).find((w) => istWertMonat(e, w.datum) === s);
   const sch = schaetzungIm(e, s);
   if (ist) return { betrag: Number(ist.betrag) || 0, geschaetzt: false, schaetzung: sch, zaehlt: true, angekommen: true };
   return { betrag: sch, geschaetzt: !e.sicher, schaetzung: sch, zaehlt: e.status !== 'geplant', angekommen: false, ausDiensten: !!(e.schaetzWerte && e.schaetzWerte[s] != null) };
@@ -225,7 +275,7 @@ export function sparStand(sp, d, daten) {
 // Einmalige Überträge stehen in daten.uebertraege: { id, datum, betrag, kontoId }.
 const summeBetrag = (l) => l.reduce((a, x) => a + (Number(x.betrag) || 0), 0);
 export function uebertraegeIm(daten, s, kontoId) {
-  return (daten.uebertraege || []).filter((u) => ymAus(u.datum) === s && (!kontoId || u.kontoId === kontoId));
+  return (daten.uebertraege || []).filter((u) => periode(u.datum) === s && (!kontoId || u.kontoId === kontoId));
 }
 export function kontoArt(sp) { return sp.art === 'ruecklage' ? 'ruecklage' : sp.art === 'extern' ? 'extern' : sp.art === 'konsum' ? 'konsum' : 'sparen'; }
 // Interne Überträge (v31): { vonKontoId } = Geld geht von einem eigenen Konto weg (z. B. Rest vom Konsumkonto).
@@ -262,15 +312,16 @@ export function konsumUebersicht(daten, heute) {
   const kk = konsumKonto(daten);
   if (!kk) return null;
   const s = ymAus(heute);
+  const p = periode(heute);
   const kats = konsumKategorien(daten);
   const ids = new Set(kats.map((k) => k.id));
-  const buchungen = buchungenIm(daten, s).filter((b) => ids.has(b.kategorieId));
+  const buchungen = buchungenIm(daten, p).filter((b) => ids.has(b.kategorieId));
   const ausgegeben = summeBetrag(buchungen);
   let naechster = konsumEingang(kk, s);
   if (naechster <= heute) naechster = konsumEingang(kk, ymPlus(s, 1));
   const tage = Math.max(1, tageZwischen(heute, naechster));
   const stand = konsumStand(daten, heute);
-  const proKategorie = kats.map((k) => ({ kategorie: k, ausgegeben: ausgegebenIm(daten, s, k.id), budget: Number(k.budget) || 0 }));
+  const proKategorie = kats.map((k) => ({ kategorie: k, ausgegeben: ausgegebenIm(daten, p, k.id), budget: Number(k.budget) || 0 }));
   return { konto: kk, stand, ausgegeben, rate: Number(kk.betrag) || 0, naechster, tage, proTag: Math.max(0, stand) / tage, kategorien: kats, proKategorie, buchungen };
 }
 // Rest der letzten Runde: einmal fragen, sobald der neue Dauerauftrag da ist (Monat = Monat vor dem Eingang)
@@ -294,7 +345,7 @@ export function konsumRest(daten, heute) {
 
 // ---------- Buchungen (Ausgaben aus den Widgets) ----------
 export function buchungenIm(daten, s, kategorieId) {
-  return (daten.buchungen || []).filter((b) => ymAus(b.zeit) === s && (!kategorieId || b.kategorieId === kategorieId));
+  return (daten.buchungen || []).filter((b) => periode(b.zeit) === s && (!kategorieId || b.kategorieId === kategorieId));
 }
 export function ausgegebenIm(daten, s, kategorieId) {
   return buchungenIm(daten, s, kategorieId).reduce((a, b) => a + (Number(b.betrag) || 0), 0);
@@ -304,7 +355,7 @@ export function verlaufMitStand(daten) {
   const sortiert = [...(daten.buchungen || [])].sort((a, b) => (a.zeit < b.zeit ? -1 : a.zeit > b.zeit ? 1 : 0));
   const summe = {};
   return sortiert.map((b) => {
-    const k = ymAus(b.zeit) + '|' + b.kategorieId;
+    const k = periode(b.zeit) + '|' + b.kategorieId;
     const vorher = summe[k] || 0;
     const nachher = vorher + (Number(b.betrag) || 0);
     summe[k] = nachher;
@@ -329,7 +380,7 @@ export function empfohleneRuecklage(daten, s) {
 function ruecklageBewegungen(daten, rk, von, bis, abStand = false) {
   const liste = [];
   let s = ymAus(von);
-  for (let i = 0; i < 600 && s <= ymAus(bis); i++) {
+  for (let i = 0; i < 600 && s <= periode(bis); i++) {
     const rateTag = s + '-' + zweistellig(Math.min(rk.tag || 1, tageImMonat(s)));
     if (rateTag > von && rateTag <= bis) liste.push({ datum: rateTag, betrag: Number(rk.betrag) || 0 });
     for (const u of uebertraegeIm(daten, s, rk.id)) if ((u.datum > von || (abStand && uebertragNachStand(rk, u))) && u.datum <= bis) liste.push({ datum: u.datum, betrag: Number(u.betrag) || 0 });
@@ -411,7 +462,7 @@ export function monatsRechnung(daten, s, opt = {}) {
   const konten = [rk].concat(sparratenNormal(daten), sparratenExtern(daten), [kk]).filter(Boolean).map((sp) => {
     const rate = Number(sp.betrag) || 0;
     // nur Geld vom Eingangskonto zählt; Rest, der zurück aufs Eingangskonto geht, zählt dagegen
-    const zurueck = summeBetrag((daten.uebertraege || []).filter((u) => u.vonKontoId === sp.id && !u.kontoId && ymAus(u.datum) === s));
+    const zurueck = summeBetrag((daten.uebertraege || []).filter((u) => u.vonKontoId === sp.id && !u.kontoId && periode(u.datum) === s));
     const extra = summeBetrag(uebertraegeIm(daten, s, sp.id).filter(ausEingang)) - zurueck;
     return { konto: sp, art: kontoArt(sp), rate, extra, zurueck, betrag: rate + extra };
   });
@@ -568,7 +619,7 @@ export function naechsteAbbuchungen(daten, heute) {
 }
 
 export function fixkostenProMonat(daten) {
-  const h = ymAus(datumText(new Date()));
+  const h = periode(datumText(new Date()));
   return (daten.fixkosten || []).filter((f) => laeuftIm(f, h)).reduce((a, f) => a + monatsAnteil(f, h), 0);
 }
 
@@ -582,7 +633,7 @@ export function uebrigIm(daten, s) {
 export function monatAbgeschlossen(daten, s) { return ((daten.einstellungen && daten.einstellungen.abgeschlossen) || []).includes(s); }
 
 // ---------- Gehalt bestätigen (Schichtdienst: Netto schwankt) ----------
-export function gehaltBestaetigt(g, s) { return !!g && (g.istWerte || []).some((w) => ymAus(w.datum) === s); }
+export function gehaltBestaetigt(g, s) { return !!g && (g.istWerte || []).some((w) => gehaltMonat(w.datum) === s); }
 // Durchschnitt der letzten n bestätigten Monate (für eine Schätzung, die mitlernt)
 export function gehaltStatistik(g, n = 3) {
   const l = [...((g && g.istWerte) || [])].sort((a, b) => (a.datum < b.datum ? 1 : -1)).slice(0, n).map((w) => Number(w.betrag) || 0);
@@ -654,13 +705,14 @@ export function mitOffenem(daten, s, opt = {}) {
 // Schnitt pro Budget-Kategorie über die letzten n abgeschlossenen Monate (ab dem Start mit der App),
 // Urteil zum Budget, Vergleich laufender Monat ↔ Vormonat bis zum selben Tag, häufigste Orte.
 export function auswertung(daten, heute, n = 3) {
-  const h = ymAus(heute);
+  const h = periode(heute);
   const start = (daten.einstellungen && daten.einstellungen.startMonat) || h;
   const monate = [];
   for (let i = n; i >= 1; i--) { const m = ymPlus(h, -i); if (m >= start) monate.push(m); }
-  const tag = heute.slice(8, 10);
   const vm = ymPlus(h, -1);
-  const bisTag = (m) => m + '-' + zweistellig(Math.min(Number(tag), tageImMonat(m))) + 'T99';
+  // „bis zum selben Tag“: gleich viele Tage seit Monatsbeginn (v43: Monat kann am Gehaltstag beginnen)
+  const tageSeit = tageZwischen(zeitraum(h).von, heute.slice(0, 10));
+  const bisTag = (m) => { const d = new Date(zeitraum(m).von + 'T12:00:00'); d.setDate(d.getDate() + tageSeit); return datumText(d) + 'T99'; };
   const kats = (daten.kategorien || []).filter((k) => k.art === 'budget').map((k) => {
     const werte = monate.map((m) => ausgegebenIm(daten, m, k.id));
     const schnitt = werte.length ? werte.reduce((a, x) => a + x, 0) / werte.length : null;
@@ -677,7 +729,7 @@ export function auswertung(daten, heute, n = 3) {
   const ab = monate[0] || h;
   const orte = new Map();
   for (const b of daten.buchungen || []) {
-    if (ymAus(b.zeit) < ab || ymAus(b.zeit) > h || !b.ort) continue;
+    if (periode(b.zeit) < ab || periode(b.zeit) > h || !b.ort) continue;
     const o = orte.get(b.ort) || { ort: b.ort, anzahl: 0, summe: 0 };
     o.anzahl++; o.summe += Number(b.betrag) || 0; orte.set(b.ort, o);
   }
@@ -763,7 +815,7 @@ export function verlaufFiltern(eintraege, daten, filter = {}) {
   const t = (filter.text || '').trim().toLowerCase();
   return eintraege.filter((b) => {
     if (filter.kategorieId && b.kategorieId !== filter.kategorieId) return false;
-    if (filter.monat && ymAus(b.zeit) !== filter.monat) return false;
+    if (filter.monat && periode(b.zeit) !== filter.monat) return false;
     if (filter.ort && (b.ort || '') !== filter.ort) return false;
     if (!t) return true;
     const k = kategorie(daten, b.kategorieId);

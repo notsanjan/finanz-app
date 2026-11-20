@@ -9,12 +9,11 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v42';
+export const APP_VERSION = 'finanz-v43';
 const NEU_IN_VERSION = [
-  'Budget antippen zeigt, was in diesem Monat gebucht wurde – oben „Ausgabe eintragen“, unten „Im Verlauf ansehen“',
-  'Zu viel in einem Budget? Ein blasser Balken zeigt, wie viel davon in den anderen Budgets auf demselben Konto fehlt',
-  'Weitere Einnahmen stehen einzeln mit Datum da, z. B. „kam am 13. Nov“',
-  'Die Abo-Kachel zeigt alles aus „Handy und Abos“, auch ohne Abo-Schalter'
+  'Neu in den Einstellungen: „Monat von Gehalt zu Gehalt“. Der Monat beginnt am Gehaltstag – das Gehalt vom 28. November ist dann das Geld für den Dezember. Gilt für „Bleibt übrig“, Budgets, Verlauf und Widgets',
+  'Unter „Bleibt im … übrig“ steht dann, welche Tage der Monat umfasst, z. B. „28.10.–27.11.“',
+  'Aus v42: Budget antippen zeigt die Buchungen, blasser Balken bei zu viel Ausgaben, Einnahmen einzeln mit Datum, Abo-Kachel mit ganzer Kategorie'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -71,7 +70,8 @@ function offeneEinnahmeWerte(offen) {
 const OFFEN_LINK = '<button class="knopf klein leise offen-link" data-a="of-an">? Betrag unbekannt</button>';
 const offenFeldAus = '<div class="eingabe offen-feld-aus" aria-hidden="true">?</div>';
 const heute = () => R.datumText(new Date());
-const heuteYm = () => R.ymAus(heute());
+const heuteYm = () => R.periode(heute()); // v43: Monat der App (ggf. von Gehalt zu Gehalt)
+const monatEnde = (s) => R.zeitraum(s).bis;
 const monatsName = (s) => R.MONATE_LANG[R.ymTeile(s).monat - 1];
 function zahl(text) {
   if (text == null) return NaN;
@@ -102,6 +102,7 @@ export async function start() {
   try {
     z.daten = await D.laden();
   } catch (e) { z.daten = null; }
+  if (z.daten) R.monatsBeginn(z.daten);
   z.monat = heuteYm();
   bindeEreignisse();
   if (!z.daten) { z.daten = D.leereDaten(); z.ebenen.push({ art: 'start' }); }
@@ -165,7 +166,7 @@ function pruefeMonatsende() {
   z.monatsendeGefragt = true;
   AKTION.monatsende({ dataset: { wert: vm } });
 }
-const letzterTag = (s) => (s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s)));
+const letzterTag = (s) => (s === heuteYm() ? heute() : monatEnde(s));
 
 function zeigeNeuigkeiten() {
   const gesehen = z.daten.einstellungen.gesehenVersion;
@@ -194,6 +195,7 @@ async function aendern(fn, toast) {
 function render() {
   const a = $app();
   if (!a) return;
+  if (z.daten) R.monatsBeginn(z.daten); // v43: Monat von Gehalt zu Gehalt
   a.innerHTML = kopf() + (z.ansicht === 'monat' ? monatAnsicht() : z.ansicht === 'jahr' ? jahrAnsicht() : verlaufAnsicht())
     + (z.bearbeiten ? '' : fabHtml());
   renderEbenen();
@@ -234,7 +236,7 @@ function monatTeile(s = z.monat) {
   const brocken = !r.mitRuecklage ? R.naechsterBrockenMonat(z.daten, s) : null;
   const zusatz = [];
   // Monatsende: Was ist mit dem Rest passiert? (vergangene Monate, und in den letzten 3 Tagen des aktuellen Monats)
-  const endeNah = s === heuteYm() && Number(heute().slice(8)) >= R.tageImMonat(s) - 2;
+  const endeNah = s === heuteYm() && R.periode(nachTagen(heute(), 3)) !== s;
   // v26: Monate vor dem Start mit der App sind nicht erfasst – das sagen, statt „übrig“ vorzurechnen
   if (s < z.daten.einstellungen.startMonat) zusatz.push(`<div class="frei-hinweis">Vor deinem Start mit der App (${esc(monatsName(z.daten.einstellungen.startMonat))}). Für diesen Monat ist nichts erfasst, die Zahl ist nur hochgerechnet.</div>`);
   if (s >= z.daten.einstellungen.startMonat && (vorbei || endeNah)) {
@@ -270,16 +272,17 @@ function monatTeile(s = z.monat) {
     zusatz.push(`<div class="frei-hinweis ${eng.frei < 0 ? 'warn' : ''}" data-hinweis="eng">${eng.frei < 0 ? '⚠ ' : ''}Im ${esc(en)} wird ${esc(postenText(eng.posten))} abgebucht (${R.euroRund(eng.summe)}). ${dann}${rat}</div>`);
   }
   if (brocken && hinweisAn('eng') && (!eng || (eng.monat !== brocken.monat && brocken.monat === R.ymPlus(s, 1)))) zusatz.push(`<div class="frei-hinweis">Im ${esc(R.MONATE_LANG[R.ymTeile(brocken.monat).monat - 1])} wird zusätzlich ${esc(postenText(brocken.posten))} abgebucht (${R.euroRund(brocken.summe)}). Übrig bleiben dann ${brocken.frei < 0 ? '− ' : '≈ '}${R.euroRund(Math.abs(brocken.frei))}.</div>`);
-  const gehaltTag = g ? R.ankunftsTag(g, s) + '.' + R.ymTeile(s).monat + '.' : '';
+  const gehaltAm = g ? R.gehaltDatum(g, s) : '';
+  const gehaltTag = g ? Number(gehaltAm.slice(8)) + '.' + Number(gehaltAm.slice(5, 7)) + '.' : '';
 
   // Frei-Karte: große Zahl, darunter rein (grün) und raus (rot); die Zahl „Frei“ steht nur einmal
   const zeile = (punkt, text, betrag, art) => `<div class="auf-zeile"><span class="l">${punkt}${text}</span><span class="r ${art}">${betrag}</span></div>`;
   const ohnePunkt = '<i class="punkt-platz"></i>';
-  const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? (istHeute && R.ankunftsTag(g, s) > Number(heute().slice(8)) ? 'kommt am ' : 'am ') + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? (gehaltWert.ausDiensten ? ' · aus Diensten geschätzt' : ' · geschätzt') : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
+  const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? (gehaltAm > heute() ? 'kommt am ' : 'am ') + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? (gehaltWert.ausDiensten ? ' · aus Diensten geschätzt' : ' · geschätzt') : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
   // v42: weitere Einnahmen einzeln mit Datum („kam am 13. Nov“), statt nur als Summe – bis 3 Stück
   const weitereListe = r.einnahmen.filter((e) => (!g || e.einnahme !== g) && e.betrag > 0);
   const einnahmeWann = (e) => {
-    const ist = (e.einnahme.istWerte || []).find((w) => R.ymAus(w.datum) === s);
+    const ist = (e.einnahme.istWerte || []).find((w) => (e.einnahme.wieOft === 'monatlich' ? R.gehaltMonat(w.datum) : R.periode(w.datum)) === s);
     if (ist) return (ist.datum <= heute() ? 'kam am ' : 'kommt am ') + kurzDatum(ist.datum);
     return e.einnahme.wieOft === 'monatlich' ? 'jeden Monat' : (vorbei ? '' : 'noch nicht da');
   };
@@ -289,7 +292,7 @@ function monatTeile(s = z.monat) {
   const freiKarte = `<section class="karte ring frei-karte">
     <div class="label">${vorbei ? 'Übrig im' : 'Bleibt im'} ${esc(monatsName(s))}${vorbei ? '' : ' übrig'}</div>
     <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}" aria-label="${esc(aria)}">${freiText}</div>
-    <div class="frei-erklaer">Einnahmen minus alles, was vom ${esc(K.kontoName(z.daten))} weggeht</div>
+    <div class="frei-erklaer">${R.beginnTag() ? `${esc(zeitraumText(s))}: ` : ''}Einnahmen minus alles, was vom ${esc(K.kontoName(z.daten))} weggeht</div>
     ${mitGeplantem}
     ${mitOffenem}
     <div class="aufstellung">
@@ -303,7 +306,7 @@ function monatTeile(s = z.monat) {
     ${g && !g.betrag && !gehaltWert.betrag ? '<button class="knopf haupt" data-a="gehalt">Gehalt eintragen</button>' : ''}
   </section>`;
 
-  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
+  const stichtag = s === heuteYm() ? heute() : monatEnde(s);
   const rk = R.ruecklage(z.daten);
   const hatJaehrliche = z.daten.fixkosten.some((f) => f.wieOft !== 'monatlich');
   let ruecklageKarte = '';
@@ -349,6 +352,7 @@ function monatTeile(s = z.monat) {
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
     <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Bleibt übrig“ zeigen<br><span class="klein">Antippen einer Zeile zeigt die Buchungen, dort auch eintragen</span></span><span class="spur"></span></button>
+    ${gehaltsmonatSchalter()}
     <button class="schalter" role="switch" aria-checked="${!!z.daten.einstellungen.widgetPfeile}" data-a="widgetpfeile"><span class="t">Kategorie im Widget wechseln<br><span class="klein">‹ › neben dem Namen im Budget-Widget</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
@@ -406,6 +410,15 @@ const KACHEL_KATALOG = {
 
 // Erfolgsmoment (v21): Nach dem Buchen leuchtet der betroffene Betrag kurz auf
 function leuchtet(katId) { const l = z.leuchten; return !!(l && Date.now() < l.bis && (!katId || l.kat === katId)); }
+// v43: Schalter „Monat von Gehalt zu Gehalt“ – braucht einen festen Gehaltstag
+function gehaltsmonatSchalter() {
+  const g = gehalt();
+  const tag = g && /^\d+$/.test(String(g.ankunftTag || '')) && g.kommtAn === 'Tag' ? Number(g.ankunftTag) : 0;
+  const an = !!z.daten.einstellungen.gehaltsmonat;
+  const text = tag > 1 ? `Der Monat beginnt am ${tag}., wenn das Gehalt kommt. Das Gehalt vom ${tag}. November zählt dann zum Dezember – auch Budgets und Widgets.`
+    : 'Geht, sobald beim Gehalt ein fester Tag eingetragen ist (Gehalt antippen → „an einem Tag“).';
+  return `<button class="schalter" role="switch" aria-checked="${an}" data-a="gehaltsmonat" ${tag > 1 || an ? '' : 'disabled'}><span class="t">Monat von Gehalt zu Gehalt<br><span class="klein">${esc(text)}</span></span><span class="spur"></span></button>`;
+}
 function budgetLeiste(s) {
   const ks = budgetKats().filter((k) => Number(k.budget) > 0 || R.ausgegebenIm(z.daten, s, k.id) > 0);
   if (!ks.length || s !== heuteYm() || z.daten.einstellungen.budgetLeisteAus) return '';
@@ -440,7 +453,7 @@ function budgetAusgleich(s, ks) {
 function monatAnsicht() {
   const t = monatTeile(z.monat);
   const { s, r, pruefung, rk, hatJaehrliche } = t;
-  const stichtag = s === heuteYm() ? heute() : s + '-' + R.zweistellig(R.tageImMonat(s));
+  const stichtag = s === heuteYm() ? heute() : monatEnde(s);
   const kachel = (typ, titel, wert, unter, unterArt = '', aktion = 'bereich') => `<button class="kachel" data-a="${aktion}" data-wert="${typ}" aria-label="${esc(titel)} öffnen">
       <span class="kachel-kopf">${KACHEL_ICON[typ] || ''}<span>${esc(titel)}</span></span>
       <span class="kachel-wert ${typ === 'ausgaben' && s === heuteYm() && leuchtet() ? 'leuchtet' : ''}">${wert}</span>
@@ -866,8 +879,7 @@ function verlaufListe() {
     const s = R.ymPlus(heuteYm(), -i);
     if (s < z.daten.einstellungen.startMonat) break;
     for (const sp of z.daten.sparraten) {
-      const tag = Math.min(sp.tag || 1, R.tageImMonat(s));
-      const datum = s + '-' + R.zweistellig(tag);
+      const datum = R.datumIm(s, sp.tag || 1);
       const istRk = sp.art === 'ruecklage';
       const art = R.kontoArt(sp);
       // v26: vor dem Tag, an dem der Stand eingetragen wurde, kennt die App den Stand nicht
@@ -875,13 +887,13 @@ function verlaufListe() {
       const farbe = art === 'extern' ? 'var(--extern)' : art === 'ruecklage' ? 'var(--ruecklage)' : art === 'konsum' ? 'var(--konsum)' : 'var(--spar)';
       const vonName = (u) => { const v = u.vonKontoId && z.daten.sparraten.find((x) => x.id === u.vonKontoId); return v ? ` vom ${v.name}` : ''; };
       // v31: Rest vom Konsumkonto zurück aufs Eingangskonto
-      for (const u of (z.daten.uebertraege || []).filter((x) => x.vonKontoId === sp.id && !x.kontoId && R.ymAus(x.datum) === s)) if (u.datum <= h) keine.push({ farbe, titel: `Vom ${sp.name} zurück aufs Eingangskonto`, wert: `<span class="plus-zahl">+ ${R.euro(u.betrag)}</span>`, text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
-      if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name}`, wert: sp.offen ? offenZahl(sp) : rausZ(sp.betrag), text: `${tag}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(datum)}` });
-      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag${vonName(u)} aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${Number(u.datum.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(u.datum)}` });
+      for (const u of (z.daten.uebertraege || []).filter((x) => x.vonKontoId === sp.id && !x.kontoId && R.periode(x.datum) === s)) if (u.datum <= h) keine.push({ farbe, titel: `Vom ${sp.name} zurück aufs Eingangskonto`, wert: `<span class="plus-zahl">+ ${R.euro(u.betrag)}</span>`, text: `${kurzDatum(u.datum)}${standDanach(u.datum)}` });
+      if (datum <= h && Number(sp.betrag) > 0) keine.push({ farbe, titel: `Aufs ${sp.name}`, wert: sp.offen ? offenZahl(sp) : rausZ(sp.betrag), text: `${kurzDatum(datum)}${standDanach(datum)}` });
+      for (const u of R.uebertraegeIm(z.daten, s, sp.id)) if (u.datum <= h) keine.push({ farbe, titel: `Übertrag${vonName(u)} aufs ${sp.name}`, wert: rausZ(u.betrag) + ' extra', text: `${kurzDatum(u.datum)}${standDanach(u.datum)}` });
       if (istRk) {
         for (const f of z.daten.fixkosten.filter((x) => x.wieOft !== 'monatlich' && R.wirdAbgebuchtIm(x, s))) {
           const d2 = R.abbuchungIm(f, s).gebucht;
-          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f, s)) + ' aus der Rücklage', text: `${Number(d2.slice(8))}. ${R.MONATE_KURZ[R.ymTeile(s).monat - 1]}${standDanach(d2)}` });
+          if (d2 <= h) keine.push({ farbe: 'var(--spar)', titel: f.name, wert: rausZ(R.eigenerBetrag(f, s)) + ' aus der Rücklage', text: `${kurzDatum(d2)}${standDanach(d2)}` });
         }
       }
     }
@@ -891,7 +903,7 @@ function verlaufListe() {
     }
     if (g) {
       const w = R.einnahmeIm(g, s);
-      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)}`, wert: reinZ(w.betrag, true, w.geschaetzt ? '≈ ' : ''), text: w.geschaetzt ? (s + '-' + R.zweistellig(R.ankunftsTag(g, s)) > h ? `kommt am ${R.ankunftsTag(g, s)}.${R.ymTeile(s).monat}. (geschätzt) · antippen zum Korrigieren` : 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren') : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
+      keine.push({ farbe: 'var(--akzent)', titel: `${g.name} ${monatsName(s)}`, wert: reinZ(w.betrag, true, w.geschaetzt ? '≈ ' : ''), text: w.geschaetzt ? (R.gehaltDatum(g, s) > h ? `kommt am ${Number(R.gehaltDatum(g, s).slice(8))}.${Number(R.gehaltDatum(g, s).slice(5, 7))}. (geschätzt) · antippen zum Korrigieren` : 'automatisch eingetragen (geschätzt) · antippen zum Korrigieren') : (w.betrag !== w.schaetzung ? `erwartet ≈ ${R.euroRund(w.schaetzung)}, von dir korrigiert` : 'von dir bestätigt'), monat: s });
     }
   }
   const keineHtml = keine.length ? `<div class="tag-titel">Keine Ausgaben</div><section class="karte verlauf">${keine.map((k) => {
@@ -999,6 +1011,7 @@ function preisAusText(t) {
 let gezeichneteEbenen = [];
 const rollFlaeche = (k) => (k && k.matches('.seite') ? k : k && k.querySelector('.sheet'));
 function renderEbenen() {
+  if (z.daten) R.monatsBeginn(z.daten);
   const e = $ebene();
   document.body.style.overflow = z.ebenen.length ? 'hidden' : '';
   // v25: Scroll-Stand merken – beim Neu-Zeichnen derselben Seite springt sie nicht mehr nach oben
@@ -1051,6 +1064,11 @@ function efFortsetzenKarte() {
 }
 function konsumNamen() { return R.konsumKategorien(z.daten).map((k) => mitEmoji(k) + k.name).join(', '); }
 const kurzDatum = (d) => Number(d.slice(8, 10)) + '. ' + R.MONATE_KURZ[Number(d.slice(5, 7)) - 1];
+// v43: Abrechnung für Lohnmonat m (Kalendermonat) → Monat der App, zu dem diese Auszahlung zählt
+// v43: „28.10.–27.11.“
+const zeitraumText = (s) => { const z2 = R.zeitraum(s); const k = (d) => Number(d.slice(8)) + '.' + Number(d.slice(5, 7)) + '.'; return k(z2.von) + '–' + k(z2.bis); };
+const abrMonat = (g, m) => R.gehaltMonat(m + '-' + R.zweistellig(R.ankunftsTag(g, m)));
+const nachTagen = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return R.datumText(x); };
 
 // ---------- v40: „Was du gerade hast“ – pro Konto, was verfügbar ist ----------
 function postenText(l) {
@@ -1304,7 +1322,7 @@ function offenesGehalt() {
   if (!g || !(R.schaetzung(g) > 0)) return null;
   const h = heuteYm(), vm = R.ymPlus(h, -1);
   if (vm >= z.daten.einstellungen.startMonat && !R.gehaltBestaetigt(g, vm)) return vm;
-  if (Number(heute().slice(8)) >= R.ankunftsTag(g, h) && !R.gehaltBestaetigt(g, h)) return h;
+  if (heute() >= R.gehaltDatum(g, h) && !R.gehaltBestaetigt(g, h)) return h;
   return null;
 }
 function lernHinweis(g) {
@@ -1316,7 +1334,7 @@ function lernHinweis(g) {
 function gehaltFrageKarte() {
   const s = offenesGehalt(); if (!s) return '';
   const g = gehalt(); const w = R.einnahmeIm(g, s);
-  return `<section class="karte gehalt-frage"><div class="gf-kopf"><span class="gf-symbol">💶</span><span class="t"><b>${esc(g.name)} ${esc(monatsName(s))} da?</b><small>geschätzt ≈ ${R.euroRund(w.schaetzung)} · am ${R.ankunftsTag(g, s)}.${R.ymTeile(s).monat}. · Netto schwankt, kurz bestätigen</small></span></div>
+  return `<section class="karte gehalt-frage"><div class="gf-kopf"><span class="gf-symbol">💶</span><span class="t"><b>${esc(g.name)} ${esc(monatsName(s))} da?</b><small>geschätzt ≈ ${R.euroRund(w.schaetzung)} · am ${Number(R.gehaltDatum(g, s).slice(8))}.${Number(R.gehaltDatum(g, s).slice(5, 7))}. · Netto schwankt, kurz bestätigen</small></span></div>
     <div class="zwei"><button class="knopf haupt" data-a="ge-stimmt" data-monat="${s}">✓ Stimmt</button><button class="knopf" data-a="ge-anders" data-monat="${s}">Anderer Betrag</button></div></section>`;
 }
 
@@ -1536,7 +1554,7 @@ function vfKopf() {
   let filter = '';
   if (f.auf) {
     const kats = budgetKats().filter((k) => z.daten.buchungen.some((b) => b.kategorieId === k.id));
-    const monate = [...new Set(z.daten.buchungen.map((b) => R.ymAus(b.zeit)))].sort().reverse();
+    const monate = [...new Set(z.daten.buchungen.map((b) => R.periode(b.zeit)))].sort().reverse();
     const orte = new Map();
     for (const b of z.daten.buchungen) if (b.ort && (!f.kategorieId || b.kategorieId === f.kategorieId)) orte.set(b.ort, (orte.get(b.ort) || 0) + 1);
     const top = [...orte.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map((x) => x[0]);
@@ -1795,8 +1813,9 @@ function abrechnungHtml(eb) {
   let auszahlung = '', vergleich = '', einstellungen = '';
   if (a) {
     const g = gehalt();
-    const ist = g && (g.istWerte || []).find((w) => R.ymAus(w.datum) === a.monat);
-    const sch = g ? R.einnahmeIm(g, a.monat).schaetzung : null;
+    const ap = g ? abrMonat(g, a.monat) : a.monat;
+    const ist = g && (g.istWerte || []).find((w) => R.gehaltMonat(w.datum) === ap);
+    const sch = g ? R.einnahmeIm(g, ap).schaetzung : null;
     const schon = ist && Math.abs(ist.betrag - a.auszahlung) < 0.005;
     const abzuege = a.nettoPosten.filter((x) => !x.nach);
     auszahlung = `<section class="karte ring" id="abr-auszahlung"><div class="label">Auszahlung ${esc(monatJahr(a.monat))}</div>
@@ -2595,11 +2614,11 @@ const AKTION = {
           d.einstellungen.haendlerKategorie = Object.assign({}, d.einstellungen.haendlerKategorie, { [C.schluessel(x.name)]: katId });
         } else if (x.wahl === 'gehalt' && g) {
           const ge = d.einnahmen.find((e) => e.id === g.id);
-          ge.istWerte = (ge.istWerte || []).filter((w) => R.ymAus(w.datum) !== R.ymAus(x.datum)).concat([{ datum: x.datum, betrag: x.betrag, quelle: 'csv' }]);
+          ge.istWerte = (ge.istWerte || []).filter((w) => R.gehaltMonat(w.datum) !== R.gehaltMonat(x.datum)).concat([{ datum: x.datum, betrag: x.betrag, quelle: 'csv' }]);
           gehaltWerte.push(x.datum);
         } else if (x.wahl === 'einnahme') {
           const id = D.neueId('ein'); neueEinnahmen.push(id);
-          d.einnahmen.push({ id, name: x.name, wieOft: 'einmalig', betrag: x.betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: false, monat: R.ymAus(x.datum), ab: null, bis: null, istWerte: [{ datum: x.datum, betrag: x.betrag }] });
+          d.einnahmen.push({ id, name: x.name, wieOft: 'einmalig', betrag: x.betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: false, monat: R.periode(x.datum), ab: null, bis: null, istWerte: [{ datum: x.datum, betrag: x.betrag }] });
         }
       }
       if (sa) {
@@ -2693,9 +2712,9 @@ const AKTION = {
   // Abrechnung (v29)
   'abr-gehalt': async () => {
     const a = oben().ergebnis.haupt; const s = a.monat; const betrag = a.auszahlung;
-    const g = gehalt(); const alt = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
-    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag, quelle: 'abrechnung' }); },
-      { text: `Gehalt ${monatsName(s)}: ${R.euro(betrag)} aus der Abrechnung eingetragen`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== s); if (alt) x.istWerte.push(alt); } });
+    const g = gehalt(); const ap = abrMonat(g, s); const alt = (g.istWerte || []).find((w) => R.gehaltMonat(w.datum) === ap);
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.gehaltMonat(w.datum) !== ap); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag, quelle: 'abrechnung' }); },
+      { text: `Gehalt ${monatsName(s)}: ${R.euro(betrag)} aus der Abrechnung eingetragen`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.gehaltMonat(w.datum) !== ap); if (alt) x.istWerte.push(alt); } });
   },
   'abr-einstellungen': async () => {
     const a = oben().ergebnis.haupt || oben().ergebnis.nachberechnungen[0];
@@ -2789,6 +2808,12 @@ const AKTION = {
   'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('tick'); render(); },
   'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; zeigeToast('Übersicht gespeichert'); render(); },
   'kachel-x': async (el) => { await kachelEntfernen(el.dataset.wert); },
+  gehaltsmonat: async () => {
+    const an = !z.daten.einstellungen.gehaltsmonat;
+    await aendern((d) => { d.einstellungen.gehaltsmonat = an; }, { text: an ? 'Monat läuft jetzt von Gehalt zu Gehalt' : 'Monat läuft wieder vom 1. bis zum Monatsende', rueckgaengig: (d) => { d.einstellungen.gehaltsmonat = !an; } });
+    R.monatsBeginn(z.daten);
+    z.monat = heuteYm(); render();
+  },
   'budget-blick': (el) => oeffne({ art: 'budget-blick', kat: el.dataset.kat, monat: el.dataset.monat || heuteYm() }),
   'bb-eintragen': (el) => { z.ebenen.pop(); AKTION.eintragen(el); },
   'bb-verlauf': (el) => { z.vf = { text: '', kategorieId: el.dataset.kat, monat: el.dataset.monat, ort: '', auf: false }; z.ebenen = []; renderEbenen(); z.ansicht = 'verlauf'; z.bearbeiten = false; render(); window.scrollTo(0, 0); },
@@ -2927,11 +2952,11 @@ const AKTION = {
       const name = (e.name || '').trim() || 'Einnahme';
       const id = D.neueId('ein');
       if (o) {
-        await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push(Object.assign({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [] }, offeneEinnahmeWerte(o.offen))),
+        await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push(Object.assign({ id, name, wieOft: 'einmalig', monat: R.periode(e.datum), kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [] }, offeneEinnahmeWerte(o.offen))),
           { text: `${name}: Betrag offen (${R.offenText(o.offen)}) · ${o.offen.zaehlt ? 'zählt mit' : 'zählt nicht'}`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
         return;
       }
-      await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push({ id, name, wieOft: 'einmalig', monat: R.ymAus(e.datum), betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [{ datum: e.datum, betrag }] }), { text: `${name}: + ${R.euro(betrag)} eingetragen`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
+      await aendern((d) => einnahmeNameMerken(d, name) && d.einnahmen.push({ id, name, wieOft: 'einmalig', monat: R.periode(e.datum), betrag, sicher: true, status: 'fest', kommtAn: 'sofort', selbststaendig: /Selbstständig/.test(name), istWerte: [{ datum: e.datum, betrag }] }), { text: `${name}: + ${R.euro(betrag)} eingetragen`, rueckgaengig: (d) => { d.einnahmen = d.einnahmen.filter((x) => x.id !== id); } });
     }
   },
   'kachel-dazu': async (el) => { const id = el.dataset.wert; z.ebenen.pop(); await aendern((d) => { d.einstellungen.kacheln = kachelListe().concat([{ id, breit: !!(KACHEL_KATALOG[id] && KACHEL_KATALOG[id].breit) }]); }, { text: 'Kachel hinzugefügt' }); },
@@ -3177,8 +3202,8 @@ const AKTION = {
   gehalt: (el) => { z.blinkGehalt = null; oeffne(gehaltEbene(el.dataset.monat || z.monat)); },
   'ge-stimmt': async (el) => {
     const s = el.dataset.monat; const g = gehalt(); const betrag = R.einnahmeIm(g, s).schaetzung;
-    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag }); },
-      { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} bestätigt`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.ymAus(w.datum) !== s); } });
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.gehaltMonat(w.datum) !== s); x.istWerte.push({ datum: R.gehaltDatum(x, s), betrag }); },
+      { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} bestätigt`, rueckgaengig: (d) => { const x = R.gehaltVon(d); x.istWerte = x.istWerte.filter((w) => R.gehaltMonat(w.datum) !== s); } });
   },
   'ge-anders': (el) => {
     // zum Verlauf: das Gehalt blinkt, antippen zum Korrigieren
@@ -3197,7 +3222,7 @@ const AKTION = {
     const betrag = zahl(f ? f.value : '');
     if (isNaN(betrag) || betrag < 0) { eb.fehler = 'Bitte den Betrag eintragen, der angekommen ist.'; renderEbenen(); return; }
     eb.fehler = null;
-    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== s); x.istWerte.push({ datum: s + '-' + R.zweistellig(R.ankunftsTag(x, s)), betrag }); },
+    await aendern((d) => { const x = R.gehaltVon(d); x.istWerte = (x.istWerte || []).filter((w) => R.gehaltMonat(w.datum) !== s); x.istWerte.push({ datum: R.gehaltDatum(x, s), betrag }); },
       { text: `Gehalt ${monatsName(s)}: ${R.euroRund(betrag)} eingetragen` });
     eb.entwurf.betragText = R.euro(Math.max(0, R.uebrigIm(z.daten, s).uebrig), false); renderEbenen();
   },
@@ -3283,8 +3308,8 @@ const AKTION = {
       const g = R.gehaltVon(d);
       g.betrag = schaetzung;
       if (g.kommtAn === 'Tag') g.ankunftTag = isNaN(tag) ? 1 : Math.min(31, Math.max(1, Math.round(tag)));
-      g.istWerte = g.istWerte.filter((w) => R.ymAus(w.datum) !== eb.monat);
-      if (ist !== null) g.istWerte.push({ datum: eb.monat + '-' + R.zweistellig(R.ankunftsTag(g, eb.monat)), betrag: ist });
+      g.istWerte = g.istWerte.filter((w) => R.gehaltMonat(w.datum) !== eb.monat);
+      if (ist !== null) g.istWerte.push({ datum: R.gehaltDatum(g, eb.monat), betrag: ist });
     }, { text: ist !== null ? `Gehalt ${monatsName(eb.monat)}: ${R.euroRund(ist)} eingetragen` : 'Gehalt gespeichert' });
   },
 
@@ -3478,8 +3503,8 @@ const AKTION = {
     z.ebenen.pop();
     await aendern((d) => {
       const x = d.einnahmen.find((y) => y.id === eb.id);
-      x.istWerte = (x.istWerte || []).filter((w) => R.ymAus(w.datum) !== m);
-      x.istWerte.push({ datum: m === heuteYm() ? heute() : m + '-' + R.zweistellig(R.tageImMonat(m)), betrag });
+      x.istWerte = (x.istWerte || []).filter((w) => (x.wieOft === 'monatlich' ? R.gehaltMonat(w.datum) : R.periode(w.datum)) !== m);
+      x.istWerte.push({ datum: m === heuteYm() ? heute() : monatEnde(m), betrag });
       // einmalige Einnahme mit offenem Betrag ist damit geklärt
       if (x.offen && x.wieOft === 'einmalig') { delete x.offen; x.betrag = betrag; x.sicher = true; }
     }, { text: `${eb.entwurf.name}: ${R.euro(betrag)} angekommen`, rueckgaengig: (d) => { const i = d.einnahmen.findIndex((y) => y.id === eb.id); if (i >= 0) d.einnahmen[i] = alt; } });
@@ -3783,7 +3808,7 @@ async function wunschKaufen(w, betrag) {
 
 function gehaltEbene(s) {
   const g = gehalt();
-  const ist = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
+  const ist = (g.istWerte || []).find((w) => R.gehaltMonat(w.datum) === s);
   return { art: 'gehalt', monat: s, istText: ist ? R.euro(ist.betrag, false) : '', schaetzungText: R.euro(R.schaetzung(g), false), tagText: String(g.ankunftTag || 1) };
 }
 

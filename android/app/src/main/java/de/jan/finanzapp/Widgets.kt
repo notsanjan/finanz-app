@@ -137,7 +137,7 @@ object Widgets {
             return v
         }
 
-        val ym = Logik.monatText()
+        val ym = Logik.aktuellePeriode(daten)
         val ausgegeben = Logik.ausgegebenIm(daten, ym, kat.getString("id"))
         val budget = kat.optDouble("budget", 0.0)
         val vorl = WidgetZustand.vorlaeufig(ctx, id)

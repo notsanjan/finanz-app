@@ -26,9 +26,9 @@ function nachStand(ek, datum, zeit) {
 // Gehalt: Ist-Wert des Monats (mit Datum), sonst Schätzung am Ankunftstag.
 // Kommt der Tag aufs Wochenende/einen Feiertag, rechnet die Vorschau vorsichtig mit dem nächsten Bankarbeitstag.
 function gehaltIm(g, s) {
-  const ist = (g.istWerte || []).find((w) => R.ymAus(w.datum) === s);
+  const ist = (g.istWerte || []).find((w) => R.gehaltMonat(w.datum) === s);
   if (ist) return { datum: ist.datum, betrag: Number(ist.betrag) || 0, geschaetzt: false };
-  const tag = tagIm(s, R.ankunftsTag(g, s));
+  const tag = R.gehaltDatum(g, s);
   const w = R.einnahmeIm(g, s);
   return { datum: R.bankTag(tag), eigentlich: tag, betrag: w.betrag, geschaetzt: true };
 }
@@ -44,7 +44,8 @@ export function bewegungen(daten, bis) {
   const rk = R.ruecklage(daten);
   const g = R.gehaltVon(daten);
   const monate = [];
-  for (let s = R.ymPlus(R.ymAus(von), -1); s <= R.ymAus(bis); s = R.ymPlus(s, 1)) monate.push(s);
+  // v43: s ist der Monat der App (ggf. von Gehalt zu Gehalt) – bis zum Monat, zu dem `bis` gehört
+  for (let s = R.ymPlus(R.ymAus(von), -1); s <= R.periode(bis); s = R.ymPlus(s, 1)) monate.push(s);
   const imBereich = (d) => d > von && d <= bis;
 
   for (const s of monate) {
@@ -56,12 +57,12 @@ export function bewegungen(daten, bis) {
         if (imBereich(w.datum)) dazu(w.datum, w.betrag, e.name || 'Gehalt', 'gehalt', { geschaetzt: w.geschaetzt, eigentlich: w.eigentlich });
         continue;
       }
-      const ist = (e.istWerte || []).filter((x) => R.ymAus(x.datum) === s);
+      const ist = (e.istWerte || []).filter((x) => (e.wieOft === 'monatlich' ? R.gehaltMonat(x.datum) : R.periode(x.datum)) === s);
       if (ist.length) { for (const x of ist) if (imBereich(x.datum)) dazu(x.datum, Number(x.betrag) || 0, e.name, 'einnahme'); continue; }
       const w = R.einnahmeIm(e, s);
       if (!w.zaehlt) continue;
       // ohne Tag: einmalige am Monatsende (vorsichtig), monatliche am Ankunftstag
-      const datum = e.wieOft === 'monatlich' ? tagIm(s, R.ankunftsTag(e, s)) : tagIm(s, 31);
+      const datum = e.wieOft === 'monatlich' ? R.datumIm(s, R.ankunftsTag(e, s)) : R.zeitraum(s).bis;
       if (imBereich(datum)) dazu(datum, w.betrag, e.name, 'einnahme', { geschaetzt: !e.sicher, tagOffen: e.wieOft !== 'monatlich' });
     }
     // Fixkosten am Bankarbeitstag; mit Rücklagenkonto zahlt die Rücklage die nicht monatlichen
@@ -75,7 +76,7 @@ export function bewegungen(daten, bis) {
       // Geteilt mit Überweisungstag: Bank bucht den vollen Betrag ab, der Rest kommt am Tag der Überweisung
       if (f.erstattungTag && voll - eigen > 0.004) {
         dazu(gebucht, -voll, f.name, 'fix', { fixkostenId: f.id, verschoben: gebucht !== faellig });
-        const zur = tagIm(s, Number(f.erstattungTag));
+        const zur = R.datumIm(s, Number(f.erstattungTag));
         if (imBereich(zur)) dazu(zur, voll - eigen, (f.teiltMit ? f.teiltMit + ': ' : '') + f.name + ' zurück', 'einnahme');
       } else dazu(gebucht, -eigen, f.name, 'fix', { fixkostenId: f.id, verschoben: gebucht !== faellig });
     }
@@ -143,9 +144,10 @@ export function vorschau(daten, heute) {
   const alle = bewegungen(daten, bis);
   // offene Budgets vom Eingangskonto: dieser Monat heute, nächster Monat am 1.
   const budgets = [];
-  for (const s of [R.ymAus(heute), R.ymPlus(R.ymAus(heute), 1)]) {
-    const tag = s === R.ymAus(heute) ? heute : s + '-01';
-    if (tag > bis || tag <= ek.standDatum && s !== R.ymAus(heute)) continue;
+  const p0 = R.periode(heute);
+  for (const s of [p0, R.ymPlus(p0, 1)]) {
+    const tag = s === p0 ? heute : R.zeitraum(s).von;
+    if (tag > bis || tag <= ek.standDatum && s !== p0) continue;
     const rest = offeneBudgets(daten, s).reduce((a, x) => a + x.rest, 0);
     if (rest > 0) budgets.push({ datum: tag, betrag: -rund(rest), text: 'Noch offen in Budgets', art: 'budget', geschaetzt: true, monat: s });
   }
