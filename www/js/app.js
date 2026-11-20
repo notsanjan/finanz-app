@@ -9,9 +9,12 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v41';
+export const APP_VERSION = 'finanz-v42';
 const NEU_IN_VERSION = [
-  'Gleiche Funktionen wie v40, neu gebaut. Ältere Versionen ab v28 wurden aus dem Download entfernt – bitte diese Version installieren'
+  'Budget antippen zeigt, was in diesem Monat gebucht wurde – oben „Ausgabe eintragen“, unten „Im Verlauf ansehen“',
+  'Zu viel in einem Budget? Ein blasser Balken zeigt, wie viel davon in den anderen Budgets auf demselben Konto fehlt',
+  'Weitere Einnahmen stehen einzeln mit Datum da, z. B. „kam am 13. Nov“',
+  'Die Abo-Kachel zeigt alles aus „Handy und Abos“, auch ohne Abo-Schalter'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -273,6 +276,16 @@ function monatTeile(s = z.monat) {
   const zeile = (punkt, text, betrag, art) => `<div class="auf-zeile"><span class="l">${punkt}${text}</span><span class="r ${art}">${betrag}</span></div>`;
   const ohnePunkt = '<i class="punkt-platz"></i>';
   const gehaltZeile = `<button class="auf-zeile auf-knopf" data-a="gehalt" aria-label="Gehalt im ${esc(monatsName(s))} ändern"><span class="l">${ohnePunkt}${g ? esc(g.name) : 'Gehalt'}<small>${g ? (istHeute && R.ankunftsTag(g, s) > Number(heute().slice(8)) ? 'kommt am ' : 'am ') + gehaltTag : ''}${gehaltWert && gehaltWert.geschaetzt ? (gehaltWert.ausDiensten ? ' · aus Diensten geschätzt' : ' · geschätzt') : ''} ${ICON.stift}</small></span><span class="r plus-zahl">+ ${R.euroRund(gehaltWert ? gehaltWert.betrag : 0)}</span></button>`;
+  // v42: weitere Einnahmen einzeln mit Datum („kam am 13. Nov“), statt nur als Summe – bis 3 Stück
+  const weitereListe = r.einnahmen.filter((e) => (!g || e.einnahme !== g) && e.betrag > 0);
+  const einnahmeWann = (e) => {
+    const ist = (e.einnahme.istWerte || []).find((w) => R.ymAus(w.datum) === s);
+    if (ist) return (ist.datum <= heute() ? 'kam am ' : 'kommt am ') + kurzDatum(ist.datum);
+    return e.einnahme.wieOft === 'monatlich' ? 'jeden Monat' : (vorbei ? '' : 'noch nicht da');
+  };
+  const weitereZeilen = !weitereListe.length ? '' : weitereListe.length <= 3
+    ? weitereListe.map((e) => `<button class="auf-zeile auf-knopf" data-a="einnahme" data-id="${esc(e.einnahme.id)}" aria-label="${esc(e.einnahme.name)} öffnen"><span class="l">${ohnePunkt}${esc(e.einnahme.name)}<small>${esc(einnahmeWann(e))}</small></span><span class="r plus-zahl">+ ${R.euroRund(e.betrag)}</span></button>`).join('')
+    : zeile(ohnePunkt, 'Weitere Einnahmen', '+ ' + R.euroRund(r.weitere), 'plus-zahl');
   const freiKarte = `<section class="karte ring frei-karte">
     <div class="label">${vorbei ? 'Übrig im' : 'Bleibt im'} ${esc(monatsName(s))}${vorbei ? '' : ' übrig'}</div>
     <div class="grosszahl frei-zahl ${r.frei < 0 ? 'minus' : ''}" aria-label="${esc(aria)}">${freiText}</div>
@@ -281,7 +294,7 @@ function monatTeile(s = z.monat) {
     ${mitOffenem}
     <div class="aufstellung">
       ${gehaltZeile}
-      ${r.weitere > 0 ? zeile(ohnePunkt, 'Weitere Einnahmen', '+ ' + R.euroRund(r.weitere), 'plus-zahl') : ''}
+      ${weitereZeilen}
       <div class="auf-trenner"></div>
       ${zeile('<i class="punkt ausgaben"></i>', 'Fixkosten und Ausgaben', '− ' + R.euroRund(r.ausgaben), 'minus-zahl')}
       ${kontoZeilen(r)}
@@ -335,7 +348,7 @@ function monatTeile(s = z.monat) {
 
   const sicherung = `<section class="karte">
     <div class="label">Einstellungen und Sicherung</div>
-    <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Bleibt übrig“ zeigen<br><span class="klein">Antippen einer Zeile = Ausgabe eintragen</span></span><span class="spur"></span></button>
+    <button class="schalter" role="switch" aria-checked="${!z.daten.einstellungen.budgetLeisteAus}" data-a="budgetleiste"><span class="t">Budgets unter „Bleibt übrig“ zeigen<br><span class="klein">Antippen einer Zeile zeigt die Buchungen, dort auch eintragen</span></span><span class="spur"></span></button>
     <button class="schalter" role="switch" aria-checked="${!!z.daten.einstellungen.widgetPfeile}" data-a="widgetpfeile"><span class="t">Kategorie im Widget wechseln<br><span class="klein">‹ › neben dem Namen im Budget-Widget</span></span><span class="spur"></span></button>
     <button class="knopf" data-a="auswertung">📊 Auswertung der Ausgaben</button>
     <button class="knopf" data-a="gehaltsrechner">🧮 DRK-Gehaltsrechner</button>
@@ -396,12 +409,33 @@ function leuchtet(katId) { const l = z.leuchten; return !!(l && Date.now() < l.b
 function budgetLeiste(s) {
   const ks = budgetKats().filter((k) => Number(k.budget) > 0 || R.ausgegebenIm(z.daten, s, k.id) > 0);
   if (!ks.length || s !== heuteYm() || z.daten.einstellungen.budgetLeisteAus) return '';
-  return `<section class="karte budget-leiste"><div class="bl-kopf"><span class="label">Budgets im ${esc(monatsName(s))}</span><span class="klein">antippen = Ausgabe eintragen</span></div>${ks.map((k) => {
-    const aus = R.ausgegebenIm(z.daten, s, k.id); const b = Number(k.budget) || 0; const ueber = b > 0 && aus > b;
-    return `<button class="bl-zeile" data-a="eintragen" data-kat="${esc(k.id)}" aria-label="${esc(k.name)}: Ausgabe eintragen"><span class="bl-name">${esc(mitEmoji(k) + k.name)}</span>
-      <span class="mini"><span style="width:${b ? Math.min(100, aus / b * 100).toFixed(1) : 0}%${ueber ? ';background:var(--fehler)' : ''}"></span></span>
-      <span class="bl-rest ${ueber ? 'warn' : ''}">${b ? (ueber ? R.euroRund(aus - b) + ' mehr als geplant' : 'noch ' + R.euroRund(b - aus)) : rausZ(aus, true)}</span></button>`;
+  const info = budgetAusgleich(s, ks);
+  return `<section class="karte budget-leiste"><div class="bl-kopf"><span class="label">Budgets im ${esc(monatsName(s))}</span><span class="klein">antippen = Details</span></div>${ks.map((k) => {
+    const x = info.get(k.id); const { aus, b } = x; const ueber = b > 0 && aus > b;
+    const breite = (v) => (b ? Math.min(100, v / b * 100) : 0);
+    const fest = breite(aus); const blass = x.weg > 0 ? Math.min(100 - fest, breite(x.weg)) : 0;
+    const wegText = x.weg > 0 ? `<small class="bl-weg">− ${R.euroRund(x.weg)} für ${esc(x.fuer)}</small>` : '';
+    return `<button class="bl-zeile" data-a="budget-blick" data-kat="${esc(k.id)}" aria-label="${esc(k.name)}: Buchungen ansehen"><span class="bl-name">${esc(mitEmoji(k) + k.name)}</span>
+      <span class="mini mini-teile"><span style="width:${fest.toFixed(1)}%${ueber ? ';background:var(--fehler)' : ''}"></span>${blass > 0 ? `<span class="blass" style="width:${blass.toFixed(1)}%"></span>` : ''}</span>
+      <span class="bl-rest ${ueber || (!b && aus > 0) ? 'warn' : ''}">${b ? (ueber ? R.euroRund(aus - b) + ' mehr als geplant' : 'noch ' + R.euroRund(b - aus)) : rausZ(aus, true)}${wegText}</span></button>`;
   }).join('')}</section>`;
+}
+// v42 (Wunsch Jan): Was in einem Budget zu viel ausgegeben wurde, fehlt auf demselben Konto in den anderen Budgets.
+// Verteilt wird nach dem, was dort noch übrig ist. Budget 0 mit Ausgaben zählt ganz als „zu viel“.
+function budgetAusgleich(s, ks) {
+  const info = new Map();
+  for (const k of ks) { const aus = R.ausgegebenIm(z.daten, s, k.id); const b = Number(k.budget) || 0; info.set(k.id, { aus, b, rest: Math.max(0, b - aus), ueber: Math.max(0, aus - b), weg: 0, fuer: '' }); }
+  const konten = new Map();
+  for (const k of ks) { const kid = k.kontoId || ''; if (!konten.has(kid)) konten.set(kid, []); konten.get(kid).push(k); }
+  for (const liste of konten.values()) {
+    const ueber = liste.filter((k) => info.get(k.id).ueber > 0);
+    const summe = ueber.reduce((a, k) => a + info.get(k.id).ueber, 0);
+    const pool = liste.reduce((a, k) => a + info.get(k.id).rest, 0);
+    if (!summe || !pool) continue;
+    const fuer = ueber.length === 1 ? ueber[0].name : ueber.length + ' andere';
+    for (const k of liste) { const x = info.get(k.id); if (x.rest > 0) { x.weg = Math.round(Math.min(x.rest, summe * x.rest / pool) * 100) / 100; x.fuer = fuer; } }
+  }
+  return info;
 }
 function monatAnsicht() {
   const t = monatTeile(z.monat);
@@ -618,8 +652,10 @@ function schuldenHtml() {
 }
 
 // ---------- Abos ----------
+// Abo = Schalter „Ist ein Abo“ oder Kategorie „Handy und Abos“ (Wunsch Jan, v42)
+const istAboPosten = (f) => !!f.abo || f.kategorieId === 'abos';
 function aboListe(s) {
-  return z.daten.fixkosten.filter((f) => f.abo).map((f) => {
+  return z.daten.fixkosten.filter(istAboPosten).map((f) => {
     const laeuft = R.laeuftIm(f, s);
     const kat = R.kategorie(z.daten, f.kategorieId);
     return { f, kat, laeuft, proMonat: R.monatsAnteil(f, s), endet: f.endetAm || null };
@@ -2061,6 +2097,20 @@ const EBENEN = {
   },
   einfuehrung: (eb) => E.einfuehrungHtml(eb, { esc, ICON, z, kopie, heuteYm, monatsName, zahl }),
 
+  // v42: Budget antippen → was in diesem Monat gebucht wurde, oben „Ausgabe eintragen“
+  'budget-blick': (eb) => {
+    const k = R.kategorie(z.daten, eb.kat); if (!k) return '';
+    const s = eb.monat || heuteYm();
+    const liste = R.buchungenIm(z.daten, s, k.id).slice().sort((a, b) => b.zeit.localeCompare(a.zeit));
+    const aus = R.ausgegebenIm(z.daten, s, k.id); const b = Number(k.budget) || 0; const ueber = b > 0 && aus > b;
+    const stand = b ? (ueber ? `<span class="warn-text">${R.euroRund(aus - b)} mehr als geplant</span>` : `noch ${R.euroRund(b - aus)}`) : 'ohne Budget';
+    const zeilen = liste.map((x) => `<button class="posten" data-a="buchung" data-id="${esc(x.id)}" aria-label="Buchung ${esc(x.ort || '')} ändern"><span class="t"><span class="n">${esc(x.ort || 'ohne Ort')}</span><small>${esc(kurzDatum(x.zeit.slice(0, 10)))}${x.gesamt ? ' · geteilt' : ''}</small></span><span class="b">${betragHtml(x, rausZ(x.betrag))}</span>${PFEIL}</button>`).join('');
+    return sheet(`<h2>${esc(mitEmoji(k) + k.name)} im ${esc(monatsName(s))}</h2>
+      <div class="bb-summe"><span>Ausgegeben <b>${R.euroRund(aus)}</b>${b ? ` von ${R.euroRund(b)}` : ''}</span><span>${stand}</span></div>
+      <button class="knopf haupt" data-a="bb-eintragen" data-kat="${esc(k.id)}">＋ Ausgabe eintragen</button>
+      <div class="liste bb-liste">${zeilen || '<div class="leer-zeile" style="border:0">In diesem Monat noch nichts gebucht.</div>'}</div>
+      ${liste.length ? `<button class="knopf leise" data-a="bb-verlauf" data-kat="${esc(k.id)}" data-monat="${esc(s)}">Im Verlauf ansehen (mit Suche)</button>` : ''}`, k.name);
+  },
   neu: () => sheet(`<h2>Neu in ${APP_VERSION}</h2><ul class="hinweistext" style="padding-left:18px;margin:0">${NEU_IN_VERSION.map((t) => `<li>${esc(t)}</li>`).join('')}</ul><button class="knopf haupt" data-a="schliessen">Verstanden</button>`, 'Was ist neu'),
 
   fixkosten: (eb) => {
@@ -2739,6 +2789,9 @@ const AKTION = {
   'bearbeiten-an': () => { z.bearbeiten = true; z.gewaehlt = null; haptik('tick'); render(); },
   'bearbeiten-aus': () => { z.bearbeiten = false; z.gewaehlt = null; zeigeToast('Übersicht gespeichert'); render(); },
   'kachel-x': async (el) => { await kachelEntfernen(el.dataset.wert); },
+  'budget-blick': (el) => oeffne({ art: 'budget-blick', kat: el.dataset.kat, monat: el.dataset.monat || heuteYm() }),
+  'bb-eintragen': (el) => { z.ebenen.pop(); AKTION.eintragen(el); },
+  'bb-verlauf': (el) => { z.vf = { text: '', kategorieId: el.dataset.kat, monat: el.dataset.monat, ort: '', auf: false }; z.ebenen = []; renderEbenen(); z.ansicht = 'verlauf'; z.bearbeiten = false; render(); window.scrollTo(0, 0); },
   eintragen: (el) => {
     const b = budgetKats();
     const k = alleKonten(); const erstes = R.sparratenNormal(z.daten)[0] || k[0];

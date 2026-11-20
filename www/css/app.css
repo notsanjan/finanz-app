@@ -561,7 +561,7 @@ button.ef-chip.da { opacity: .75; }
 .bl-zeile { display: grid; grid-template-columns: 1.3fr 1fr auto; align-items: center; gap: 12px; min-height: 44px; background: none; border: 0; color: var(--text); font: inherit; text-align: left; padding: 0; border-top: 1px solid var(--rand-leise); }
 .bl-zeile:first-of-type { border-top: 0; }
 .bl-name { font-size: var(--t-text); }
-.bl-rest { font-size: var(--t-klein); color: var(--gedaempft); text-align: right; min-width: 92px; }
+.bl-rest { font-size: var(--t-klein); color: var(--gedaempft); text-align: right; min-width: 0; }
 .bl-rest.warn { color: var(--fehler); }
 .seite-innen > .knopfreihe:last-child, .sheet > .knopfreihe:last-child { position: sticky; z-index: 2; --unten: calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 20px); bottom: 0; padding: 12px 0 var(--unten); margin-bottom: calc(-1 * var(--unten)); background: var(--bg); }
 .seite-innen > .knopfreihe:last-child::before, .sheet > .knopfreihe:last-child::before { content: ''; position: absolute; left: 0; right: 0; bottom: 100%; height: 18px; pointer-events: none; background: linear-gradient(to bottom, transparent, var(--bg)); }
@@ -840,3 +840,16 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .frei-erklaer { font-size: var(--t-label); color: var(--gedaempft); margin: -4px 0 6px; }
 .mit-geplantem b { white-space: nowrap; }
 .kj-r { max-width: 64%; }
+/* v42: Budget-Blick und Ausgleich zwischen Budgets */
+.mini.mini-teile { display: flex; }
+.mini.mini-teile span { flex: none; border-radius: 0; }
+.mini.mini-teile span:first-child { border-radius: 3px 0 0 3px; }
+.mini.mini-teile .blass { background: var(--fehler); opacity: .35; border-radius: 0 3px 3px 0; }
+.bl-rest { display: flex; flex-direction: column; align-items: flex-end; }
+.bl-weg { font-size: var(--t-mini); color: var(--gedaempft); white-space: nowrap; }
+.bb-summe { display: flex; justify-content: space-between; gap: 12px; font-size: var(--t-klein); color: var(--gedaempft); }
+.bb-summe b { color: var(--text); font-weight: 600; }
+.bb-liste { display: flex; flex-direction: column; max-height: 46vh; overflow: auto; }
+.bl-zeile { grid-template-columns: minmax(0, 1fr) 52px 124px; gap: 8px; }
+.bl-weg { overflow: hidden; text-overflow: ellipsis; max-width: 124px; }
+.bl-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
