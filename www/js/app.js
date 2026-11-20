@@ -9,11 +9,9 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v40';
+export const APP_VERSION = 'finanz-v41';
 const NEU_IN_VERSION = [
-  'Ganz oben: „Was du gerade hast“ – pro Konto, was verfügbar ist. Beim Eingangskonto: was bleibt, wenn bis zum Gehalt alles abgebucht ist',
-  '„Frei“ heißt jetzt „Bleibt im … übrig“, mit einer Zeile, wie die Zahl zustande kommt. Der bunte Balken ist weg',
-  'Viele Texte verständlicher, z. B. „Bank bucht erst Mo 2.“, „mehr als geplant“, „Kauf planen“ und die Hinweise zu teuren Monaten'
+  'Gleiche Funktionen wie v40, neu gebaut. Ältere Versionen ab v28 wurden aus dem Download entfernt – bitte diese Version installieren'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
