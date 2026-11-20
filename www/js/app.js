@@ -9,9 +9,9 @@ import * as AB from './abrechnung.js';
 import * as K from './kontostand.js';
 import * as C from './csv.js';
 
-export const APP_VERSION = 'finanz-v38';
+export const APP_VERSION = 'finanz-v39';
 const NEU_IN_VERSION = [
-  'CSV einlesen: Bucht die Bank zwei Fixkosten zusammen ab (z. B. Internet und Handy bei 1&1), erkennt die App das jetzt als Fixkosten und lässt es weg'
+  'Viele Buchungen auf einmal verschieben: Im Verlauf suchen oder filtern (mehrere Suchwörter mit Komma, z. B. „mcdonald, pizza, burger“) → „Alle in eine andere Kategorie“ → Kategorie wählen oder gleich eine neue anlegen. Rückgängig über die Meldung'
 ];
 
 const z = { daten: null, ansicht: 'monat', monat: null, ebenen: [], toast: null, mehrOffen: false };
@@ -816,7 +816,7 @@ function verlaufListe() {
   }
   if (filtert) {
     const summe = eintraege.reduce((a, e) => a + (Number(e.betrag) || 0), 0);
-    const kopf = `<div class="vf-ergebnis" role="status"><span>${eintraege.length === 1 ? '1 Buchung' : eintraege.length + ' Buchungen'} · ${rausZ(summe)}</span><button class="knopf klein leise" data-a="vf-leer">Filter löschen</button></div>`;
+    const kopf = `<div class="vf-ergebnis" role="status"><span>${eintraege.length === 1 ? '1 Buchung' : eintraege.length + ' Buchungen'} · ${rausZ(summe)}</span><button class="knopf klein leise" data-a="vf-leer">Filter löschen</button></div>${eintraege.length ? `<button class="knopf akzent vf-verschieben" data-a="vf-verschieben">⇄ ${eintraege.length === 1 ? 'Diese Buchung' : 'Alle ' + eintraege.length} in eine andere Kategorie</button>` : ''}`;
     return kopf + (eintraege.length ? teile : '<section class="karte"><div class="leerzustand">Keine Buchung passt zu deiner Suche.</div></section>');
   }
   if (!eintraege.length) teile = `<section class="karte"><div class="leerzustand">Noch keine Buchungen.<br>Tippe unten rechts auf ＋ oder buche über ein Widget auf dem Homescreen.</div><button class="knopf haupt" data-a="eintragen">${ICON.plus} Ausgabe eintragen</button></section>`;
@@ -1474,7 +1474,7 @@ function vfKopf() {
       <div class="label">Monat</div><div class="chips">${monate.slice(0, 12).map((m) => chip('monat', m, monatJahr(m, true), f.monat === m)).join('')}</div>
       ${top.length ? `<div class="label">Ort / Wofür</div><div class="chips">${top.map((o) => chip('ort', o, o, f.ort === o)).join('')}</div>` : ''}</div>`;
   }
-  return `<div class="vf-kopf"><input id="vf-text" class="eingabe" type="search" enterkeyhint="search" autocomplete="off" placeholder="Suchen: Ort, Kategorie, Betrag" aria-label="Verlauf durchsuchen" value="${esc(f.text)}"><button class="knopf ${anzahl ? 'akzent' : ''}" data-a="vf-auf" aria-expanded="${!!f.auf}">Filter${anzahl ? ' · ' + anzahl : ''}</button></div>${filter}`;
+  return `<div class="vf-kopf"><input id="vf-text" class="eingabe" type="search" enterkeyhint="search" autocomplete="off" placeholder="Suchen: Ort, Kategorie, Betrag – mehrere mit Komma" aria-label="Verlauf durchsuchen" value="${esc(f.text)}"><button class="knopf ${anzahl ? 'akzent' : ''}" data-a="vf-auf" aria-expanded="${!!f.auf}">Filter${anzahl ? ' · ' + anzahl : ''}</button></div>${filter}`;
 }
 
 // ---------- v27: Fixkosten „gilt ab“ ----------
@@ -1815,6 +1815,18 @@ function quellenHtml(eb) {
 }
 
 const EBENEN = {
+  verschieben: (eb) => {
+    const l = z.daten.buchungen.filter((b) => eb.ids.includes(b.id));
+    const summe = l.reduce((a, b) => a + (Number(b.betrag) || 0), 0);
+    const von = [...new Set(l.map((b) => b.kategorieId))].map((id) => R.kategorie(z.daten, id)).filter(Boolean);
+    const chips = budgetKats().map((k) => `<button class="chip" data-a="vs-wahl" data-wert="${esc(k.id)}" aria-pressed="${eb.ziel === k.id}">${esc(mitEmoji(k) + k.name)}</button>`).join('');
+    return sheet(`<h2>${l.length === 1 ? '1 Buchung' : l.length + ' Buchungen'} verschieben</h2>
+      <p class="hinweistext">${rausSatz(summe)} · bisher in ${esc(von.map((k) => k.name).join(', ') || '–')}. Betrag, Datum und Ort bleiben gleich.</p>
+      <div class="label">Neue Kategorie</div><div class="chips">${chips}<button class="chip" data-a="vs-wahl" data-wert="__neu" aria-pressed="${eb.ziel === '__neu'}">＋ Neue Kategorie</button></div>
+      ${eb.ziel === '__neu' ? `<div class="zwei"><div class="feld"><label for="vs-name">Name</label><input id="vs-name" class="eingabe" data-feld="neuName" value="${esc(eb.neuName || '')}" placeholder="z. B. Auswärts essen"></div><div class="feld"><label for="vs-budget">Budget im Monat (€)</label><input id="vs-budget" class="eingabe" inputmode="decimal" data-feld="neuBudget" value="${esc(eb.neuBudget || '')}" placeholder="leer = ohne"></div></div>` : ''}
+      ${eb.fehler ? `<p class="fehlertext">${esc(eb.fehler)}</p>` : ''}
+      <div class="knopfreihe"><button class="knopf leise" data-a="schliessen">Abbrechen</button><button class="knopf haupt breit" data-a="vs-speichern">Verschieben</button></div>`, 'Buchungen verschieben');
+  },
   kontostand: () => seite('Kontostand', kontostandSeite()),
   'csv-import': (eb) => seite('Kontoauszug einlesen', csvSeite(eb)),
   'ks-stand': (eb) => {
@@ -2415,6 +2427,35 @@ function oeffne(eb) { z.ebenen.push(eb); renderEbenen(); }
 function kopie(x) { return JSON.parse(JSON.stringify(x)); }
 
 const AKTION = {
+  'vf-verschieben': () => {
+    const ids = R.verlaufFiltern(R.verlaufMitStand(z.daten), z.daten, z.vf).map((e) => e.id).filter((id) => z.daten.buchungen.some((b) => b.id === id));
+    if (ids.length) oeffne({ art: 'verschieben', ids, ziel: '' });
+  },
+  'vs-wahl': (el) => { const eb = oben(); eb.ziel = el.dataset.wert; eb.fehler = null; haptik('tick'); renderEbenen(); },
+  'vs-speichern': async () => {
+    const eb = oben();
+    if (!eb.ziel) { eb.fehler = 'Bitte eine Kategorie wählen.'; renderEbenen(); return; }
+    let ziel = eb.ziel; let neu = null;
+    if (ziel === '__neu') {
+      const name = (eb.neuName || '').trim();
+      if (!name) { eb.fehler = 'Bitte einen Namen für die neue Kategorie eintragen.'; renderEbenen(); return; }
+      const budget = String(eb.neuBudget || '').trim() ? zahl(eb.neuBudget) : 0;
+      if (isNaN(budget) || budget < 0) { eb.fehler = 'Das Budget ist keine Zahl.'; renderEbenen(); return; }
+      // Konsumkonto übernehmen, wenn alle verschobenen Buchungen von dort bezahlt wurden
+      const kk = R.konsumKonto(z.daten);
+      const alleKonsum = kk && eb.ids.every((id) => { const b = z.daten.buchungen.find((x) => x.id === id); return b && R.istKonsum(z.daten, R.kategorie(z.daten, b.kategorieId), kk); });
+      neu = { id: D.neueId('kat'), name, art: 'budget', budget: Math.round(budget * 100) / 100, emoji: '', symbol: 'sonstiges', schritte: [5, 10, 20], frage: 'Wo?', chips: [] };
+      if (alleKonsum) neu.kontoId = kk.id;
+      ziel = neu.id;
+    }
+    const alt = {}; for (const b of z.daten.buchungen) if (eb.ids.includes(b.id)) alt[b.id] = b.kategorieId;
+    const k = neu || R.kategorie(z.daten, ziel);
+    z.ebenen.pop();
+    await aendern((d) => {
+      if (neu) d.kategorien.push(neu);
+      for (const b of d.buchungen) if (alt[b.id] !== undefined) b.kategorieId = ziel;
+    }, { text: `${eb.ids.length === 1 ? '1 Buchung' : eb.ids.length + ' Buchungen'} → ${k.name}`, rueckgaengig: (d) => { for (const b of d.buchungen) if (alt[b.id] !== undefined) b.kategorieId = alt[b.id]; if (neu && !d.buchungen.some((b) => b.kategorieId === neu.id)) d.kategorien = d.kategorien.filter((x) => x.id !== neu.id); } });
+  },
   kontostand: () => oeffne({ art: 'kontostand' }),
   'ks-stand': () => {
     const ek = z.daten.eingangskonto || {};

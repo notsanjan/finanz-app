@@ -761,7 +761,6 @@ export function sicherungFaellig(daten, jetzt = new Date(), tage = 30) {
 // filter: { text, kategorieId, monat, ort }
 export function verlaufFiltern(eintraege, daten, filter = {}) {
   const t = (filter.text || '').trim().toLowerCase();
-  const zahlText = t.replace(',', '.');
   return eintraege.filter((b) => {
     if (filter.kategorieId && b.kategorieId !== filter.kategorieId) return false;
     if (filter.monat && ymAus(b.zeit) !== filter.monat) return false;
@@ -769,7 +768,8 @@ export function verlaufFiltern(eintraege, daten, filter = {}) {
     if (!t) return true;
     const k = kategorie(daten, b.kategorieId);
     const heu = [(b.ort || ''), k ? k.name : '', b.teiltMit || '', String(b.betrag).replace('.', ','), String(b.betrag)].join(' ').toLowerCase();
-    return heu.includes(t) || heu.includes(zahlText);
+    // v39: mehrere Suchwörter mit Komma = eines davon passt („mcdonald, pizza, burger“)
+    return t.split(',').map((x) => x.trim()).filter(Boolean).some((w) => heu.includes(w) || heu.includes(w.replace(',', '.')));
   });
 }
 

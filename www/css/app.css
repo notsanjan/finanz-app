@@ -824,3 +824,4 @@ h3.monatstitel { font-size: var(--t-zahl-m); }
 .cz-unter { display: flex; flex-direction: column; gap: 6px; }
 .cz-unter .klein { font-size: var(--t-label); color: var(--gedaempft); }
 .cz-wahl { min-height: 44px; font-size: var(--t-klein); }
+.vf-verschieben { width: 100%; margin: 8px 0 4px; }
