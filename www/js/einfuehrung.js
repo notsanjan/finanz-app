@@ -124,7 +124,7 @@ export function einfuehrungHtml(eb, h) {
         ${fertigKnopf(`einnahmen.${i}`)}
       </section>`).join('');
     inhalt = `<h2 class="ef-titel">➕ Weitere Einnahmen</h2>
-      <p class="hinweistext">Kommt neben dem Gehalt noch etwas rein? „Fest“ zählt zu „Frei“, „nur geplant“ erst, wenn es da ist. Nichts davon? Einfach „Weiter“.</p>
+      <p class="hinweistext">Kommt neben dem Gehalt noch etwas rein? „Fest“ wird gleich mitgerechnet, „nur geplant“ erst, wenn das Geld da ist. Nichts davon? Einfach „Weiter“.</p>
       <p class="hinweistext ef-unregel">Unregelmäßig, z. B. Selbstständigkeit nur ab und zu? Hier weglassen und jedes Mal eintragen, wenn Geld kommt: ＋ → „+ Einnahme“. Eigene Namen merkt sich die App dort.</p>
       <div class="chips">${EINNAHMEN.filter((n) => !(eb.ausgeblendet || []).includes('ein:' + n)).map((n) => {
         const da = eb.einnahmen.some((e) => e.name === n);
@@ -206,7 +206,7 @@ export function einfuehrungHtml(eb, h) {
       </section>` : ''}`;
   } else if (art === 'sparen') {
     inhalt = `<h2 class="ef-titel">💰 Sparen</h2>
-      <p class="hinweistext">Sparst du jeden Monat einen festen Betrag? Das ist keine Ausgabe: Das Geld bleibt deins, es wird nur von „Frei“ abgezogen.</p>
+      <p class="hinweistext">Sparst du jeden Monat einen festen Betrag? Das ist keine Ausgabe: Das Geld bleibt deins. Es geht nur von dem ab, was im Monat übrig bleibt.</p>
       <div class="wahl zwei-sp"><button data-a="ef-wert" data-pfad="sparen.ja" data-wert="ja" aria-pressed="${eb.sparen.ja === true}">Ja</button><button data-a="ef-wert" data-pfad="sparen.ja" data-wert="nein" aria-pressed="${eb.sparen.ja === false}">Nein</button></div>
       ${eb.sparen.ja ? `<section class="karte">
         <div class="zwei"><div class="feld"><label for="ef-sb">Rate pro Monat</label><input id="ef-sb" class="eingabe" inputmode="decimal" data-feld="sparen.betrag" value="${esc(eb.sparen.betrag)}" placeholder="z. B. 200 €"></div>
