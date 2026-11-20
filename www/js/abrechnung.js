@@ -199,7 +199,7 @@ export function vergleich(a, basis = {}) {
   const st = a.steuer.find((x) => x.art === 'L'), sv = a.sv.find((x) => x.art === 'L');
   const an = a.nettoPosten.find((x) => /AN-Anteil/i.test(x.name) && !x.nach);
   const zeilen = [];
-  const z = (name, echt, app) => { if (echt == null || isNaN(echt)) return; zeilen.push({ name, echt: r2(echt), app: r2(app), diff: r2(app - echt) }); };
+  const z = (name, echt, app) => { if (echt == null || isNaN(echt)) return; zeilen.push({ name, echt: r2(echt), app: r2(app), diff: r2(app - echt) || 0 }); };
   z('Brutto (laufend)', sum(lfd), r.brutto);
   if (st) { z('Lohnsteuer', st.lohnsteuer, r.lohnsteuer); if (st.weitere > 0 || r.soli + r.kirchensteuer > 0) z('Soli und Kirchensteuer', st.weitere, r.soli + r.kirchensteuer); }
   if (sv) { z('Krankenversicherung', sv.kv, r.kv); z('Pflegeversicherung', sv.pv, r.pv); z('Rentenversicherung', sv.rv, r.rv); z('Arbeitslosenversicherung', sv.av, r.av); }
